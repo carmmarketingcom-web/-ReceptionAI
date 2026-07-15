@@ -1,0 +1,16 @@
+{
+  "name": "receptionai-voice-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ReceptionAI voice/SMS/chat AI pipeline engine",
+  "scripts": {
+    "test": "echo \"No tests configured yet\" && exit 0"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.9.0",
+    "elevenlabs": "^1.0.0",
+    "openai": "^4.73.0",
+    "twilio": "^5.4.0"
+  }
+}
