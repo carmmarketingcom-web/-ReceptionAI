@@ -52,6 +52,12 @@ export default function Header() {
             {t("nav.login")}
           </Link>
           <Link
+            to="/signup"
+            className="text-sm font-medium text-gray-600 transition hover:text-gray-900"
+          >
+            Sign Up
+          </Link>
+          <Link
             to="/demo"
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
           >

@@ -41,6 +41,7 @@ export const organizations = pgTable(
     postalCode: varchar("postal_code", { length: 20 }),
     country: varchar("country", { length: 100 }).default("US"),
     industry: varchar("industry", { length: 100 }),
+    stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
     metadata: jsonb("metadata").default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
