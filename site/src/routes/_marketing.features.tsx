@@ -87,12 +87,23 @@ const features = [
       {
         icon: "📅",
         title: "Smart Appointment Booking",
-        desc: "The AI reads your calendar and books appointments automatically. It checks availability, finds the best time slot, and confirms the booking — all in the conversation.",
+        desc: "The AI checks your built-in calendar and books appointments automatically. It finds the best time slot and confirms the booking — all in the conversation.",
         details: [
-          "Google Calendar & Outlook integration",
-          "Real-time availability checking",
+          "Built-in calendar — no Google or Outlook needed",
+          "Real-time availability from your business hours",
           "Automatic conflict prevention",
           "Buffer time between appointments",
+        ],
+      },
+      {
+        icon: "🗓️",
+        title: "Built-in Calendar — No Setup Required",
+        desc: "Unlike every other AI receptionist, we don't force you to connect Google Calendar. Set your business hours once and your schedule just works. No OAuth, no integrations, no hassle.",
+        details: [
+          "No Google Calendar or Outlook required",
+          "Modern split-layout calendar view",
+          "Color-coded appointments by status",
+          "Set it once, works forever",
         ],
       },
       {
@@ -184,6 +195,21 @@ export default function FeaturesPage() {
         <section key={category.category} className="border-b border-gray-100 bg-white py-16 last:border-0">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl font-bold text-gray-900">{category.category}</h2>
+            {/* Product screenshot for Scheduling section */}
+            {category.category === "Scheduling & Calendar" && (
+              <div className="mt-6">
+                <div className="overflow-hidden rounded-2xl border border-gray-200 shadow-lg shadow-gray-100">
+                  <img
+                    src="/images/calendar-dashboard.png"
+                    alt="ReceptionAI built-in calendar dashboard — no Google OAuth required"
+                    className="mx-auto w-full max-w-[960px]"
+                  />
+                </div>
+                <p className="mt-3 text-center text-sm text-gray-400">
+                  Built-in calendar — no Google OAuth required. Set your business hours and it just works.
+                </p>
+              </div>
+            )}
             <div className="mt-8 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
               {category.items.map((feature) => (
                 <div key={feature.title} className="rounded-2xl border border-gray-100 bg-white p-6 transition hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-50">
