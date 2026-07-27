@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Icon: Bold Phone Handset (for favicon) -->
+  <!-- Handset body -->
+  <path d="M18,46 L18,58 Q18,62 22,62 L30,62 Q34,62 34,58 L34,46 Q34,30 40,30 L44,30 L44,46 L44,58 Q44,62 48,62 L56,62 Q60,62 60,58 L60,46"
+        fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- AI accent diamond -->
+  <rect x="36" y="30" width="9" height="9" rx="2" fill="#2563EB" transform="rotate(45 40.5 34.5)"/>
+</svg>

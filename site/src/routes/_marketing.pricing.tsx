@@ -51,7 +51,7 @@ const tiers = [
       "Dedicated account manager",
       "24/7 priority phone support",
     ],
-    cta: "Contact Sales",
+    cta: "Start Free Trial",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04",
     stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki",
@@ -135,10 +135,8 @@ export default function PricingPage() {
                   ))}
                 </ul>
 
-                <a
-                  href={tier.stripePaymentLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  to="/signup"
                   className={`inline-flex items-center justify-center rounded-xl px-6 py-3 text-center text-sm font-semibold transition ${
                     tier.popular
                       ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700"
@@ -159,7 +157,7 @@ export default function PricingPage() {
                       d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                     />
                   </svg>
-                </a>
+                </Link>
               </div>
             ))}
           </div>

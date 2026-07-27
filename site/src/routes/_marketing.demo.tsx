@@ -65,19 +65,6 @@ function DemoPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50/30 via-white to-white">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-gray-100 bg-white/80 backdrop-blur-lg">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">R</div>
-            <span className="text-lg font-bold tracking-tight text-gray-900">Reception<span className="text-indigo-600">AI</span></span>
-          </Link>
-          <Link to="/pricing" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            View Pricing
-          </Link>
-        </div>
-      </header>
-
       <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Title */}
         <div className="text-center">
