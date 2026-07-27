@@ -8,9 +8,12 @@
  * - invoice.paid / invoice.payment_failed → Update payment status
  */
 
+
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
+import bcrypt from "bcryptjs";
 import { buyPhoneNumber } from "../../../lib/telnyx";
+import { sendEmail } from "../../../lib/email";
 
 function verifyStripeSignature(
   rawBody: string,
@@ -141,6 +144,7 @@ async function handleCheckoutCompleted(session: any) {
   const plan = metadata.plan || "starter";
   const useExistingNumber = metadata.useExistingNumber === "true";
   const existingPhoneNumber = metadata.existingPhoneNumber || "";
+  const password = metadata.password || "";
 
   console.log(
     `[Stripe] Checkout completed: session=${checkoutSessionId}, ` +
@@ -165,12 +169,13 @@ async function handleCheckoutCompleted(session: any) {
   `;
   console.log(`[Stripe] Created org: ${orgId} — "${companyName}"`);
 
-  // c. Create user (owner)
+  // c. Create user (owner) with password hash
+  const passwordHash = password ? await bcrypt.hash(password, 10) : null;
   await sql`
-    INSERT INTO users (id, organization_id, email, name, role)
-    VALUES (${userId}, ${orgId}, ${email}, ${name}, 'owner')
+    INSERT INTO users (id, organization_id, email, name, role, password_hash)
+    VALUES (${userId}, ${orgId}, ${email}, ${name}, 'owner', ${passwordHash || generateRandomHash()})
   `;
-  console.log(`[Stripe] Created user: ${userId} — ${email}`);
+  console.log(`[Stripe] Created user: ${userId} — ${email}${password ? " (with password)" : " (no password in metadata)"}`);
 
   // d/e. Phone number provisioning
   if (!useExistingNumber) {
@@ -234,6 +239,48 @@ async function handleCheckoutCompleted(session: any) {
   }
 
   console.log(`[Stripe] Onboarding complete for org ${orgId}`);
+
+  // h. Send welcome email
+  try {
+    // Get the phone number for the welcome email
+    const phoneRows = await sql`
+      SELECT phone_number FROM phone_numbers
+      WHERE organization_id = ${orgId} AND is_active = true
+      LIMIT 1
+    `;
+    const phoneNumber = phoneRows[0]?.phone_number || "Your number is being provisioned";
+    const pendingPort = !!(await sql`
+      SELECT 1 FROM phone_numbers WHERE organization_id = ${orgId} AND metadata->>'status' = 'pending_port' LIMIT 1
+    `).length;
+
+    const phoneLine = pendingPort
+      ? `📞 Your phone number (${existingPhoneNumber}) is being ported — we'll notify you when it's live.`
+      : `📞 Your phone number: ${phoneNumber}`;
+
+    const welcomeBody = `Hi ${name},
+
+Your AI receptionist is live and ready to answer calls!
+
+${phoneLine}
+🔗 Dashboard: https://receptionai.store/login
+📖 Getting started: https://receptionai.store/getting-started
+
+Quick start:
+1. Log in at https://receptionai.store/login
+2. Complete your setup (2 min)
+3. Start receiving calls
+
+Your 14-day free trial starts now. Cancel anytime.
+
+Questions? Reply to this email.
+
+— Team ReceptionAI`;
+
+    sendEmail(email, "Welcome to ReceptionAI 🎉 — Your AI receptionist is live", welcomeBody);
+    console.log(`[Stripe] Welcome email sent to ${email}`);
+  } catch (err) {
+    console.warn("[Stripe] Failed to send welcome email:", String(err).slice(0, 200));
+  }
 }
 
 /**
@@ -304,4 +351,8 @@ function mapStripeStatus(
     paused: "paused",
   };
   return map[stripeStatus] || "incomplete";
+}
+
+function generateRandomHash(): string {
+  return bcrypt.hashSync(crypto.randomUUID(), 10);
 }

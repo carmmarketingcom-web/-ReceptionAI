@@ -35,14 +35,9 @@ function LoginPage() {
       {/* Left panel — branding */}
       <div className="hidden flex-1 flex-col justify-between bg-gradient-to-br from-indigo-600 to-purple-700 p-12 text-white lg:flex">
         <div>
-          <Link to="/" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 text-lg font-bold text-white backdrop-blur-sm">
-              R
-            </div>
-            <span className="text-xl font-bold tracking-tight">
-              Reception<span className="text-indigo-200">AI</span>
-            </span>
-          </Link>
+          <Link to="/" className="flex items-center">
+                        <img src="/images/logo.png" alt="ReceptionAI" className="h-9 w-auto brightness-0 invert" width={800} height={450} />
+                      </Link>
         </div>
         <div className="max-w-md">
           <blockquote className="text-2xl font-semibold leading-snug">
@@ -69,13 +64,8 @@ function LoginPage() {
       <div className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
           {/* Logo for mobile */}
-          <div className="mb-10 flex items-center justify-center gap-2 lg:hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-              R
-            </div>
-            <span className="text-lg font-bold tracking-tight text-gray-900">
-              Reception<span className="text-indigo-600">AI</span>
-            </span>
+          <div className="mb-10 flex justify-center lg:hidden">
+            <img src="/images/logo.png" alt="ReceptionAI" className="h-8 w-auto" width={800} height={450} />
           </div>
 
           <div className="mb-8 text-center lg:text-left">
@@ -131,9 +121,9 @@ function LoginPage() {
                   <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                   <span className="text-sm text-gray-600">Remember me</span>
                 </label>
-                <a href="#" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">
+                <Link to="/forgot-password" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">
                   Forgot password?
-                </a>
+                </Link>
               </div>
             )}
 

@@ -6,6 +6,7 @@
  * All endpoints require authentication.
  */
 
+
 import { authenticate } from "../../../lib/middleware";
 import { getDb, isMockMode } from "../../../db/index";
 import { subscriptions, subscriptionPlans, usageRecords } from "../../../db/schema/index";
@@ -263,10 +264,15 @@ export async function POST({ request }: { request: Request }) {
     const authResult = await authenticate(request);
     if (authResult instanceof Response) return authResult;
 
-    // In production, create a Stripe Customer Portal session
-    // For now, return a mock URL or the real Stripe portal URL
-    const portalUrl = "https://billing.stripe.com/p/login/test";
+    const url = new URL(request.url);
 
+    // Route: /api/billing/change-plan
+    if (url.pathname === "/api/billing/change-plan") {
+      return handleChangePlan(request, authResult);
+    }
+
+    // Default: portal
+    const portalUrl = "https://billing.stripe.com/p/login/test";
     return new Response(
       JSON.stringify({
         url: portalUrl,
@@ -278,6 +284,45 @@ export async function POST({ request }: { request: Request }) {
     console.error("[Billing Portal] Error:", error);
     return new Response(
       JSON.stringify({ error: "Failed to create portal session" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
+
+async function handleChangePlan(request: Request, authResult: any) {
+  try {
+    const body = await request.json() as { plan?: string };
+    const { plan } = body;
+
+    if (!plan) {
+      return new Response(
+        JSON.stringify({ error: "Plan is required" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const validPlans = ["basic", "starter", "growth", "scale"];
+    if (!validPlans.includes(plan)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid plan" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // In production, update Stripe subscription here
+    // For now, return success
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: `Plan changed to ${plan === "basic" ? "Basic at $69/mo (first year, then $99/mo)" : plan}`,
+        plan,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  } catch (error) {
+    console.error("[Billing Change Plan] Error:", error);
+    return new Response(
+      JSON.stringify({ error: "Failed to change plan" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }

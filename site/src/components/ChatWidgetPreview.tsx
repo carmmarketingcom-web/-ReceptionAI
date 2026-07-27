@@ -5,42 +5,19 @@ type Message = {
   content: string;
 };
 
-const botResponses: Record<string, { en: string; es: string }> = {
-  "hi": { en: "Hello! Welcome to our business. How can I help you today?", es: "Hola! Bienvenido a nuestro negocio. Como puedo ayudarte hoy?" },
-  "hello": { en: "Hi there! How can I assist you today?", es: "Hola! Como puedo ayudarte hoy?" },
-  "hours": { en: "We're open Monday to Friday, 9 AM to 5 PM, and Saturday 10 AM to 2 PM. We're closed on Sundays.", es: "Estamos abiertos de lunes a viernes de 9 AM a 5 PM, y sabados de 10 AM a 2 PM. Cerrados los domingos." },
-  "price": { en: "We offer three plans: Starter at $99/mo, Growth at $199/mo, and Scale at $399/mo. Would you like more details?", es: "Ofrecemos tres planes: Starter a $99/mes, Growth a $199/mes y Scale a $399/mes. Deseas mas detalles?" },
-  "appointment": { en: "I'd be happy to help you book an appointment! Could you tell me what service you need and a preferred date/time?", es: "Estare encantado de ayudarte a reservar una cita! Podrias decirme que servicio necesitas y una fecha/hora preferida?" },
-  "contact": { en: "You can reach us by phone or email. Would you like me to connect you with a team member?", es: "Puedes contactarnos por telefono o correo electronico. Quieres que te conecte con un miembro del equipo?" },
-  "default": { en: "Thanks for your message! I'm your AI receptionist. I can help with appointments, pricing, hours, or general questions.", es: "Gracias por tu mensaje! Soy tu recepcionista de IA. Puedo ayudarte con citas, precios, horarios o preguntas generales." },
-};
-
-function getBotResponse(input: string, lang: "en" | "es"): string {
-  const lower = input.toLowerCase();
-  for (const [key, response] of Object.entries(botResponses)) {
-    if (lower.includes(key)) return response[lang];
-  }
-  // Spanish keywords
-  if (lower.includes("hola") || lower.includes("buenas")) return botResponses["hello"][lang];
-  if (lower.includes("horario") || lower.includes("horas")) return botResponses["hours"][lang];
-  if (lower.includes("precio") || lower.includes("costo") || lower.includes("cuanto")) return botResponses["price"][lang];
-  if (lower.includes("cita") || lower.includes("reservar") || lower.includes("agendar")) return botResponses["appointment"][lang];
-  if (lower.includes("contacto") || lower.includes("telefono") || lower.includes("llamar")) return botResponses["contact"][lang];
-  return botResponses["default"][lang];
-}
-
 export default function ChatWidgetPreview() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { role: "bot", content: "👋 Hi! I'm your AI receptionist. How can I help you today?" },
+    { role: "bot", content: "Hi! I'm your AI receptionist. How can I help you today?" },
   ]);
   const [input, setInput] = useState("");
   const [lang, setLang] = useState<"en" | "es">("en");
+  const [typing, setTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, typing]);
 
   const switchLanguage = (newLang: "en" | "es") => {
     setLang(newLang);
@@ -48,22 +25,38 @@ export default function ChatWidgetPreview() {
       {
         role: "bot",
         content: newLang === "en"
-          ? "👋 Hi! I'm your AI receptionist. How can I help you today?"
-          : "👋 Hola! Soy tu recepcionista de IA. Como puedo ayudarte hoy?",
+          ? "Hi! I'm your AI receptionist. How can I help you today?"
+          : "Hola! Soy tu recepcionista de IA. Como puedo ayudarte hoy?",
       },
     ]);
   };
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
+  const sendMessage = async () => {
+    if (!input.trim() || typing) return;
     const userMsg = input.trim();
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setInput("");
+    setTyping(true);
 
-    setTimeout(() => {
-      const botReply = getBotResponse(userMsg, lang);
-      setMessages((prev) => [...prev, { role: "bot", content: botReply }]);
-    }, 800);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg, lang }),
+      });
+      const data = (await res.json()) as { reply?: string };
+      const reply = data.reply || "I'm not sure how to answer that. Can you rephrase?";
+      setMessages((prev) => [...prev, { role: "bot", content: reply }]);
+    } catch {
+      setMessages((prev) => [...prev, {
+        role: "bot",
+        content: lang === "en"
+          ? "Sorry, I'm having trouble connecting. Please try again."
+          : "Lo siento, tengo problemas para conectarme. Intentalo de nuevo.",
+      }]);
+    } finally {
+      setTyping(false);
+    }
   };
 
   return (
@@ -98,7 +91,8 @@ export default function ChatWidgetPreview() {
             onClick={() => setIsOpen(true)}
             className="flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-medium text-white shadow-lg hover:bg-indigo-700"
           >
-            💬 {lang === "en" ? "Chat with us" : "Chatea con nosotros"}
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            {lang === "en" ? "Chat with us" : "Chatea con nosotros"}
           </button>
         )}
 
@@ -130,6 +124,17 @@ export default function ChatWidgetPreview() {
                   </div>
                 </div>
               ))}
+              {typing && (
+                <div className="flex justify-start">
+                  <div className="max-w-[80%] rounded-2xl bg-gray-100 px-4 py-3 text-gray-900">
+                    <div className="flex gap-1">
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: "0ms" }} />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: "150ms" }} />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: "300ms" }} />
+                    </div>
+                  </div>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
 
@@ -140,11 +145,12 @@ export default function ChatWidgetPreview() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                 placeholder={lang === "en" ? "Type a message..." : "Escribe un mensaje..."}
-                className="flex-1 rounded-full border border-gray-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                disabled={typing}
+                className="flex-1 rounded-full border border-gray-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
               />
               <button
                 onClick={sendMessage}
-                disabled={!input.trim()}
+                disabled={!input.trim() || typing}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:opacity-50"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -157,7 +163,9 @@ export default function ChatWidgetPreview() {
       </div>
 
       <div className="mt-4 text-center text-xs text-gray-400">
-        {lang === "en" ? 'Try typing: "hours", "price", "appointment", or just say "hi"' : 'Prueba: "horario", "precio", "cita", o di "hola"'}
+        {lang === "en"
+          ? "Ask me about pricing, hours, appointments, or features!"
+          : "Preguntame sobre precios, horarios, citas o caracteristicas!"}
       </div>
     </div>
   );

@@ -1,233 +1,303 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { api } from "~/lib/api-client";
+import { useSettings } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/settings")({
   component: SettingsPage,
 });
 
-type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+type Weekday = (typeof WEEKDAYS)[number];
 
-const dayLabels: Record<DayOfWeek, string> = {
+const DAY_LABELS: Record<Weekday, string> = {
   monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
   thursday: "Thursday", friday: "Friday", saturday: "Saturday", sunday: "Sunday",
 };
 
-function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"hours" | "calendar" | "ai" | "notifications">("hours");
-  const [businessHours, setBusinessHours] = useState<Record<DayOfWeek, { open: string; close: string; enabled: boolean }>>({
-    monday: { open: "09:00", close: "17:00", enabled: true },
-    tuesday: { open: "09:00", close: "17:00", enabled: true },
-    wednesday: { open: "09:00", close: "17:00", enabled: true },
-    thursday: { open: "09:00", close: "17:00", enabled: true },
-    friday: { open: "09:00", close: "17:00", enabled: true },
-    saturday: { open: "10:00", close: "14:00", enabled: true },
-    sunday: { open: "09:00", close: "17:00", enabled: false },
-  });
+const TIMEZONES = [
+  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "America/Phoenix", "America/Anchorage", "Pacific/Honolulu",
+] as const;
 
-  const tabs = [
-    { id: "hours", label: "Business Hours" },
-    { id: "calendar", label: "Calendar" },
-    { id: "ai", label: "AI Responses" },
-    { id: "notifications", label: "Notifications" },
-  ] as const;
+const BUSINESS_TYPES = [
+  "HVAC", "Plumbing", "Electrical", "Dental", "Veterinary",
+  "Law Firm", "Med Spa", "Home Services", "Auto Repair", "Other",
+] as const;
 
-  const toggleDay = (day: DayOfWeek) => {
-    setBusinessHours((prev) => ({
-      ...prev,
-      [day]: { ...prev[day], enabled: !prev[day].enabled },
-    }));
-  };
+type Hours = Record<Weekday, { open: string; close: string; enabled: boolean }>;
 
-  const updateTime = (day: DayOfWeek, field: "open" | "close", value: string) => {
-    setBusinessHours((prev) => ({
-      ...prev,
-      [day]: { ...prev[day], [field]: value },
-    }));
-  };
+const DEFAULT_HOURS: Hours = {
+  monday:    { open: "09:00", close: "17:00", enabled: true },
+  tuesday:   { open: "09:00", close: "17:00", enabled: true },
+  wednesday: { open: "09:00", close: "17:00", enabled: true },
+  thursday:  { open: "09:00", close: "17:00", enabled: true },
+  friday:    { open: "09:00", close: "17:00", enabled: true },
+  saturday:  { open: "10:00", close: "14:00", enabled: false },
+  sunday:    { open: "09:00", close: "17:00", enabled: false },
+};
+
+// ─── Toast ──────────────────────────────────────────────────────────────────
+
+function Toast({ message, type, onDismiss }: { message: string; type: "success" | "error"; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 4000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
 
   return (
-    <div className="space-y-6">
+    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium shadow-lg transition ${
+      type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+    }`}>
+      <span>{type === "success" ? "✓" : "✕"}</span>
+      <span>{message}</span>
+      <button onClick={onDismiss} className="ml-2 opacity-70 hover:opacity-100">✕</button>
+    </div>
+  );
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+function SettingsPage() {
+  const { data, loading } = useSettings();
+
+  // Form state
+  const [companyName, setCompanyName] = useState("");
+  const [businessType, setBusinessType] = useState("");
+  const [timezone, setTimezone] = useState("America/Chicago");
+  const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
+  const [smsSummaries, setSmsSummaries] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Phone numbers — mock for now
+  const [phoneNumbers] = useState([
+    "(555) " + String(Math.floor(Math.random() * 900) + 100) + "-" + String(Math.floor(Math.random() * 9000) + 1000),
+  ]);
+
+  // Populate from API
+  useEffect(() => {
+    if (data) {
+      if (data.organization?.name) setCompanyName(data.organization.name);
+      if (data.organization?.industry) setBusinessType(data.organization.industry);
+      if (data.organization?.timezone) setTimezone(data.organization.timezone);
+      if (data.businessHours?.length) {
+        const mapped: Hours = { ...DEFAULT_HOURS };
+        for (const h of data.businessHours) {
+          const idx = parseInt(h.dayOfWeek, 10);
+          const day = WEEKDAYS[idx];
+          if (day) {
+            mapped[day] = {
+              open: h.openTime || "09:00",
+              close: h.closeTime || "17:00",
+              enabled: !h.isClosed,
+            };
+          }
+        }
+        setHours(mapped);
+      }
+      if (data.settings?.smsSummaries !== undefined) {
+        setSmsSummaries(!!data.settings.smsSummaries);
+      }
+    }
+  }, [data]);
+
+  const toggleDay = (day: Weekday) => setHours((p) => ({ ...p, [day]: { ...p[day], enabled: !p[day].enabled } }));
+  const updateTime = (day: Weekday, field: "open" | "close", val: string) => setHours((p) => ({ ...p, [day]: { ...p[day], [field]: val } }));
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      const hoursPayload = WEEKDAYS.map((day) => ({
+        dayOfWeek: String(WEEKDAYS.indexOf(day)),
+        openTime: hours[day].enabled ? hours[day].open : null,
+        closeTime: hours[day].enabled ? hours[day].close : null,
+        isClosed: !hours[day].enabled,
+      }));
+      await api.put("/api/settings", {
+        name: companyName,
+        industry: businessType || undefined,
+        timezone,
+        businessHours: hoursPayload,
+        smsSummaries,
+      });
+      setToast({ message: "Settings saved successfully", type: "success" });
+    } catch {
+      setToast({ message: "Failed to save settings. Please try again.", type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }, [companyName, businessType, timezone, hours, smsSummaries]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <svg className="h-8 w-8 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <p className="mt-1 text-sm text-gray-500">Manage your business configuration.</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition ${
-              activeTab === tab.id
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
+      {/* ── Business Info ─────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-900">Business Info</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-600">Company Name</label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="Your business name"
+              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600">Business Type</label>
+            <select
+              value={businessType}
+              onChange={(e) => setBusinessType(e.target.value)}
+              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="">Select type...</option>
+              {BUSINESS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className="block text-xs font-medium text-gray-600">Timezone</label>
+          <select
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
-            {tab.label}
-          </button>
-        ))}
+            {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz.replace("_", " ")}</option>)}
+          </select>
+        </div>
       </div>
 
-      {/* Business Hours */}
-      {activeTab === "hours" && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-gray-900">Business Hours</h2>
-            <p className="mt-0.5 text-xs text-gray-500">When should the AI answer calls? Outside these hours, callers can leave a voicemail.</p>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {(Object.keys(dayLabels) as DayOfWeek[]).map((day) => (
-              <div key={day} className="flex items-center gap-4 px-5 py-3.5">
-                <div className="flex w-8 items-center">
-                  <input
-                    type="checkbox"
-                    checked={businessHours[day].enabled}
-                    onChange={() => toggleDay(day)}
-                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                </div>
-                <div className="w-24 text-sm font-medium text-gray-900">{dayLabels[day]}</div>
-                {businessHours[day].enabled ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={businessHours[day].open}
-                      onChange={(e) => updateTime(day, "open", e.target.value)}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                    <span className="text-sm text-gray-400">to</span>
-                    <input
-                      type="time"
-                      value={businessHours[day].close}
-                      onChange={(e) => updateTime(day, "close", e.target.value)}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-sm text-gray-400">Closed</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="border-t border-gray-100 px-5 py-4">
-            <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              Save Hours
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Calendar Connection */}
-      {activeTab === "calendar" && (
-        <div className="space-y-6">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">Google Calendar</h2>
-                <p className="mt-0.5 text-xs text-gray-500">Sync appointments and availability.</p>
-              </div>
-              <button className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                Connect
-              </button>
-            </div>
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">Outlook Calendar</h2>
-                <p className="mt-0.5 text-xs text-gray-500">Sync appointments and availability.</p>
-              </div>
-              <button className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                Connect
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Responses */}
-      {activeTab === "ai" && (
-        <div className="space-y-6">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-900">AI Greeting</h2>
-            <p className="mt-0.5 text-xs text-gray-500">What the AI says when it answers a call.</p>
-            <textarea
-              className="mt-3 h-20 w-full resize-none rounded-lg border border-gray-200 p-3 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              defaultValue="Thank you for calling [Business Name]. This is your AI receptionist speaking. How can I help you today?"
-            />
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-900">After-Hours Message</h2>
-            <p className="mt-0.5 text-xs text-gray-500">What callers hear when calling outside business hours.</p>
-            <textarea
-              className="mt-3 h-20 w-full resize-none rounded-lg border border-gray-200 p-3 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              defaultValue="You've reached [Business Name] outside of business hours. Please leave a message and we'll get back to you first thing tomorrow."
-            />
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-900">FAQ / Custom Responses</h2>
-            <p className="mt-0.5 text-xs text-gray-500">Common questions and how the AI should respond.</p>
-            <div className="mt-3 space-y-3">
-              {[
-                { q: "What are your hours?", a: "We're open Monday to Friday, 9 AM to 5 PM, and Saturday 10 AM to 2 PM." },
-                { q: "How much does service cost?", a: "Our rates vary by service. I can schedule a free estimate for you." },
-                { q: "Do you offer emergency service?", a: "Yes! For emergencies, I'll transfer you to our on-call team immediately." },
-              ].map((faq, i) => (
-                <div key={i} className="rounded-lg border border-gray-100 p-4">
-                  <label className="text-xs font-medium text-gray-600">Question</label>
-                  <input type="text" defaultValue={faq.q} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                  <label className="mt-2 block text-xs font-medium text-gray-600">Response</label>
-                  <textarea rows={2} defaultValue={faq.a} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                </div>
-              ))}
-              <button className="text-sm font-medium text-indigo-600 hover:text-indigo-700">+ Add FAQ</button>
-            </div>
-          </div>
-          <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            Save AI Responses
+      {/* ── Phone ─────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-900">Phone Numbers</h2>
+          <button className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+            + Add number
           </button>
         </div>
-      )}
-
-      {/* Notifications */}
-      {activeTab === "notifications" && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-gray-900">Notification Preferences</h2>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {[
-              { label: "New call received", desc: "Get notified when a new call comes in" },
-              { label: "New voicemail", desc: "Get notified when a voicemail is left" },
-              { label: "Appointment booked", desc: "Get notified when a new appointment is scheduled" },
-              { label: "Appointment cancelled", desc: "Get notified when an appointment is cancelled" },
-              { label: "Human handoff needed", desc: "Get notified when the AI transfers a call to you" },
-              { label: "Daily summary", desc: "Receive a daily summary of all activity" },
-              { label: "Weekly report", desc: "Receive a weekly analytics report every Monday" },
-            ].map((notif) => (
-              <div key={notif.label} className="flex items-center justify-between px-5 py-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{notif.label}</p>
-                  <p className="text-xs text-gray-500">{notif.desc}</p>
-                </div>
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" defaultChecked className="peer sr-only" />
-                  <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition-all peer-checked:bg-indigo-600 peer-checked:after:translate-x-full" />
-                </label>
-              </div>
-            ))}
-          </div>
-          <div className="border-t border-gray-100 px-5 py-4">
-            <div className="mb-3">
-              <label className="text-sm font-medium text-gray-900">Notification Email</label>
-              <input type="email" defaultValue="owner@mybusiness.com" className="mt-1 block w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+        <div className="mt-4 space-y-2">
+          {phoneNumbers.map((num, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
+              <span className="text-lg">📞</span>
+              <span className="flex-1 text-sm font-medium text-gray-900">{num}</span>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Active</span>
             </div>
-            <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              Save Preferences
-            </button>
-          </div>
+          ))}
         </div>
+        <p className="mt-3 text-xs text-gray-400">To add more numbers or port an existing one, contact support.</p>
+      </div>
+
+      {/* ── Hours ─────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-900">Business Hours</h2>
+        <p className="mt-0.5 text-xs text-gray-500">When should the AI answer calls? Outside these hours, callers leave a voicemail.</p>
+        <div className="mt-4 space-y-2">
+          {WEEKDAYS.map((day) => (
+            <div key={day} className="flex items-center gap-3 rounded-lg px-1 py-2">
+              <input
+                type="checkbox"
+                checked={hours[day].enabled}
+                onChange={() => toggleDay(day)}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span className="w-24 text-sm font-medium text-gray-700">{DAY_LABELS[day]}</span>
+              {hours[day].enabled ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={hours[day].open}
+                    onChange={(e) => updateTime(day, "open", e.target.value)}
+                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <span className="text-xs text-gray-400">to</span>
+                  <input
+                    type="time"
+                    value={hours[day].close}
+                    onChange={(e) => updateTime(day, "close", e.target.value)}
+                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              ) : (
+                <span className="text-sm text-gray-400">Closed</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Schedule ───────────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-lg">📅</div>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Your Schedule</h2>
+              <p className="mt-0.5 text-xs text-gray-500">View and manage your appointments in a simple calendar.</p>
+            </div>
+          </div>
+          <a
+            href="/dashboard/schedule"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            Open Schedule
+          </a>
+        </div>
+      </div>
+
+      {/* ── Notifications ─────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Post-Call SMS Summaries</h2>
+            <p className="mt-0.5 text-xs text-gray-500">Get a text after every call with caller info, duration, and outcome.</p>
+          </div>
+          <button
+            onClick={() => setSmsSummaries(!smsSummaries)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+              smsSummaries ? "bg-indigo-600" : "bg-gray-200"
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition ${
+              smsSummaries ? "translate-x-6" : "translate-x-1"
+            }`} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Save ──────────────────────────────────────────── */}
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+      >
+        {saving ? "Saving..." : "Save settings"}
+      </button>
+
+      {/* ── Toast ─────────────────────────────────────────── */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() => setToast(null)}
+        />
       )}
     </div>
   );

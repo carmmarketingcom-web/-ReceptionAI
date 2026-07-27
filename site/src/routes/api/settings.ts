@@ -3,6 +3,7 @@
  * PUT /api/settings — Update organization settings
  */
 
+
 import { z } from "zod";
 import { authenticate, requireRole } from "../../../lib/middleware";
 import { getDb, isMockMode } from "../../../db/index";

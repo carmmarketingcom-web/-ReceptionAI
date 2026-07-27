@@ -5,10 +5,11 @@
  * Passes all customer info as metadata — the webhook handles
  * org creation, user creation, phone provisioning after payment.
  */
+
 const PRICE_IDS: Record<string, string> = {
-  starter: "price_1TtXMGDqebBmBAbi165hKXK9",
-  growth: "price_1TtXMGDqebBmBAbiqd7ybQzy",
-  scale: "price_1TtXMGDqebBmBAbidd4SJgki",
+  starter: "price_1TxrHbP7NtNpgQde64Zp1tgM",
+  growth: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
+  scale: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
 };
 
 function stripeSecret(): string {
@@ -24,9 +25,10 @@ export async function POST({ request }: { request: Request }) {
       plan: string;
       useExistingNumber?: boolean;
       existingPhoneNumber?: string;
+      password?: string;
     };
 
-    const { companyName, email, name, plan, useExistingNumber, existingPhoneNumber } = body;
+    const { companyName, email, name, plan, useExistingNumber, existingPhoneNumber, password } = body;
 
     if (!companyName || !email || !name || !plan) {
       return new Response(
@@ -45,7 +47,7 @@ export async function POST({ request }: { request: Request }) {
 
     // Build success/cancel URLs from request
     const proto = request.headers.get("x-forwarded-proto") || "https";
-    const host = request.headers.get("host") || "3dcd1380ab04470e1627f5269b036e3d.ctonew.app";
+    const host = request.headers.get("host") || "www.receptionai.store";
     const baseUrl = `${proto}://${host}`;
 
     // Create Stripe Checkout session — webhook does the rest after payment
@@ -60,8 +62,11 @@ export async function POST({ request }: { request: Request }) {
       "metadata[email]": email,
       "metadata[name]": name,
       "metadata[plan]": plan,
+      "metadata[password]": password || "",
       "metadata[useExistingNumber]": String(!!useExistingNumber),
       "metadata[existingPhoneNumber]": existingPhoneNumber || "",
+      "subscription_data[trial_period_days]": "14",
+      "payment_behavior": "default_incomplete",
       "allow_promotion_codes": "true",
       "subscription_data[metadata][companyName]": companyName,
     });
