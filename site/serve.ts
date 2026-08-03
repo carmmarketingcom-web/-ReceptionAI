@@ -4,7 +4,7 @@ try { const envContent = await (await import("fs")).promises.readFile(".env", "u
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || "3000");
 const HOST = "0.0.0.0";
 const CLIENT_DIR = `${import.meta.dir}/dist/client`;
 
@@ -1162,6 +1162,50 @@ for (let attempt = 1; ; attempt++) {
         }
 
         // SMS — Telnyx Messaging
+// ── Voice Incoming API (TwiML webhook) ─────────────────────
+        if (pathname === "/api/voice/incoming" && req.method === "POST") {
+          try {
+            const body = await req.text();
+            const params = new URLSearchParams(body);
+            const callSid = params.get("CallSid") || "unknown";
+            const from = params.get("From") || "unknown";
+            const to = params.get("To") || "unknown";
+            console.log(`[Voice Incoming] CallSid: ${callSid}, From: ${from}, To: ${to}`);
+
+            // Look up org by phone number for dynamic greeting
+            let companyName = "ReceptionAI";
+            const dbUrl = process.env.DATABASE_URL;
+            if (dbUrl) {
+              try {
+                const sql = neon(dbUrl);
+                const orgRow = await sql`
+                  SELECT o.name FROM organizations o
+                  JOIN phone_numbers pn ON pn.organization_id = o.id
+                  WHERE pn.phone_number = ${to} AND pn.is_active = true LIMIT 1
+                `;
+                if (orgRow[0]) companyName = orgRow[0].name;
+              } catch {}
+            }
+
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather input="dtmf" numDigits="1" timeout="10" action="/api/voice/incoming/gather">
+    <Say voice="Polly.Joanna">Hello! Welcome to ${companyName}. Press 1 to book an appointment, press 2 for business hours, or press 0 to leave a message.</Say>
+  </Gather>
+  <Say voice="Polly.Joanna">Sorry, we did not receive your selection. Goodbye!</Say>
+</Response>`;
+
+            return new Response(twiml, {
+              status: 200,
+              headers: { "Content-Type": "text/xml" },
+            });
+          } catch (err) {
+            console.error("[Voice Incoming]", String(err).slice(0, 200));
+            return new Response(JSON.stringify({ error: "Voice webhook error" }),
+              { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
+
         if (pathname === "/api/telnyx/sms" && req.method === "POST") {
           try {
             const p = await req.json();
@@ -1458,114 +1502,28 @@ for (let attempt = 1; ; attempt++) {
           }
         }
 
-        // ── Health API ───────────────────────────────────────────────
+// ── Health API (public, no auth) ────────────────────────────
         if (pathname === "/api/health" && req.method === "GET") {
           try {
-            // JWT auth
-            const authHeader = req.headers.get("Authorization") || "";
-            const t = authHeader.replace("Bearer ", "");
-            if (!t) {
-              return new Response(JSON.stringify({ error: "Authentication required" }),
-                { status: 401, headers: { "Content-Type": "application/json" } });
-            }
-            const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
-            let payload: any;
-            try {
-              const r = await jwtVerify(t, new TextEncoder().encode(secKey));
-              payload = r.payload;
-            } catch {
-              return new Response(JSON.stringify({ error: "Invalid token" }),
-                { status: 401, headers: { "Content-Type": "application/json" } });
-            }
-            const organizationId = payload.organizationId as string;
-
             const dbUrl = process.env.DATABASE_URL;
+            const serverStatus: any = { status: "ok", timestamp: new Date().toISOString() };
+
             if (!dbUrl) {
-              return new Response(JSON.stringify({ error: "DB not configured" }),
-                { status: 500, headers: { "Content-Type": "application/json" } });
-            }
-            const sql = neon(dbUrl);
-
-            // 1. Phone number status
-            const phoneRows = await sql`
-              SELECT phone_number, status, sms_enabled, voice_enabled, telnyx_number_id
-              FROM phone_numbers WHERE organization_id = ${organizationId}
-              ORDER BY is_active DESC, created_at DESC LIMIT 1
-            `;
-            const phoneStatus = phoneRows[0] ? {
-              provisioned: true, number: phoneRows[0].phone_number,
-              status: phoneRows[0].status, smsEnabled: phoneRows[0].sms_enabled,
-              voiceEnabled: phoneRows[0].voice_enabled,
-            } : { provisioned: false, number: null, status: "none", smsEnabled: false, voiceEnabled: false };
-
-            // 2. Last call
-            const lastCallRow = await sql`
-              SELECT external_phone as caller_number, started_at, ended_at,
-                     status, duration_seconds, ai_handled, escalated_to_human
-              FROM conversations WHERE organization_id = ${organizationId} AND type = 'voice'
-              ORDER BY started_at DESC LIMIT 1
-            `;
-            const lastCall = lastCallRow[0] ? {
-              found: true, callerNumber: lastCallRow[0].caller_number,
-              time: lastCallRow[0].started_at, duration: lastCallRow[0].duration_seconds,
-              outcome: lastCallRow[0].ai_handled ? "AI handled"
-                : lastCallRow[0].escalated_to_human ? "Transferred to human"
-                : lastCallRow[0].status || "unknown",
-            } : { found: false };
-
-            // 3. Webhook status
-            const webhookRow = await sql`
-              SELECT c.started_at, pn.phone_number as org_number
-              FROM conversations c
-              LEFT JOIN phone_numbers pn ON pn.organization_id = c.organization_id AND pn.is_active = true
-              WHERE c.organization_id = ${organizationId} AND c.type = 'voice'
-              ORDER BY c.started_at DESC LIMIT 1
-            `;
-            let webhookConfigured = false;
-            const webhookLastReceived: string | null = (webhookRow[0]?.started_at as string) || null;
-            if (phoneRows[0]?.telnyx_number_id && process.env.TELNYX_API_KEY) {
+              serverStatus.database = "not configured";
+            } else {
               try {
-                const wRes = await fetch(
-                  `https://api.telnyx.com/v2/phone_numbers/${phoneRows[0].telnyx_number_id}/voice`,
-                  { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } },
-                );
-                if (wRes.ok) {
-                  const wData = (await wRes.json()) as any;
-                  webhookConfigured =
-                    wData.data?.connection_name === (process.env.TELNYX_CONNECTION_NAME || "") ||
-                    wData.data?.connection_id === (process.env.TELNYX_CONNECTION_ID || "") ||
-                    !!wData.data?.call_hangup_url || !!wData.data?.call_answering_url;
-                }
-              } catch { webhookConfigured = !!webhookLastReceived; }
-            } else { webhookConfigured = !!webhookLastReceived; }
-            const webhookStatus = {
-              configured: webhookConfigured, lastReceived: webhookLastReceived,
-              recent: webhookLastReceived
-                ? (Date.now() - new Date(webhookLastReceived).getTime()) < 86400000 : false,
-            };
+                const sql = neon(dbUrl);
+                const dbCheck = await sql`SELECT 1 as ok`;
+                serverStatus.database = "connected";
+              } catch { serverStatus.database = "error"; }
+            }
 
-            // 4. Schedule status
-            const scheduleRow = await sql`
-              SELECT COUNT(*) as count FROM appointments
-              WHERE organization_id = ${organizationId}
-                AND start_time >= NOW() AND status IN ('confirmed', 'scheduled')
-            `;
+            serverStatus.telnyx = process.env.TELNYX_API_KEY ? "configured" : "not configured";
+            serverStatus.stripe = process.env.STRIPE_SECRET_KEY ? "configured" : "not configured";
+            serverStatus.cronSecret = process.env.CRON_SECRET ? "set" : "not set";
 
-            // 5. Aggregate
-            const allOk = phoneStatus.provisioned && lastCall.found && webhookStatus.configured;
-            const tips: string[] = [];
-            if (!phoneStatus.provisioned) tips.push("No phone number is provisioned. Contact support to get a phone number assigned.");
-            else if (phoneStatus.status === "pending_port") tips.push("Your phone number port is still in progress. Ports can take 5-10 business days.");
-            if (!lastCall.found) tips.push("No calls received yet. Make sure you're forwarding your business calls to your ReceptionAI number.");
-            if (!webhookStatus.configured) tips.push("The Telnyx webhook may not be configured correctly. Try restarting the connection or contact support.");
-
-            return new Response(JSON.stringify({
-              phoneStatus, lastCall, webhookStatus,
-              scheduleStatus: { upcoming: Number(scheduleRow[0]?.count || 0) },
-              allOk, tips, checkedAt: new Date().toISOString(),
-            }), { status: 200, headers: { "Content-Type": "application/json" } });
-
+            return new Response(JSON.stringify(serverStatus),
+              { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             console.error("[Health API]", errMsg);
@@ -1573,6 +1531,7 @@ for (let attempt = 1; ; attempt++) {
               { status: 500, headers: { "Content-Type": "application/json" } });
           }
         }
+
 
 
 
@@ -1730,55 +1689,71 @@ for (let attempt = 1; ; attempt++) {
           }
         }
 
-        // ── Chat API ────────────────────────────────────────────────
+        // ── Chat API (keyword fallback + optional Gemini) ──────────
         if (pathname === "/api/chat" && req.method === "POST") {
           try {
             const body = await req.json() as { message?: string; lang?: string };
             const { message = "", lang = "en" } = body;
-
             if (!message.trim()) {
               return new Response(JSON.stringify({ reply: "" }),
                 { status: 200, headers: { "Content-Type": "application/json" } });
             }
-
             const apiKey = process.env.GEMINI_API_KEY || "";
-            if (!apiKey) {
-              return new Response(JSON.stringify({ reply: "AI not configured." }),
-                { status: 200, headers: { "Content-Type": "application/json" } });
+            const msg = message.toLowerCase();
+            const isEs = lang === "es";
+            const fallback = () => {
+              if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo")) {
+                return isEs ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas), Scale: $399/mes (ilimitado). Prueba gratis 14 dias." : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines), Scale: $399/mo (unlimited). 14-day free trial.";
+              }
+              if (msg.includes("demo") || msg.includes("try") || msg.includes("probar")) {
+                return isEs ? "Prueba nuestro recepcionista IA! Llama al (727) 966-7556 o registrate en receptionai.store/signup." : "Try our AI receptionist! Call (727) 966-7556 or sign up at receptionai.store/signup.";
+              }
+              if (msg.includes("feature") || msg.includes("what") || msg.includes("do") || msg.includes("funcion") || msg.includes("que hace")) {
+                return isEs ? "Respondo llamadas 24/7, programo citas, envio recordatorios. Calendario incorporado (sin Google OAuth). Resumenes SMS al dueno." : "I answer calls 24/7, book appointments, send reminders. Built-in calendar (no Google OAuth). SMS summaries to the owner.";
+              }
+              if (msg.includes("signup") || msg.includes("register") || msg.includes("start") || msg.includes("registr")) {
+                return isEs ? "Registrate en receptionai.store/signup — prueba gratis 14 dias, sin tarjeta." : "Sign up at receptionai.store/signup — 14-day free trial, no card needed.";
+              }
+              if (msg.includes("hi") || msg.includes("hello") || msg.includes("hey") || msg.includes("hola")) {
+                return isEs ? "Hola! Soy ReceptionAI, atiendo llamadas y programo citas 24/7. En que puedo ayudarte?" : "Hi! I'm ReceptionAI — I answer calls and book appointments 24/7. How can I help?";
+              }
+              if (msg.includes("calendar") || msg.includes("schedule") || msg.includes("booking") || msg.includes("cita") || msg.includes("calendario")) {
+                return isEs ? "Calendario incorporado sin Google OAuth. Tus clientes reservan por telefono, chat o SMS. Confirmaciones automaticas." : "Built-in calendar with no Google OAuth. Clients book via phone, chat, or SMS. Auto confirmations included.";
+              }
+              return isEs ? "Soy ReceptionAI — atiendo llamadas 24/7, programo citas, gestiono mensajes. Planes desde $99/mes con prueba gratis. Como puedo ayudarte?" : "I'm ReceptionAI — I handle calls 24/7, book appointments, manage messages. Plans from $99/mo with free trial. How can I help?";
+            };
+            if (apiKey && apiKey.startsWith("AIza")) {
+              try {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 8000);
+                const gRes = await fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+                  { method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      system_instruction: { parts: [{ text: isEs ? "Recepcionista IA. Respuestas breves." : "AI receptionist. Brief responses." }] },
+                      contents: [{ role: "user", parts: [{ text: message }] }],
+                      generationConfig: { maxOutputTokens: 512, temperature: 0.7 },
+                    }), signal: ctrl.signal },
+                );
+                clearTimeout(t);
+                if (gRes.ok) {
+                  const data = await gRes.json() as any;
+                  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                  if (reply.trim()) {
+                    return new Response(JSON.stringify({ reply: reply.trim() }),
+                      { status: 200, headers: { "Content-Type": "application/json" } });
+                  }
+                }
+              } catch { /* fall through */ }
             }
-
-            const systemPrompt = lang === "es"
-              ? "Eres un recepcionista amigable de IA para ReceptionAI, un servicio de recepcionista virtual para pequenas empresas. Responde de forma breve (1-2 frases). Se util con informacion sobre citas, precios, caracteristicas y horarios. Planes: Starter $99/mes, Growth $199/mes, Scale $399/mes. Sitio web: receptionai.store. Telefono: (727) 966-7556. Responde en espanol."
-              : "You are a friendly AI receptionist for ReceptionAI, a virtual receptionist service for small businesses. Keep responses brief (1-2 sentences). Be helpful about appointments, pricing, features, and business hours. Plans: Starter $99/mo, Growth $199/mo, Scale $399/mo. Website: receptionai.store. Phone: (727) 966-7556. Respond in the language the user speaks.";
-
-            const gRes = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
-              { method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  system_instruction: { parts: [{ text: systemPrompt }] },
-                  contents: [{ role: "user", parts: [{ text: message }] }],
-                  generationConfig: { maxOutputTokens: 150, temperature: 0.7 },
-                }) },
-            );
-
-            if (!gRes.ok) {
-              return new Response(JSON.stringify({ reply: "I'm having trouble connecting. Please try again." }),
-                { status: 200, headers: { "Content-Type": "application/json" } });
-            }
-
-            const data = await gRes.json() as any;
-            const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-            return new Response(JSON.stringify({
-              reply: reply.trim() || "I'm not sure how to answer that."
-            }), { status: 200, headers: { "Content-Type": "application/json" } });
+            return new Response(JSON.stringify({ reply: fallback() }),
+              { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Chat API]", String(err).slice(0, 200));
             return new Response(JSON.stringify({ reply: "Something went wrong." }),
               { status: 200, headers: { "Content-Type": "application/json" } });
           }
         }
-
         // ── Booking API — public web booking (no auth) ────────────
         if (pathname === "/api/booking/slots" && req.method === "GET") {
           try {
@@ -1864,6 +1839,58 @@ for (let attempt = 1; ; attempt++) {
             console.error("[Booking Slots]", String(err).slice(0, 200));
             return new Response(JSON.stringify({ error: "Failed to load slots" }),
               { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
+
+// ── Calendar Slots API (public) ─────────────────────────────
+        if (pathname === "/api/calendar/slots" && req.method === "GET") {
+          try {
+            const url = new URL(req.url);
+            const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+            const service = url.searchParams.get("service") || "General Service";
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) {
+              return new Response(JSON.stringify({ slots: [] }),
+                { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+            const sql = neon(dbUrl);
+
+            // Get day of week (0=Sun, 6=Sat)
+            const dayOfWeek = new Date(date + "T00:00:00").getDay();
+            const days = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+
+            // Default slots: 9am-5pm, 30-min intervals
+            const slots: string[] = [];
+            const startHour = 9, endHour = 17;
+
+            // Check business hours for first org that has them, or use defaults
+            const bhRows = await sql`
+              SELECT day_of_week, open_time, close_time, is_closed
+              FROM business_hours WHERE day_of_week = ${days[dayOfWeek]} LIMIT 1
+            `;
+
+            let openHour = startHour, closeHour = endHour;
+            if (bhRows[0] && !bhRows[0].is_closed) {
+              openHour = parseInt(bhRows[0].open_time?.split(":")[0] || `${startHour}`);
+              closeHour = parseInt(bhRows[0].close_time?.split(":")[0] || `${endHour}`);
+            } else if (bhRows[0]?.is_closed) {
+              return new Response(JSON.stringify({ slots: [], closed: true }),
+                { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+
+            for (let h = openHour; h < closeHour; h++) {
+              for (let m = 0; m < 60; m += 30) {
+                const time = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+                slots.push(time);
+              }
+            }
+
+            return new Response(JSON.stringify({ date, service, slots, closed: false }),
+              { status: 200, headers: { "Content-Type": "application/json" } });
+          } catch (err) {
+            console.error("[Calendar Slots]", String(err).slice(0, 200));
+            return new Response(JSON.stringify({ slots: [], error: "Failed to load slots" }),
+              { status: 200, headers: { "Content-Type": "application/json" } });
           }
         }
 
@@ -2113,6 +2140,91 @@ for (let attempt = 1; ; attempt++) {
         }
 
         // ── Stripe Checkout ──────────────────────────────────────────
+// ── Auth Register API ────────────────────────────────────────
+        if (pathname === "/api/auth/register" && req.method === "POST") {
+          try {
+            const body = await req.json() as {
+              name?: string; email?: string; password?: string;
+              companyName?: string; industry?: string; timezone?: string;
+            };
+            const { name = "", email = "", password = "" } = body;
+            if (!name || !email || !password) {
+              return new Response(JSON.stringify({ error: "name, email, and password are required" }),
+                { status: 400, headers: { "Content-Type": "application/json" } });
+            }
+            if (password.length < 8) {
+              return new Response(JSON.stringify({ error: "Password must be at least 8 characters" }),
+                { status: 400, headers: { "Content-Type": "application/json" } });
+            }
+
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) {
+              return new Response(JSON.stringify({ error: "Database not configured" }),
+                { status: 500, headers: { "Content-Type": "application/json" } });
+            }
+            const sql = neon(dbUrl);
+
+            // Check if email already exists
+            const existing = await sql`SELECT id FROM users WHERE email = ${email} LIMIT 1`;
+            if (existing[0]) {
+              return new Response(JSON.stringify({ error: "Email already registered" }),
+                { status: 409, headers: { "Content-Type": "application/json" } });
+            }
+
+            // Hash password (simple SHA-256 via Bun)
+            const hasher = new Bun.CryptoHasher("sha256");
+            hasher.update(password);
+            const passwordHash = hasher.digest("hex");
+
+            // Create org
+            const companyName = body.companyName || name + "'s Business";
+            const slug = companyName.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") + "-" + Math.random().toString(36).slice(2, 8);
+            const orgResult = await sql`
+              INSERT INTO organizations (id, name, slug, timezone)
+              VALUES (gen_random_uuid(), ${companyName}, ${slug}, ${body.timezone || "America/New_York"})
+              RETURNING id
+            `;
+            const orgId = orgResult[0]?.id;
+            if (!orgId) throw new Error("Failed to create organization");
+
+            // Create user
+            const { SignJWT } = await import("jose");
+            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const userResult = await sql`
+              INSERT INTO users (id, organization_id, email, name, password_hash, role)
+              VALUES (gen_random_uuid(), ${orgId}, ${email}, ${name}, ${passwordHash}, 'admin')
+              RETURNING id, email, name, role
+            `;
+            const user = userResult[0];
+            if (!user) throw new Error("Failed to create user");
+
+            // Create default business hours
+            for (let d = 0; d < 7; d++) {
+              const isWeekend = d === 0 || d === 6;
+              await sql`
+                INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed)
+                VALUES (gen_random_uuid(), ${orgId}, ${String(d)}, ${isWeekend ? "00:00" : "09:00"}, ${isWeekend ? "00:00" : "17:00"}, ${isWeekend})
+              `;
+            }
+
+            // Generate JWT
+            const token = await new SignJWT({ userId: user.id, email: user.email, organizationId: orgId, role: user.role })
+              .setProtectedHeader({ alg: "HS256" })
+              .setIssuedAt()
+              .setExpirationTime("30d")
+              .sign(new TextEncoder().encode(secKey));
+
+            return new Response(JSON.stringify({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, organizationId: orgId } }),
+              { status: 201, headers: { "Content-Type": "application/json" } });
+
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error("[Auth Register]", errMsg);
+            return new Response(JSON.stringify({ error: "Registration failed", detail: errMsg }),
+              { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
+
         if (pathname === "/api/stripe/checkout" && req.method === "POST") {
           try {
             const body = await req.json() as {
@@ -2369,6 +2481,14 @@ for (let attempt = 1; ; attempt++) {
             return new Response(JSON.stringify({ error: "Internal server error" }),
               { status: 500, headers: { "Content-Type": "application/json" } });
           }
+        }
+        // Redirect /success to /signup/success
+        if (pathname === "/success") {
+          const qs = new URL(req.url).search || "";
+          return new Response(null, {
+            status: 302,
+            headers: { "Location": "/signup/success" + qs },
+          });
         }
         // Static + SSR
         if (pathname !== "/") {
