@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" fill="none">
+  <!-- Concept B: Abstract R+A combined mark -->
+  <g transform="translate(10, 8)">
+    <!-- R stem — bold vertical -->
+    <rect x="6" y="4" width="8" height="56" rx="4" fill="#111827"/>
+    <!-- R bowl — thick curve -->
+    <path d="M14,8 L42,8 Q50,8 50,16 L50,28 Q50,34 44,34 L26,34" 
+          fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- R leg merges with A — diagonal slash -->
+    <line x1="32" y1="30" x2="52" y2="56" stroke="#111827" stroke-width="8" stroke-linecap="round"/>
+    <!-- A crossbar — the AI accent -->
+    <line x1="18" y1="44" x2="46" y2="44" stroke="#3B82F6" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="82" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="30" letter-spacing="-1" fill="#111827">Reception</text>
+  <text x="246" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="30" letter-spacing="-1" fill="#3B82F6">AI</text>
+</svg>

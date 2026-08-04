@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 80" width="380" height="80">
+  <!-- Shield Trust Mark + Wordmark — Approach C -->
+  
+  <!-- Shield icon with checkmark (left of wordmark) -->
+  <g transform="translate(35, 38)">
+    <!-- Shield outline -->
+    <path d="M-20,-26 L20,-26 L20,2 C20,16 12,26 0,30 C-12,26 -20,16 -20,2 Z" 
+          fill="#4F46E5" stroke="#4F46E5" stroke-width="1"/>
+    <!-- Checkmark inside shield -->
+    <path d="M-7,2 L-2,8 L8,-4" fill="none" stroke="#FFFFFF" stroke-width="3" 
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  
+  <!-- Wordmark -->
+  <text x="76" y="54" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" 
+        font-weight="900" font-size="44" letter-spacing="-0.5" fill="#0F172A">
+    Reception
+  </text>
+  <text x="316" y="54" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" 
+        font-weight="300" font-size="44" letter-spacing="-0.5" fill="#4F46E5">
+    AI
+  </text>
+</svg>

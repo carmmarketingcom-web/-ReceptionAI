@@ -6,3 +6,12 @@ dist/
 .run/
 *.log
 .DS_Store
+.cache
+.output
+.nitro
+.tanstack
+/dist/
+/dist-ssr/
+/.vercel/
+/.run/
+src/routeTree.gen.ts

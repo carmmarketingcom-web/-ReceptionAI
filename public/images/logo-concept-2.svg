@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 80" width="380" height="80">
+  <!-- Minimal Phone Handset + Wordmark — Approach B -->
+  
+  <!-- Phone handset icon (left of wordmark) -->
+  <g transform="translate(35, 40)" fill="none" stroke="#0F172A" stroke-width="3.5" 
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Handset arc + body -->
+    <path d="M-14,-16 C-14,-24 -9,-28 0,-28 C9,-28 14,-24 14,-16 L14,-10 C14,-4 10,0 4,0 L-4,0 C-10,0 -14,-4 -14,-10 Z"/>
+    <!-- Ear piece accent -->
+    <line x1="-8" y1="-18" x2="-8" y2="-12"/>
+    <line x1="8" y1="-18" x2="8" y2="-12"/>
+    <!-- Mouth piece accent -->
+    <line x1="-7" y1="-4" x2="7" y2="-4"/>
+  </g>
+  
+  <!-- Wordmark -->
+  <text x="76" y="54" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" 
+        font-weight="900" font-size="44" letter-spacing="-0.5" fill="#0F172A">
+    Reception
+  </text>
+  <text x="316" y="54" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" 
+        font-weight="300" font-size="44" letter-spacing="-0.5" fill="#4F46E5">
+    AI
+  </text>
+</svg>

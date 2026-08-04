@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" fill="none">
+  <defs>
+    <linearGradient id="accent3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Concept 3: The Bold R — architectural monogram with slash accent -->
+  <g transform="translate(8, 8)">
+    <!-- R stem -->
+    <rect x="4" y="4" width="8" height="52" rx="4" fill="#1E2A4F"/>
+    <!-- R bowl -->
+    <path d="M12,4 Q12,4 12,4 L48,4 Q52,4 52,8 L52,28 Q52,32 48,32 L24,32 Q20,32 20,28 L20,12 Q20,8 24,8 L36,8 Q38,8 38,10 L38,26 Q38,28 36,28 L26,28" fill="none" stroke="#1E2A4F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- R leg -->
+    <line x1="28" y1="30" x2="48" y2="52" stroke="#1E2A4F" stroke-width="8" stroke-linecap="round"/>
+    <!-- Electric blue accent slash -->
+    <line x1="32" y1="10" x2="42" y2="20" stroke="url(#accent3)" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Accent dot -->
+    <circle cx="44" cy="46" r="2.5" fill="url(#accent3)"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="78" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="30" letter-spacing="-1" fill="#111827">Reception</text>
+  <text x="242" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="30" letter-spacing="-1" fill="#2563EB">AI</text>
+
+  <!-- Tagline -->
+  <text x="80" y="62" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="600" font-size="9.5" letter-spacing="2.5" fill="#64748B">YOUR 24/7 AI RECEPTIONIST</text>
+</svg>
