@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" fill="none">
+  <!-- Concept A: Bold Phone Handset + AI Node -->
+  <g transform="translate(10, 8)">
+    <!-- Phone handset — thick, geometric, confident -->
+    <path d="M12,36 L12,52 Q12,56 16,56 L24,56 Q28,56 28,52 L28,36 Q28,16 34,16 Q40,16 40,36 L40,52 Q40,56 44,56 L52,56 Q56,56 56,52 L56,36" 
+          fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- AI accent diamond on the earpiece -->
+    <rect x="30" y="20" width="8" height="8" rx="2" fill="#3B82F6" transform="rotate(45 34 24)"/>
+  </g>
+
+  <!-- Wordmark — solid, bold, no gradient -->
+  <text x="82" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="30" letter-spacing="-1" fill="#111827">Reception</text>
+  <text x="246" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="30" letter-spacing="-1" fill="#3B82F6">AI</text>
+</svg>

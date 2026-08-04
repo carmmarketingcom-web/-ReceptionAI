@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body {
+    @apply bg-white text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="search"],
+  textarea,
+  select {
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+    background-color: #fff !important;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

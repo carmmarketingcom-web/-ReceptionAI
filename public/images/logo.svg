@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" fill="none">
+  <!-- Icon: Bold Phone Handset Mark -->
+  <g transform="translate(14, 9)">
+    <!-- Handset body — thick geometric lines -->
+    <path d="M10,34 L10,48 Q10,52 14,52 L22,52 Q26,52 26,48 L26,34 Q26,16 32,16 L36,16 L36,34 L36,48 Q36,52 40,52 L48,52 Q52,52 52,48 L52,34"
+          fill="none" stroke="#111827" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- AI accent node — small geometric diamond on earpiece -->
+    <rect x="28" y="20" width="7" height="7" rx="1.5" fill="#2563EB" transform="rotate(45 31.5 23.5)"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="84" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="31" letter-spacing="-1" fill="#111827">Reception</text>
+  <text x="252" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-weight="800" font-size="31" letter-spacing="-1" fill="#2563EB">AI</text>
+</svg>
