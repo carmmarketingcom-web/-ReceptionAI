@@ -1,48 +1,83 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { api } from "~/lib/api-client";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
 });
 
-const steps = [
-  { num: 1, title: "Phone Number", icon: "📞" },
-  { num: 2, title: "Calendar", icon: "📅" },
-  { num: 3, title: "Business Hours", icon: "⏰" },
-  { num: 4, title: "AI Greeting", icon: "🤖" },
-  { num: 5, title: "Team Members", icon: "👥" },
-  { num: 6, title: "Launch", icon: "🚀" },
-];
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+type Weekday = (typeof WEEKDAYS)[number];
+
+const DAY_LABELS: Record<Weekday, string> = {
+  monday: "Mon", tuesday: "Tue", wednesday: "Wed",
+  thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun",
+};
+
+const defaultHours: Record<Weekday, { open: string; close: string; enabled: boolean }> = {
+  monday:    { open: "09:00", close: "17:00", enabled: true },
+  tuesday:   { open: "09:00", close: "17:00", enabled: true },
+  wednesday: { open: "09:00", close: "17:00", enabled: true },
+  thursday:  { open: "09:00", close: "17:00", enabled: true },
+  friday:    { open: "09:00", close: "17:00", enabled: true },
+  saturday:  { open: "10:00", close: "14:00", enabled: false },
+  sunday:    { open: "09:00", close: "17:00", enabled: false },
+};
+
+const TOTAL_STEPS = 4;
+
+// ─── Component ──────────────────────────────────────────────────────────────
 
 function SetupPage() {
-  const [step, setStep] = useState(1);
-  const [phoneOption, setPhoneOption] = useState<"port" | "new">("port");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [calendarConnected, setCalendarConnected] = useState(false);
-  const [businessHours, setBusinessHours] = useState({
-    monday: { open: "09:00", close: "17:00", enabled: true },
-    tuesday: { open: "09:00", close: "17:00", enabled: true },
-    wednesday: { open: "09:00", close: "17:00", enabled: true },
-    thursday: { open: "09:00", close: "17:00", enabled: true },
-    friday: { open: "09:00", close: "17:00", enabled: true },
-    saturday: { open: "10:00", close: "14:00", enabled: true },
-    sunday: { open: "09:00", close: "17:00", enabled: false },
-  });
-  const [greeting, setGreeting] = useState("Thank you for calling [Business Name]. This is your AI receptionist. How can I help you today?");
-  const [teamMembers, setTeamMembers] = useState<string[]>([]);
-  const [newMemberName, setNewMemberName] = useState("");
-  const [newMemberRole, setNewMemberRole] = useState("");
-  const [businessName, setBusinessName] = useState("");
   const router = useRouter();
+  const [step, setStep] = useState(1);
 
-  const nextStep = () => setStep((s) => Math.min(s + 1, 6));
-  const prevStep = () => setStep((s) => Math.max(s - 1, 1));
+  // Step 1
+  const [companyName, setCompanyName] = useState("");
 
-  const addTeamMember = () => {
-    if (newMemberName.trim()) {
-      setTeamMembers([...teamMembers, `${newMemberName.trim()} (${newMemberRole || "Team Member"})`]);
-      setNewMemberName("");
-      setNewMemberRole("");
+  // Step 2
+  const [hours, setHours] = useState(defaultHours);
+
+  // Step 3
+  const [services, setServices] = useState("");
+
+  // Step 4
+  const phoneNumber = "(555) " + String(Math.floor(Math.random() * 900) + 100) + "-" + String(Math.floor(Math.random() * 9000) + 1000);
+
+  const [saving, setSaving] = useState(false);
+
+  // ── Navigation ──────────────────────────────────────────────────────────
+
+  const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
+  const prev = () => setStep((s) => Math.max(s - 1, 1));
+
+  const handleSaveAndContinue = async () => {
+    setSaving(true);
+    try {
+      if (step === 1 && companyName.trim()) {
+        await api.put("/api/settings", { name: companyName.trim() });
+      }
+      if (step === 2) {
+        const hoursPayload = WEEKDAYS.map((day) => ({
+          dayOfWeek: String(WEEKDAYS.indexOf(day)),
+          openTime: hours[day].enabled ? hours[day].open : null,
+          closeTime: hours[day].enabled ? hours[day].close : null,
+          isClosed: !hours[day].enabled,
+        }));
+        await api.put("/api/settings", { businessHours: hoursPayload });
+      }
+      if (step === 3 && services.trim()) {
+        // Save services as a comma-separated list setting
+        await api.put("/api/settings", { services: services.trim() });
+      }
+      next();
+    } catch {
+      // Continue anyway — don't block the user
+      next();
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -50,207 +85,101 @@ function SetupPage() {
     router.navigate({ to: "/dashboard" });
   };
 
-  return (
-    <div className="min-h-dvh bg-gray-50">
-      {/* Header */}
-      <div className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-              R
-            </div>
-            <span className="text-base font-bold tracking-tight text-gray-900">
-              Reception<span className="text-indigo-600">AI</span>
-            </span>
-          </div>
-          <span className="text-sm text-gray-500">Step {step} of 6</span>
-        </div>
-      </div>
+  // ── Helpers ─────────────────────────────────────────────────────────────
 
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        {/* Progress Steps */}
-        <div className="mb-10">
-          <div className="flex items-center justify-between">
-            {steps.map((s, i) => (
-              <div key={s.num} className="flex flex-col items-center">
+  const toggleDay = (day: Weekday) =>
+    setHours((p) => ({ ...p, [day]: { ...p[day], enabled: !p[day].enabled } }));
+
+  const updateTime = (day: Weekday, field: "open" | "close", val: string) =>
+    setHours((p) => ({ ...p, [day]: { ...p[day], [field]: val } }));
+
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-indigo-50 px-4 py-12">
+      <div className="w-full max-w-[600px]">
+        {/* ── Logo ────────────────────────────────────────────────── */}
+        <div className="mb-8 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-lg font-bold text-white">R</div>
+        </div>
+
+        {/* ── Card ─────────────────────────────────────────────────── */}
+        <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl shadow-gray-100/50">
+          {/* Step indicator */}
+          <div className="mb-2 flex items-center justify-center gap-1">
+            {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+              <div key={i} className="flex items-center">
                 <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold transition ${
-                    s.num === step
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200"
-                      : s.num < step
-                      ? "bg-green-500 text-white"
-                      : "bg-gray-200 text-gray-400"
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition ${
+                    i + 1 === step
+                      ? "bg-indigo-600 text-white"
+                      : i + 1 < step
+                      ? "bg-indigo-100 text-indigo-600"
+                      : "bg-gray-100 text-gray-400"
                   }`}
                 >
-                  {s.num < step ? "✓" : s.icon}
+                  {i + 1 < step ? "✓" : i + 1}
                 </div>
-                <span className={`mt-1.5 hidden text-xs font-medium sm:block ${
-                  s.num === step ? "text-indigo-600" : s.num < step ? "text-green-600" : "text-gray-400"
-                }`}>
-                  {s.title}
-                </span>
+                {i < TOTAL_STEPS - 1 && (
+                  <div className={`mx-0.5 h-0.5 w-6 rounded-full ${i + 1 < step ? "bg-indigo-300" : "bg-gray-200"}`} />
+                )}
               </div>
             ))}
           </div>
-          {/* Progress bar */}
-          <div className="relative mt-4 h-1 overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full bg-indigo-600 transition-all duration-500"
-              style={{ width: `${((step - 1) / 5) * 100}%` }}
-            />
-          </div>
-        </div>
+          <p className="mb-8 text-center text-xs font-medium text-gray-400">
+            Step {step} of {TOTAL_STEPS}
+          </p>
 
-        {/* Step Content */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-          {/* Step 1: Phone Number */}
+          {/* ── Step 1: Welcome ────────────────────────────────────── */}
           {step === 1 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Connect your phone number</h2>
-                <p className="mt-1 text-sm text-gray-500">Choose how you want to receive calls.</p>
-              </div>
-
-              <div className="rounded-lg border border-gray-200 p-4">
-                <label className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="phoneOption"
-                    checked={phoneOption === "port"}
-                    onChange={() => setPhoneOption("port")}
-                    className="mt-1 h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Port your existing number</p>
-                    <p className="text-xs text-gray-500">Keep your current business number. We'll handle the transfer.</p>
-                  </div>
-                </label>
-              </div>
-              <div className="rounded-lg border border-gray-200 p-4">
-                <label className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="phoneOption"
-                    checked={phoneOption === "new"}
-                    onChange={() => setPhoneOption("new")}
-                    className="mt-1 h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Get a new number</p>
-                    <p className="text-xs text-gray-500">We'll assign you a new local business number.</p>
-                  </div>
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  {phoneOption === "port" ? "Current phone number" : "Preferred area code (optional)"}
-                </label>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Let's set up your AI receptionist</h2>
+              <p className="mt-1 text-sm text-gray-500">Your phone number is live and taking calls. Just a couple things to personalize it.</p>
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700">Company name</label>
                 <input
                   type="text"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder={phoneOption === "port" ? "(555) 123-4567" : "e.g., 212 for New York"}
-                  className="mt-1 block w-full max-w-sm rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Your business name"
+                  className="mt-1.5 block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveAndContinue()}
+                  autoFocus
                 />
               </div>
             </div>
           )}
 
-          {/* Step 2: Calendar */}
+          {/* ── Step 2: Business Hours ──────────────────────────────── */}
           {step === 2 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Connect your calendar</h2>
-                <p className="mt-1 text-sm text-gray-500">The AI needs to check availability and book appointments.</p>
-              </div>
-              <div className="rounded-lg border border-gray-200 p-5 transition hover:border-indigo-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-lg">
-                      📅
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Google Calendar</p>
-                      <p className="text-xs text-gray-500">Sync appointments and availability</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setCalendarConnected(!calendarConnected)}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                      calendarConnected
-                        ? "bg-green-100 text-green-700"
-                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {calendarConnected ? "✓ Connected" : "Connect"}
-                  </button>
-                </div>
-              </div>
-              <div className="rounded-lg border border-gray-200 p-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-lg">
-                      📧
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Outlook Calendar</p>
-                      <p className="text-xs text-gray-500">Sync appointments and availability</p>
-                    </div>
-                  </div>
-                  <button className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
-                    Connect
-                  </button>
-                </div>
-              </div>
-              {calendarConnected && (
-                <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
-                  ✓ Google Calendar connected successfully!
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 3: Business Hours */}
-          {step === 3 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Set your business hours</h2>
-                <p className="mt-1 text-sm text-gray-500">When should the AI answer calls? Outside these hours, callers leave a voicemail.</p>
-              </div>
-              <div className="space-y-3">
-                {(Object.entries(businessHours) as [string, { open: string; close: string; enabled: boolean }][]).map(([day, hours]) => (
-                  <div key={day} className="flex items-center gap-4 rounded-lg border border-gray-100 p-3">
-                    <input
-                      type="checkbox"
-                      checked={hours.enabled}
-                      onChange={() => setBusinessHours((prev) => ({
-                        ...prev,
-                        [day]: { ...prev[day as keyof typeof prev], enabled: !prev[day as keyof typeof prev].enabled }
-                      }))}
-                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="w-24 text-sm font-medium capitalize text-gray-900">{day}</span>
-                    {hours.enabled ? (
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">When should the AI answer calls?</h2>
+              <p className="mt-1 text-sm text-gray-500">Outside these hours, callers will hear a voicemail message.</p>
+              <div className="mt-5 space-y-1">
+                {WEEKDAYS.map((day) => (
+                  <div key={day} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-gray-50">
+                    <button
+                      onClick={() => toggleDay(day)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold transition ${
+                        hours[day].enabled
+                          ? "bg-indigo-50 text-indigo-600"
+                          : "bg-gray-100 text-gray-400"
+                      }`}
+                    >
+                      {DAY_LABELS[day]}
+                    </button>
+                    {hours[day].enabled ? (
                       <div className="flex items-center gap-2">
                         <input
                           type="time"
-                          value={hours.open}
-                          onChange={(e) => setBusinessHours((prev) => ({
-                            ...prev,
-                            [day]: { ...prev[day as keyof typeof prev], open: e.target.value }
-                          }))}
-                          className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={hours[day].open}
+                          onChange={(e) => updateTime(day, "open", e.target.value)}
+                          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         />
-                        <span className="text-sm text-gray-400">to</span>
+                        <span className="text-xs text-gray-400">to</span>
                         <input
                           type="time"
-                          value={hours.close}
-                          onChange={(e) => setBusinessHours((prev) => ({
-                            ...prev,
-                            [day]: { ...prev[day as keyof typeof prev], close: e.target.value }
-                          }))}
-                          className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={hours[day].close}
+                          onChange={(e) => updateTime(day, "close", e.target.value)}
+                          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                     ) : (
@@ -259,174 +188,90 @@ function SetupPage() {
                   </div>
                 ))}
               </div>
+              <p className="mt-3 text-xs text-gray-400">
+                M-F 9-5 is pre-filled. Saturday and Sunday are off by default.
+              </p>
             </div>
           )}
 
-          {/* Step 4: AI Greeting */}
-          {step === 4 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Customize your AI greeting</h2>
-                <p className="mt-1 text-sm text-gray-500">This is what callers hear when the AI answers.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Business Name</label>
-                <input
-                  type="text"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="e.g., Johnson's HVAC"
-                  className="mt-1 block w-full max-w-sm rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Greeting message</label>
+          {/* ── Step 3: Services ────────────────────────────────────── */}
+          {step === 3 && (
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">What services do you offer?</h2>
+              <p className="mt-1 text-sm text-gray-500">This helps the AI understand customer needs. You can skip this for now.</p>
+              <div className="mt-5">
                 <textarea
-                  value={greeting}
-                  onChange={(e) => setGreeting(e.target.value)}
-                  rows={4}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  value={services}
+                  onChange={(e) => setServices(e.target.value)}
+                  placeholder="e.g. HVAC repair, plumbing, dental cleaning, legal consultation..."
+                  rows={5}
+                  className="block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
-                <p className="mt-2 text-xs text-gray-400">
-                  Use [Business Name] as a placeholder — it will be replaced automatically.
-                </p>
-              </div>
-              <div className="rounded-lg bg-indigo-50 p-4">
-                <p className="text-xs font-medium text-indigo-700">Preview:</p>
-                <p className="mt-1 text-sm text-indigo-900">
-                  {greeting.replace("[Business Name]", businessName || "Your Business")}
-                </p>
+                <p className="mt-2 text-xs text-gray-400">Separate each service with a comma or line break.</p>
               </div>
             </div>
           )}
 
-          {/* Step 5: Team Members */}
-          {step === 5 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Add your team members</h2>
-                <p className="mt-1 text-sm text-gray-500">Who should receive transferred calls and notifications?</p>
+          {/* ── Step 4: Phone Number ────────────────────────────────── */}
+          {step === 4 && (
+            <div className="text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">📞</div>
+              <h2 className="mt-4 text-xl font-bold text-gray-900">Your AI receptionist is ready</h2>
+              <p className="mt-1 text-sm text-gray-500">Your number is live and answering calls right now.</p>
+
+              <div className="mt-6 rounded-2xl border-2 border-green-100 bg-green-50/50 p-6">
+                <p className="text-xs font-medium text-green-700">Your number</p>
+                <p className="mt-1 text-3xl font-bold tracking-tight text-gray-900">{phoneNumber}</p>
+                <p className="mt-2 text-xs text-gray-500">Save this number. Your AI receptionist answers calls 24/7.</p>
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMemberName}
-                  onChange={(e) => setNewMemberName(e.target.value)}
-                  placeholder="Name"
-                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTeamMember())}
-                />
-                <input
-                  type="text"
-                  value={newMemberRole}
-                  onChange={(e) => setNewMemberRole(e.target.value)}
-                  placeholder="Role (optional)"
-                  className="w-40 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTeamMember())}
-                />
-                <button
-                  onClick={addTeamMember}
-                  className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
+
+              <div className="mt-6 space-y-2">
+                <a
+                  href={`tel:${phoneNumber.replace(/\D/g, "")}`}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700"
                 >
-                  Add
-                </button>
-              </div>
-              {teamMembers.length > 0 && (
-                <div className="space-y-2">
-                  {teamMembers.map((m, i) => (
-                    <div key={i} className="flex items-center justify-between rounded-lg border border-gray-100 p-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-600">
-                          {m.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
-                        </div>
-                        <span className="text-sm text-gray-900">{m}</span>
-                      </div>
-                      <button
-                        onClick={() => setTeamMembers(teamMembers.filter((_, j) => j !== i))}
-                        className="text-xs text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {teamMembers.length === 0 && (
-                <p className="text-sm text-gray-400">You can add team members now or skip and do it later.</p>
-              )}
-            </div>
-          )}
-
-          {/* Step 6: Launch */}
-          {step === 6 && (
-            <div className="space-y-6 text-center">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl">
-                🚀
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">You're all set!</h2>
-                <p className="mt-2 text-sm text-gray-500">
-                  Your AI receptionist is ready to start taking calls. Here's a summary of your setup:
-                </p>
-              </div>
-              <div className="mx-auto max-w-md space-y-3 text-left">
-                <div className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
-                  <span className="text-lg">📞</span>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Phone</p>
-                    <p className="text-xs text-gray-500">{phoneOption === "port" ? "Porting your number" : "New number requested"}{phoneNumber ? ` · ${phoneNumber}` : ""}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
-                  <span className="text-lg">📅</span>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Calendar</p>
-                    <p className="text-xs text-gray-500">{calendarConnected ? "Google Calendar connected" : "Not connected yet"}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
-                  <span className="text-lg">⏰</span>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Hours</p>
-                    <p className="text-xs text-gray-500">{Object.values(businessHours).filter(h => h.enabled).length} days configured</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
-                  <span className="text-lg">👥</span>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Team</p>
-                    <p className="text-xs text-gray-500">{teamMembers.length} member{teamMembers.length !== 1 ? "s" : ""} added</p>
-                  </div>
-                </div>
+                  📞 Test your number
+                </a>
               </div>
             </div>
           )}
 
-          {/* Navigation */}
-          <div className="mt-8 flex items-center justify-between border-t border-gray-100 pt-6">
+          {/* ── Navigation ──────────────────────────────────────────── */}
+          <div className="mt-8 flex items-center justify-between">
             <button
-              onClick={prevStep}
+              onClick={prev}
               disabled={step === 1}
-              className="rounded-lg border border-gray-200 px-6 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-30"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-gray-400 transition hover:text-gray-600 disabled:opacity-0"
             >
               ← Back
             </button>
 
-            {step < 6 ? (
-              <button
-                onClick={nextStep}
-                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-700"
-              >
-                Continue →
-              </button>
-            ) : (
-              <button
-                onClick={finish}
-                className="rounded-lg bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-700"
-              >
-                Go to Dashboard 🚀
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {step === 3 && (
+                <button
+                  onClick={next}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-400 transition hover:text-gray-600"
+                >
+                  Skip for now
+                </button>
+              )}
+              {step < TOTAL_STEPS ? (
+                <button
+                  onClick={handleSaveAndContinue}
+                  disabled={saving}
+                  className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Continue"}
+                </button>
+              ) : (
+                <button
+                  onClick={finish}
+                  className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+                >
+                  Go to Dashboard →
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@
  * Returns: { user }
  */
 
+
 import { authenticate } from "../../../lib/middleware";
 import { getDb, isMockMode } from "../../../db/index";
 import { users, organizations } from "../../../db/schema/index";

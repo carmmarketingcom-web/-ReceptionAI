@@ -1,4 +1,5 @@
 import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 
 export const Route = createFileRoute("/dashboard")({
   component: DashboardLayout,
@@ -10,7 +11,8 @@ const navItems = [
     items: [
       { label: "Overview", icon: "📊", href: "/dashboard" },
       { label: "Conversations", icon: "💬", href: "/dashboard/conversations" },
-      { label: "Appointments", icon: "📅", href: "/dashboard/appointments" },
+      { label: "Schedule", icon: "📅", href: "/dashboard/schedule" },
+      { label: "Getting Started", icon: "📖", href: "/getting-started" },
     ],
   },
   {
@@ -40,17 +42,53 @@ const navItems = [
 ];
 
 function DashboardLayout() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const closeMobileMenu = () => setMobileMenuOpen(false);
+
   return (
     <div className="flex min-h-dvh bg-gray-50">
+      {/* Mobile overlay */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeMobileMenu} />
+          <div className="absolute inset-y-0 left-0 w-64 animate-[slideIn_0.2s_ease-out] bg-white shadow-xl">
+            <div className="flex h-16 items-center justify-between border-b border-gray-100 px-6">
+              <div className="flex items-center gap-2">
+                <img src="/images/logo.png" alt="ReceptionAI" className="h-10 w-auto" width={800} height={450} />
+              </div>
+              <button onClick={closeMobileMenu} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <nav className="p-4">
+              {navItems.map((group) => (
+                <div key={group.section} className="mb-6">
+                  <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">{group.section}</p>
+                  <div className="space-y-1">
+                    {group.items.map((item) => (
+                      <Link
+                        key={item.href}
+                        to={item.href}
+                        onClick={closeMobileMenu}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-indigo-50 hover:text-indigo-700"
+                        activeProps={{ className: "bg-indigo-50 text-indigo-700 font-semibold" }}
+                      >
+                        <span className="text-base">{item.icon}</span>
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="hidden w-64 flex-shrink-0 border-r border-gray-200 bg-white md:block">
         <div className="flex h-16 items-center gap-2 border-b border-gray-100 px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-            R
-          </div>
-          <span className="text-base font-bold tracking-tight text-gray-900">
-            Reception<span className="text-indigo-600">AI</span>
-          </span>
+          <img src="/images/logo.png" alt="ReceptionAI" className="h-10 w-auto" width={800} height={450} />
         </div>
 
         <nav className="p-4">
@@ -95,39 +133,21 @@ function DashboardLayout() {
       <div className="flex flex-1 flex-col">
         <header className="flex h-16 items-center gap-4 border-b border-gray-200 bg-white px-4 md:px-6">
           <div className="flex items-center gap-2 md:hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-              R
-            </div>
-            <span className="text-base font-bold tracking-tight text-gray-900">
-              Reception<span className="text-indigo-600">AI</span>
-            </span>
+            <img src="/images/logo.png" alt="ReceptionAI" className="h-10 w-auto" width={800} height={450} />
           </div>
 
           <div className="flex-1" />
 
-          {/* Mobile nav */}
+          {/* Mobile nav — hamburger */}
           <div className="flex items-center gap-2 md:hidden">
-            <Link
-              to="/dashboard"
+            <button
+              onClick={() => setMobileMenuOpen(true)}
               className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-              activeProps={{ className: "text-indigo-600" }}
             >
-              <span className="text-lg">📊</span>
-            </Link>
-            <Link
-              to="/dashboard/conversations"
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-              activeProps={{ className: "text-indigo-600" }}
-            >
-              <span className="text-lg">💬</span>
-            </Link>
-            <Link
-              to="/dashboard/settings"
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-              activeProps={{ className: "text-indigo-600" }}
-            >
-              <span className="text-lg">⚙️</span>
-            </Link>
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
           </div>
 
           {/* User avatar */}

@@ -8,13 +8,17 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-gray-100 bg-white/80 backdrop-blur-lg">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-            R
-          </div>
-          <span className="text-lg font-bold tracking-tight text-gray-900">
-            Reception<span className="text-indigo-600">AI</span>
+        {/* Logo + Tagline */}
+        <Link to="/" className="flex items-center gap-3">
+          <img
+            src="/images/logo.png"
+            alt="ReceptionAI"
+            className="h-12 w-auto sm:h-14"
+            width={800}
+            height={450}
+          />
+          <span className="hidden text-xs font-medium text-gray-400 md:inline-block border-l border-gray-200 pl-3">
+            Never Miss a Call.<br />Never Miss a Customer.
           </span>
         </Link>
 
@@ -26,6 +30,12 @@ export default function Header() {
             activeProps={{ className: "text-indigo-600 font-medium" }}
           >
             {t("nav.features")}
+          </Link>
+          <Link
+            to="/book"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
+          >
+            Book Now
           </Link>
           <Link
             to="/pricing"
@@ -50,6 +60,12 @@ export default function Header() {
             className="text-sm font-medium text-gray-600 transition hover:text-gray-900"
           >
             {t("nav.login")}
+          </Link>
+          <Link
+            to="/signup"
+            className="text-sm font-medium text-gray-600 transition hover:text-gray-900"
+          >
+            Sign Up
           </Link>
           <Link
             to="/demo"
@@ -108,6 +124,13 @@ export default function Header() {
               onClick={() => setMobileOpen(false)}
             >
               {t("nav.demo")}
+            </Link>
+            <Link
+              to="/book"
+              className="block rounded-lg bg-indigo-600 px-3 py-2 text-center text-base font-medium text-white hover:bg-indigo-700"
+              onClick={() => setMobileOpen(false)}
+            >
+              Book Now
             </Link>
             <div className="border-t border-gray-100 pt-3">
               <Link

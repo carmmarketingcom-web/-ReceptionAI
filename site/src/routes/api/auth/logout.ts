@@ -6,6 +6,7 @@
  * In a session-based system, this would invalidate the session.
  */
 
+
 export async function POST() {
   return new Response(
     JSON.stringify({ success: true }),

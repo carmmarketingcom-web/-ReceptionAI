@@ -3,6 +3,7 @@
  * POST /api/appointments  — Create a new appointment
  */
 
+
 import { z } from "zod";
 import { authenticate } from "../../../lib/middleware";
 import { getDb, isMockMode } from "../../../db/index";

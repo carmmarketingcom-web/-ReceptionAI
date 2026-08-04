@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { api } from "~/lib/api-client";
+import { useConversations, useAppointments } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/billing")({
   component: BillingPage,
@@ -118,10 +120,18 @@ function BillingPage() {
             >
               {showPlans ? "Hide Plans" : "Change Plan"}
             </button>
-            <a
-              href="https://billing.stripe.com/p/login/test"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem("receptionai_token");
+                  const res = await fetch("/api/stripe/portal", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                  });
+                  const data = (await res.json()) as { url?: string; error?: string };
+                  if (data.url) window.open(data.url, "_blank");
+                } catch { /* fail silently */ }
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
               Manage Billing
@@ -138,7 +148,7 @@ function BillingPage() {
                   d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                 />
               </svg>
-            </a>
+            </button>
           </div>
 
           {/* Plan selection cards */}
@@ -365,7 +375,174 @@ function BillingPage() {
             </svg>
           </a>
         </div>
+
+        {/* Cancel / Downgrade Section */}
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">Manage Subscription</h2>
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <CancelSection />
+          </div>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function CancelSection() {
+  const { data: conversationsData } = useConversations(200, 0);
+  const { data: appointmentsData } = useAppointments({ limit: 200 });
+
+  const conversations = conversationsData?.conversations || [];
+  const appointments = appointmentsData?.appointments || [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const monthCalls = conversations.filter((c: any) => c.createdAt?.startsWith(today.slice(0, 7))).length;
+  const monthBookings = appointments.filter((a: any) => a.createdAt?.startsWith(today.slice(0, 7))).length;
+
+  // Flow state: -1 = hidden, 0 = "Cancel" link, then 1-6 = layers
+  const [layer, setLayer] = useState(-1);
+  const [pauseMonths, setPauseMonths] = useState(1);
+  const [surveyAnswer, setSurveyAnswer] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [downgrading, setDowngrading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(""); // "paused" | "downgraded" | "cancelled"
+
+  if (done) {
+    const messages: Record<string, { title: string; sub: string }> = {
+      paused: { title: "✅ Paused!", sub: `We'll resume your service in ${pauseMonths} month${pauseMonths > 1 ? "s" : ""}. Your data is saved.` },
+      downgraded: { title: "✅ Downgraded to Basic ($69/mo—first year)", sub: "$69/mo for the first 12 months, then $99/mo after. Cancel anytime." },
+      cancelled: { title: "Subscription Canceled", sub: "Your service will end at the end of your billing period. We're sorry to see you go." },
+    };
+    const msg = messages[done] || messages.cancelled;
+    return (
+      <div className="text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-2xl">✅</div>
+        <p className="mt-3 text-sm font-semibold text-green-700">{msg.title}</p>
+        <p className="mt-1 text-xs text-gray-500">{msg.sub}</p>
+      </div>
+    );
+  }
+
+  const handleDowngrade = async () => {
+    setDowngrading(true);
+    setError("");
+    try {
+      await api.post("/api/billing/change-plan", { plan: "basic" });
+      setDone("downgraded");
+    } catch {
+      setError("Failed to change plan. Please try again.");
+    } finally {
+      setDowngrading(false);
+    }
+  };
+
+  const closeAll = () => { setLayer(-1); setConfirmed(false); setSurveyAnswer(""); };
+
+  return (
+    <div>
+      {layer === -1 && (
+        <button onClick={() => setLayer(0)} className="text-sm font-medium text-gray-400 hover:text-red-500">
+          Cancel Subscription
+        </button>
+      )}
+
+      {/* Layer 0: Usage Stats */}
+      {layer === 0 && (
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-gray-900">
+            {monthCalls > 0
+              ? `Your AI receptionist answered ${monthCalls} call${monthCalls !== 1 ? "s" : ""} and booked ${monthBookings} appointment${monthBookings !== 1 ? "s" : ""} this month.`
+              : "Your AI receptionist is live and ready to answer calls."}
+          </p>
+          <p className="text-sm text-gray-600">Are you sure you want to cancel?</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setLayer(1)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">Yes, continue</button>
+            <button onClick={closeAll} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Keep My Subscription</button>
+          </div>
+        </div>
+      )}
+
+      {/* Layer 1: Pause */}
+      {layer === 1 && (
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-gray-900">Going on vacation or taking a break?</p>
+          <p className="text-xs text-gray-500">Pause your subscription instead of canceling. Your data and phone number are saved.</p>
+          <div className="flex gap-3">
+            {[1, 2, 3].map((m) => (
+              <label key={m} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${pauseMonths === m ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                <input type="radio" name="pause" checked={pauseMonths === m} onChange={() => setPauseMonths(m)} className="sr-only" />
+                {m} month{m > 1 ? "s" : ""}
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setDone("paused")} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Pause Subscription</button>
+            <button onClick={() => setLayer(2)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">No, continue canceling</button>
+            <button onClick={closeAll} className="text-sm text-gray-400 hover:text-gray-600">Keep my subscription</button>
+          </div>
+        </div>
+      )}
+
+      {/* Layer 2: Annual */}
+      {layer === 2 && (
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-gray-900">Switch to annual billing and save 20%</p>
+          <p className="text-xs text-gray-500">$99/mo → <span className="font-semibold text-green-700">$79/mo</span> billed annually ($948/yr)</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setLayer(3)} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Switch to Annual</button>
+            <button onClick={() => setLayer(3)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">No thanks, continue</button>
+            <button onClick={closeAll} className="text-sm text-gray-400 hover:text-gray-600">Keep my subscription</button>
+          </div>
+        </div>
+      )}
+
+      {/* Layer 3: $69 downgrade (existing) */}
+      {layer === 3 && (
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-gray-900">Before you go... keep your AI receptionist for just $69/mo — first year only. Then $99/mo. Cancel anytime.</p>
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+            <ul className="space-y-1 text-xs text-gray-600">
+              <li className="flex items-center gap-2"><span className="text-green-500">✅</span> $69/mo for your first year</li>
+              <li className="flex items-center gap-2"><span className="text-green-500">✅</span> Keep all your current features</li>
+              <li className="flex items-center gap-2"><span className="text-amber-500">⚠️</span> After 12 months: $99/mo automatically</li>
+              <li className="flex items-center gap-2"><span className="text-green-500">✅</span> Cancel anytime — no contract</li>
+            </ul>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600" />
+              <span className="text-xs text-gray-600">I understand this is $69/mo for the first year only, then $99/mo</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={handleDowngrade} disabled={!confirmed || downgrading} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
+                {downgrading ? "Changing plan..." : "Confirm Downgrade"}
+              </button>
+              <button onClick={() => setLayer(4)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">No thanks</button>
+              <button onClick={closeAll} className="text-sm text-gray-400 hover:text-gray-600">Keep my subscription</button>
+            </div>
+            {error && <p className="text-xs text-red-500">{error}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Layer 4: Exit Survey */}
+      {layer === 4 && (
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-gray-900">We're sorry to see you go. What could we improve?</p>
+          <div className="space-y-2">
+            {["Too expensive", "Missing features", "Not using it enough", "Switching to competitor", "Other"].map((opt) => (
+              <label key={opt} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${surveyAnswer === opt ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                <input type="radio" name="survey" checked={surveyAnswer === opt} onChange={() => setSurveyAnswer(opt)} className="sr-only" />
+                {opt}
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setDone("cancelled")} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Submit & Cancel</button>
+            <button onClick={closeAll} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Keep My Subscription</button>
+          </div>
+          {surveyAnswer && <p className="text-xs text-gray-400">Thank you. Your feedback helps us improve.</p>}
+        </div>
+      )}
     </div>
   );
 }

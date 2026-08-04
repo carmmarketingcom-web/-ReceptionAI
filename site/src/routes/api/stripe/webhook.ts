@@ -2,68 +2,56 @@
  * POST /api/stripe/webhook
  *
  * Stripe webhook handler. Receives events from Stripe and processes:
- * - checkout.session.completed → Create subscription after payment
+ * - checkout.session.completed → Full onboarding: create org, user, phone number, subscription
  * - customer.subscription.updated → Update subscription status
  * - customer.subscription.deleted → Mark subscription canceled
  * - invoice.paid / invoice.payment_failed → Update payment status
- *
- * Stripe signature verification uses the STRIPE_WEBHOOK_SECRET env var.
- * All events are logged to the stripe_events audit table.
  */
+
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { getDb, isMockMode } from "../../../db/index";
-import {
-  subscriptions,
-  stripeEvents,
-  usageRecords,
-} from "../../../db/schema/index";
-import { eq } from "drizzle-orm";
+import { neon } from "@neondatabase/serverless";
+import bcrypt from "bcryptjs";
+import { buyPhoneNumber } from "../../../lib/telnyx";
+import { sendEmail } from "../../../lib/email";
 
-/**
- * Verify the Stripe webhook signature.
- * Uses HMAC-SHA256 per Stripe's documentation.
- */
 function verifyStripeSignature(
   rawBody: string,
   signature: string,
   secret: string
 ): boolean {
   try {
-    // Stripe sends signature as "t=timestamp,v1=signature"
     const parts: Record<string, string> = {};
     signature.split(",").forEach((part) => {
       const [key, value] = part.split("=");
       parts[key] = value;
     });
-
     const timestamp = parts["t"];
     const sigV1 = parts["v1"];
-
     if (!timestamp || !sigV1) return false;
 
-    // Reject events older than 5 minutes (replay protection)
     const eventTime = parseInt(timestamp, 10);
     const now = Math.floor(Date.now() / 1000);
-    if (now - eventTime > 300) {
-      console.warn("[Stripe Webhook] Event too old, possible replay attack");
-      return false;
-    }
+    if (now - eventTime > 300) return false;
 
     const signedPayload = `${timestamp}.${rawBody}`;
     const expectedSignature = createHmac("sha256", secret)
       .update(signedPayload)
       .digest("hex");
 
-    // Constant-time comparison to prevent timing attacks
     const sigBuffer = Buffer.from(sigV1, "utf8");
     const expectedBuffer = Buffer.from(expectedSignature, "utf8");
-
     if (sigBuffer.length !== expectedBuffer.length) return false;
     return timingSafeEqual(sigBuffer, expectedBuffer);
   } catch {
     return false;
   }
+}
+
+function getSql() {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("DATABASE_URL not set");
+  return neon(dbUrl);
 }
 
 /**
@@ -75,10 +63,7 @@ export async function POST({ request }: { request: Request }) {
     const signature = request.headers.get("stripe-signature") || "";
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    if (!webhookSecret) {
-      console.warn("[Stripe Webhook] STRIPE_WEBHOOK_SECRET not set — skipping verification");
-      // In dev without webhook secret, still process but warn
-    } else {
+    if (webhookSecret) {
       const valid = verifyStripeSignature(rawBody, signature, webhookSecret);
       if (!valid) {
         return new Response(
@@ -96,25 +81,8 @@ export async function POST({ request }: { request: Request }) {
 
     console.log(`[Stripe Webhook] Received event: ${event.type}`);
 
-    const usingMock = isMockMode();
-
-    if (!usingMock) {
-      const db = getDb();
-
-      // Log the event for audit
-      await db.insert(stripeEvents).values({
-        id: crypto.randomUUID(),
-        stripeEventId: event.id,
-        eventType: event.type,
-        payload: event,
-        processedAt: new Date(),
-      });
-
-      // Process the event
-      await processStripeEvent(db, event);
-    } else {
-      console.log(`[Stripe Webhook] Mock mode — event ${event.type} acknowledged`);
-    }
+    // Process the event (uses neon for checkout, drizzle for subscription updates)
+    await processStripeEvent(event);
 
     return new Response(
       JSON.stringify({ received: true }),
@@ -129,25 +97,22 @@ export async function POST({ request }: { request: Request }) {
   }
 }
 
-/**
- * Process a Stripe event — route to the appropriate handler.
- */
-async function processStripeEvent(db: any, event: any) {
+async function processStripeEvent(event: any) {
   switch (event.type) {
     case "checkout.session.completed":
-      await handleCheckoutCompleted(db, event.data.object);
+      await handleCheckoutCompleted(event.data.object);
       break;
     case "customer.subscription.updated":
-      await handleSubscriptionUpdated(db, event.data.object);
+      await handleSubscriptionUpdated(event.data.object);
       break;
     case "customer.subscription.deleted":
-      await handleSubscriptionDeleted(db, event.data.object);
+      await handleSubscriptionDeleted(event.data.object);
       break;
     case "invoice.paid":
-      await handleInvoicePaid(db, event.data.object);
+      await handleInvoicePaid(event.data.object);
       break;
     case "invoice.payment_failed":
-      await handlePaymentFailed(db, event.data.object);
+      await handlePaymentFailed(event.data.object);
       break;
     default:
       console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
@@ -155,144 +120,227 @@ async function processStripeEvent(db: any, event: any) {
 }
 
 /**
- * Handle checkout.session.completed — create a subscription.
+ * Handle checkout.session.completed — FULL ONBOARDING FLOW:
+ * a. Extract metadata from the checkout session
+ * b. Create organization
+ * c. Create user (admin/owner)
+ * d. If !useExistingNumber: buy phone number via Telnyx → insert into phone_numbers
+ * e. If useExistingNumber: insert existingPhoneNumber with status 'pending_port'
+ * f. Store stripeCustomerId on organization
+ * g. Create subscription record
  */
-async function handleCheckoutCompleted(db: any, session: any) {
+async function handleCheckoutCompleted(session: any) {
   const {
     id: checkoutSessionId,
     customer: stripeCustomerId,
     subscription: stripeSubscriptionId,
-    client_reference_id: organizationId,
-    mode,
+    metadata = {},
+    customer_details = {},
   } = session;
 
+  const companyName = metadata.companyName || "";
+  const email = metadata.email || customer_details.email || "";
+  const name = metadata.name || customer_details.name || "";
+  const plan = metadata.plan || "starter";
+  const useExistingNumber = metadata.useExistingNumber === "true";
+  const existingPhoneNumber = metadata.existingPhoneNumber || "";
+  const password = metadata.password || "";
+
   console.log(
-    `[Stripe] Checkout completed: session=${checkoutSessionId}, customer=${stripeCustomerId}, sub=${stripeSubscriptionId}, org=${organizationId}`
+    `[Stripe] Checkout completed: session=${checkoutSessionId}, ` +
+    `customer=${stripeCustomerId}, plan=${plan}, company="${companyName}", ` +
+    `useExisting=${useExistingNumber}`
   );
 
-  if (!organizationId) {
-    console.warn("[Stripe] No client_reference_id (org_id) in checkout session");
+  if (!companyName || !email) {
+    console.warn("[Stripe] Missing companyName or email in metadata — skipping onboarding");
     return;
   }
 
-  if (mode === "subscription" && stripeSubscriptionId) {
-    // Get subscription details from Stripe via the session metadata
-    // or from what we have. For now, set as active with trial.
-    const planName = session.metadata?.plan || "starter";
+  const sql = getSql();
+  const orgId = crypto.randomUUID();
+  const userId = crypto.randomUUID();
+  const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60);
 
-    // Find the plan
-    const [plan] = await db
-      .select()
-      .from((await import("../../../db/schema/index")).subscriptionPlans)
-      .where(
-        eq(
-          (await import("../../../db/schema/index")).subscriptionPlans.name,
-          planName
-        )
-      )
-      .limit(1);
+  // b. Create organization
+  await sql`
+    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale)
+    VALUES (${orgId}, ${companyName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', 'America/Chicago', 'en')
+  `;
+  console.log(`[Stripe] Created org: ${orgId} — "${companyName}"`);
 
-    // Upsert the subscription
-    await db.insert(subscriptions).values({
-      id: crypto.randomUUID(),
-      organizationId,
-      planId: plan?.id || null,
-      stripeSubscriptionId,
-      stripeCustomerId,
-      status: "active",
-      billingCycle: "monthly",
-      trialEndsAt: session.metadata?.trial_days
-        ? new Date(Date.now() + parseInt(session.metadata.trial_days) * 86400000)
-        : null,
-    });
+  // c. Create user (owner) with password hash
+  const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+  await sql`
+    INSERT INTO users (id, organization_id, email, name, role, password_hash)
+    VALUES (${userId}, ${orgId}, ${email}, ${name}, 'owner', ${passwordHash || generateRandomHash()})
+  `;
+  console.log(`[Stripe] Created user: ${userId} — ${email}${password ? " (with password)" : " (no password in metadata)"}`);
+
+  // d/e. Phone number provisioning
+  if (!useExistingNumber) {
+    // Buy a new number via Telnyx
+    console.log(`[Stripe] Buying new phone number via Telnyx...`);
+    const purchased = await buyPhoneNumber();
+
+    if (purchased) {
+      await sql`
+        INSERT INTO phone_numbers (id, organization_id, phone_number, provider, telnyx_number_id, is_active, capabilities)
+        VALUES (${crypto.randomUUID()}, ${orgId}, ${purchased.phoneNumber}, 'telnyx', ${purchased.telnyxNumberId}, true, '{"voice":true,"sms":true,"mms":false}'::jsonb)
+      `;
+      console.log(`[Stripe] Purchased number: ${purchased.phoneNumber} (telnyx: ${purchased.telnyxNumberId})`);
+    } else {
+      console.warn("[Stripe] Failed to buy phone number — org created without number");
+    }
+  } else if (existingPhoneNumber) {
+    // Store existing number as pending port
+    await sql`
+      INSERT INTO phone_numbers (id, organization_id, phone_number, provider, is_active, capabilities, metadata)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${existingPhoneNumber}, 'telnyx', false, '{"voice":false,"sms":false,"mms":false}'::jsonb, '{"status":"pending_port"}'::jsonb)
+    `;
+    console.log(`[Stripe] Stored existing number as pending_port: ${existingPhoneNumber}`);
+  }
+
+  // f. stripeCustomerId is already stored on the org (see b)
+
+  // g. Create subscription record
+  if (stripeSubscriptionId) {
+    const planIdMap: Record<string, string> = {
+      starter: "starter",
+      growth: "growth",
+      scale: "scale",
+    };
+
+    // Find plan ID from DB or use the plan name directly
+    const planRows = await sql`
+      SELECT id FROM subscription_plans WHERE name = ${plan} LIMIT 1
+    `;
+    const planId = planRows[0]?.id || planIdMap[plan] || null;
+
+    await sql`
+      INSERT INTO subscriptions (id, organization_id, plan_id, stripe_subscription_id, stripe_customer_id, status, billing_cycle)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${planId ? planId : null}, ${stripeSubscriptionId}, ${stripeCustomerId}, 'active', 'monthly')
+    `;
+    console.log(`[Stripe] Created subscription: ${stripeSubscriptionId}`);
+  }
+
+  // Create default business hours (Mon-Fri 9-5)
+  for (let day = 1; day <= 5; day++) {
+    await sql`
+      INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, '09:00', '17:00', false)
+    `;
+  }
+  for (const day of [0, 6]) {
+    await sql`
+      INSERT INTO business_hours (id, organization_id, day_of_week, is_closed)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, true)
+    `;
+  }
+
+  console.log(`[Stripe] Onboarding complete for org ${orgId}`);
+
+  // h. Send welcome email
+  try {
+    // Get the phone number for the welcome email
+    const phoneRows = await sql`
+      SELECT phone_number FROM phone_numbers
+      WHERE organization_id = ${orgId} AND is_active = true
+      LIMIT 1
+    `;
+    const phoneNumber = phoneRows[0]?.phone_number || "Your number is being provisioned";
+    const pendingPort = !!(await sql`
+      SELECT 1 FROM phone_numbers WHERE organization_id = ${orgId} AND metadata->>'status' = 'pending_port' LIMIT 1
+    `).length;
+
+    const phoneLine = pendingPort
+      ? `📞 Your phone number (${existingPhoneNumber}) is being ported — we'll notify you when it's live.`
+      : `📞 Your phone number: ${phoneNumber}`;
+
+    const welcomeBody = `Hi ${name},
+
+Your AI receptionist is live and ready to answer calls!
+
+${phoneLine}
+🔗 Dashboard: https://receptionai.store/login
+📖 Getting started: https://receptionai.store/getting-started
+
+Quick start:
+1. Log in at https://receptionai.store/login
+2. Complete your setup (2 min)
+3. Start receiving calls
+
+Your 14-day free trial starts now. Cancel anytime.
+
+Questions? Reply to this email.
+
+— Team ReceptionAI`;
+
+    sendEmail(email, "Welcome to ReceptionAI 🎉 — Your AI receptionist is live", welcomeBody);
+    console.log(`[Stripe] Welcome email sent to ${email}`);
+  } catch (err) {
+    console.warn("[Stripe] Failed to send welcome email:", String(err).slice(0, 200));
   }
 }
 
 /**
  * Handle customer.subscription.updated — update subscription status.
  */
-async function handleSubscriptionUpdated(db: any, subscription: any) {
+async function handleSubscriptionUpdated(subscription: any) {
   const { id: stripeSubscriptionId, status, current_period_start, current_period_end, cancel_at_period_end } = subscription;
+  const mappedStatus = mapStripeStatus(status);
 
-  const stripeStatus = status as string;
-  // Map Stripe status to our enum
-  const mappedStatus = mapStripeStatus(stripeStatus);
-
-  await db
-    .update(subscriptions)
-    .set({
-      status: mappedStatus,
-      currentPeriodStart: current_period_start
-        ? new Date(current_period_start * 1000)
-        : undefined,
-      currentPeriodEnd: current_period_end
-        ? new Date(current_period_end * 1000)
-        : undefined,
-      cancelAtPeriodEnd: cancel_at_period_end || false,
-      updatedAt: new Date(),
-    })
-    .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId));
+  const sql = getSql();
+  await sql`
+    UPDATE subscriptions
+    SET status = ${mappedStatus},
+        current_period_start = ${current_period_start ? new Date(current_period_start * 1000).toISOString() : null},
+        current_period_end = ${current_period_end ? new Date(current_period_end * 1000).toISOString() : null},
+        cancel_at_period_end = ${cancel_at_period_end || false},
+        updated_at = NOW()
+    WHERE stripe_subscription_id = ${stripeSubscriptionId}
+  `;
 }
 
-/**
- * Handle customer.subscription.deleted — mark as canceled.
- */
-async function handleSubscriptionDeleted(db: any, subscription: any) {
+async function handleSubscriptionDeleted(subscription: any) {
   const { id: stripeSubscriptionId } = subscription;
-
-  await db
-    .update(subscriptions)
-    .set({
-      status: "canceled",
-      canceledAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId));
+  const sql = getSql();
+  await sql`
+    UPDATE subscriptions
+    SET status = 'canceled', canceled_at = NOW(), updated_at = NOW()
+    WHERE stripe_subscription_id = ${stripeSubscriptionId}
+  `;
 }
 
-/**
- * Handle invoice.paid — update payment status, log usage.
- */
-async function handleInvoicePaid(db: any, invoice: any) {
-  const { subscription: stripeSubscriptionId, amount_paid, period_start, period_end } = invoice;
-
-  if (stripeSubscriptionId) {
-    await db
-      .update(subscriptions)
-      .set({
-        status: "active",
-        currentPeriodStart: period_start ? new Date(period_start * 1000) : undefined,
-        currentPeriodEnd: period_end ? new Date(period_end * 1000) : undefined,
-        updatedAt: new Date(),
-      })
-      .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId));
-  }
+async function handleInvoicePaid(invoice: any) {
+  const { subscription: stripeSubscriptionId, period_start, period_end } = invoice;
+  if (!stripeSubscriptionId) return;
+  const sql = getSql();
+  await sql`
+    UPDATE subscriptions
+    SET status = 'active',
+        current_period_start = ${period_start ? new Date(period_start * 1000).toISOString() : null},
+        current_period_end = ${period_end ? new Date(period_end * 1000).toISOString() : null},
+        updated_at = NOW()
+    WHERE stripe_subscription_id = ${stripeSubscriptionId}
+  `;
 }
 
-/**
- * Handle invoice.payment_failed — mark as past_due.
- */
-async function handlePaymentFailed(db: any, invoice: any) {
+async function handlePaymentFailed(invoice: any) {
   const { subscription: stripeSubscriptionId } = invoice;
-
-  if (stripeSubscriptionId) {
-    await db
-      .update(subscriptions)
-      .set({
-        status: "past_due",
-        updatedAt: new Date(),
-      })
-      .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId));
-  }
+  if (!stripeSubscriptionId) return;
+  const sql = getSql();
+  await sql`
+    UPDATE subscriptions
+    SET status = 'past_due', updated_at = NOW()
+    WHERE stripe_subscription_id = ${stripeSubscriptionId}
+  `;
 }
 
-/**
- * Map Stripe subscription status to our internal enum.
- */
 function mapStripeStatus(
   stripeStatus: string
-): "active" | "past_due" | "canceled" | "trialing" | "incomplete" | "unpaid" | "paused" {
-  const map: Record<string, any> = {
+): string {
+  const map: Record<string, string> = {
     active: "active",
     past_due: "past_due",
     canceled: "canceled",
@@ -303,4 +351,8 @@ function mapStripeStatus(
     paused: "paused",
   };
   return map[stripeStatus] || "incomplete";
+}
+
+function generateRandomHash(): string {
+  return bcrypt.hashSync(crypto.randomUUID(), 10);
 }

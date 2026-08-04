@@ -1,3 +1,4 @@
+
 // ─── Reminders Send API Route ─────────────────────────────────────────────────
 // POST /api/reminders/send
 // Triggers a reminder for an appointment (used by cron job or manual trigger).

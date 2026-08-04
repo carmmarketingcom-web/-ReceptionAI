@@ -76,6 +76,7 @@ export const phoneNumbers = pgTable(
     label: varchar("label", { length: 100 }),
     provider: varchar("provider", { length: 50 }).notNull().default("twilio"),
     providerSid: varchar("provider_sid", { length: 100 }),
+    telnyxNumberId: varchar("telnyx_number_id", { length: 100 }),
     isActive: boolean("is_active").notNull().default(true),
     capabilities: jsonb("capabilities").notNull().default({
       voice: true,

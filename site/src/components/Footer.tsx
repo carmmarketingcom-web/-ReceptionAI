@@ -9,12 +9,13 @@ export default function Footer() {
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <Link to="/" className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white">
-                R
-              </div>
-              <span className="text-base font-bold tracking-tight text-gray-900">
-                Reception<span className="text-indigo-600">AI</span>
-              </span>
+              <img
+                src="/images/logo.png"
+                alt="ReceptionAI"
+                className="h-7 w-auto"
+                width={800}
+                height={450}
+              />
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-gray-500">
               {t("footer.tagline")}
@@ -48,12 +49,12 @@ export default function Footer() {
             <h3 className="text-sm font-semibold text-gray-900">{t("footer.company")}</h3>
             <ul className="mt-3 space-y-2">
               <li>
-                <a href="#" className="text-sm text-gray-500 transition hover:text-gray-900">
+                <a href="/privacy" className="text-sm text-gray-500 transition hover:text-gray-900">
                   {t("footer.privacy")}
                 </a>
               </li>
               <li>
-                <a href="#" className="text-sm text-gray-500 transition hover:text-gray-900">
+                <a href="/terms" className="text-sm text-gray-500 transition hover:text-gray-900">
                   {t("footer.terms")}
                 </a>
               </li>
@@ -70,13 +71,13 @@ export default function Footer() {
             <h3 className="text-sm font-semibold text-gray-900">{t("footer.support")}</h3>
             <ul className="mt-3 space-y-2">
               <li>
-                <a href="mailto:hello@receptionai.com" className="text-sm text-gray-500 transition hover:text-gray-900">
-                  hello@receptionai.com
+                <a href="mailto:hello@receptionai.store" className="text-sm text-gray-500 transition hover:text-gray-900">
+                  hello@receptionai.store
                 </a>
               </li>
               <li>
-                <a href="tel:+18885551234" className="text-sm text-gray-500 transition hover:text-gray-900">
-                  1-888-555-1234
+                <a href="tel:+17279667556" className="text-sm text-gray-500 transition hover:text-gray-900">
+                  (727) 966-7556
                 </a>
               </li>
             </ul>

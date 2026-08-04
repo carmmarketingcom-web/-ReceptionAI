@@ -22,6 +22,7 @@ const features = [
       {
         icon: "🔄",
         title: "Smart Human Handoff",
+        comingSoon: true,
         desc: "When the AI detects a complex issue, a frustrated customer, or a specific request, it seamlessly transfers the call to your team — with full context of the conversation.",
         details: [
           "Sentiment-based escalation detection",
@@ -33,6 +34,7 @@ const features = [
       {
         icon: "🎯",
         title: "Custom Call Scripts",
+        comingSoon: true,
         desc: "Train your AI receptionist with custom scripts tailored to your business. Define exactly what questions to ask and how to handle different scenarios.",
         details: [
           "Industry-specific conversation flows",
@@ -49,6 +51,7 @@ const features = [
       {
         icon: "💬",
         title: "Omnichannel Inbox",
+        comingSoon: true,
         desc: "All conversations from every channel in one unified inbox. SMS, web chat, WhatsApp, Facebook Messenger — never lose track of a lead.",
         details: [
           "Unified inbox across all channels",
@@ -87,12 +90,23 @@ const features = [
       {
         icon: "📅",
         title: "Smart Appointment Booking",
-        desc: "The AI reads your calendar and books appointments automatically. It checks availability, finds the best time slot, and confirms the booking — all in the conversation.",
+        desc: "The AI checks your built-in calendar and books appointments automatically. It finds the best time slot and confirms the booking — all in the conversation.",
         details: [
-          "Google Calendar & Outlook integration",
-          "Real-time availability checking",
+          "Built-in calendar — no Google or Outlook needed",
+          "Real-time availability from your business hours",
           "Automatic conflict prevention",
           "Buffer time between appointments",
+        ],
+      },
+      {
+        icon: "🗓️",
+        title: "Built-in Calendar — No Setup Required",
+        desc: "Unlike every other AI receptionist, we don't force you to connect Google Calendar. Set your business hours once and your schedule just works. Nothing to connect, nothing to sync.",
+        details: [
+          "No Google Calendar or Outlook required",
+          "Modern split-layout calendar view",
+          "Color-coded appointments by status",
+          "Set it once, works forever",
         ],
       },
       {
@@ -109,6 +123,7 @@ const features = [
       {
         icon: "📋",
         title: "Intake & Forms",
+        comingSoon: true,
         desc: "Collect customer information, intake forms, and consent documents before appointments. The AI asks questions and fills forms automatically.",
         details: [
           "Custom intake questionnaires",
@@ -125,6 +140,7 @@ const features = [
       {
         icon: "📊",
         title: "Advanced Analytics",
+        comingSoon: true,
         desc: "Track every metric that matters: call volume, answer rate, booking rate, peak hours, customer satisfaction, and more. All in one real-time dashboard.",
         details: [
           "Real-time call and chat metrics",
@@ -137,6 +153,7 @@ const features = [
       {
         icon: "👥",
         title: "Team Management",
+        comingSoon: true,
         desc: "Add your team members, set availability, define escalation rules, and manage who handles what. Perfect for growing businesses with multiple staff.",
         details: [
           "Role-based access control",
@@ -148,6 +165,7 @@ const features = [
       {
         icon: "🎙️",
         title: "Call Recordings",
+        comingSoon: true,
         desc: "Every AI-handled call is recorded and transcribed. Review conversations, train your team, and ensure quality — all from your dashboard.",
         details: [
           "Full audio recordings",
@@ -184,13 +202,35 @@ export default function FeaturesPage() {
         <section key={category.category} className="border-b border-gray-100 bg-white py-16 last:border-0">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl font-bold text-gray-900">{category.category}</h2>
+            {/* Product screenshot for Scheduling section */}
+            {category.category === "Scheduling & Calendar" && (
+              <div className="mt-6">
+                <div className="overflow-hidden rounded-2xl border border-gray-200 shadow-lg shadow-gray-100">
+                  <img
+                    src="/images/calendar-dashboard.png"
+                    alt="ReceptionAI built-in calendar dashboard — no Google account needed"
+                    className="mx-auto w-full max-w-[960px]"
+                  />
+                </div>
+                <p className="mt-3 text-center text-sm text-gray-400">
+                  Built-in calendar — nothing to connect. Set your business hours and it just works.
+                </p>
+              </div>
+            )}
             <div className="mt-8 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
               {category.items.map((feature) => (
                 <div key={feature.title} className="rounded-2xl border border-gray-100 bg-white p-6 transition hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-50">
                   <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-2xl">
                     {feature.icon}
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900">{feature.title}</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {feature.title}
+                    {(feature as any).comingSoon && (
+                      <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                        Coming Soon
+                      </span>
+                    )}
+                  </h3>
                   <p className="mt-2 text-sm leading-relaxed text-gray-600">{feature.desc}</p>
                   <ul className="mt-4 space-y-2">
                     {feature.details.map((d) => (

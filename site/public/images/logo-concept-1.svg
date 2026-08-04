@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 80" width="380" height="80">
+  <!-- Bold Wordmark Only — Approach A -->
+  <text x="0" y="54" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" 
+        font-weight="900" font-size="44" letter-spacing="-0.5" fill="#0F172A">
+    Reception
+  </text>
+  <text x="240" y="54" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" 
+        font-weight="300" font-size="44" letter-spacing="-0.5" fill="#4F46E5">
+    AI
+  </text>
+</svg>

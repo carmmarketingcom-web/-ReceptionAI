@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
+import { useConversations, type ConversationItem } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/conversations/$id")({
   component: ConversationDetailPage,
@@ -11,22 +12,10 @@ type Message = {
   time: string;
 };
 
-const conversationData: Record<string, {
-  name: string;
-  initials: string;
-  channel: string;
-  phone: string;
-  email: string;
-  status: string;
-  messages: Message[];
-}> = {
+// Mock fallback data
+const mockMessages: Record<string, { name: string; initials: string; channel: string; phone: string; email: string; status: string; messages: Message[] }> = {
   "C-1001": {
-    name: "Maria Garcia",
-    initials: "MG",
-    channel: "📞 Call",
-    phone: "(555) 123-4567",
-    email: "maria.g@email.com",
-    status: "completed",
+    name: "Maria Garcia", initials: "MG", channel: "📞 Call", phone: "(555) 123-4567", email: "maria.g@email.com", status: "completed",
     messages: [
       { role: "ai", content: "Thank you for calling Garcia's HVAC Service. This is Maria speaking — how can I help you today?", time: "2:43 PM" },
       { role: "customer", content: "Hi, my AC unit stopped working. It's blowing warm air. Can someone come take a look?", time: "2:43 PM" },
@@ -40,12 +29,7 @@ const conversationData: Record<string, {
     ],
   },
   "C-1002": {
-    name: "John Smith",
-    initials: "JS",
-    channel: "💬 Chat",
-    phone: "(555) 987-6543",
-    email: "john.smith@email.com",
-    status: "active",
+    name: "John Smith", initials: "JS", channel: "💬 Chat", phone: "(555) 987-6543", email: "john.smith@email.com", status: "active",
     messages: [
       { role: "customer", content: "Hi, I'm looking at your website. Can you tell me about your pricing?", time: "11:30 AM" },
       { role: "ai", content: "Of course! We have three plans: Starter at $99/mo, Growth at $199/mo, and Scale at $399/mo. The Growth plan is our most popular — it includes 2 phone lines, 2,000 AI-minutes, and WhatsApp integration. Would you like more details on any specific plan?", time: "11:30 AM" },
@@ -60,13 +44,68 @@ const conversationData: Record<string, {
 function ConversationDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
-  const conv = conversationData[id];
+  const { data, loading, error } = useConversations(200, 0);
+  const [conv, setConv] = useState<ConversationItem | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
-  if (!conv) {
+  useEffect(() => {
+    if (data?.conversations) {
+      const found = data.conversations.find((c) => c.id === id);
+      if (found) {
+        setConv(found);
+      } else {
+        setNotFound(true);
+      }
+    }
+  }, [data, id]);
+
+  // Show mock data while loading API, or if API returned no data
+  const mockConv = mockMessages[id];
+  const isLoading = loading && !conv && !mockConv;
+  const displayConv = conv
+    ? {
+        name: conv.customerName || conv.customerPhone || "Unknown",
+        initials: conv.customerInitials || (conv.customerName
+          ? conv.customerName.split(" ").map((n: string) => n[0]).join("").toUpperCase()
+          : "??"),
+        channel: conv.channel === "chat" ? "💬 Chat" : conv.channel === "sms" ? "✉️ SMS" : "📞 Call",
+        phone: conv.customerPhone || "-",
+        email: "-",
+        status: conv.status || "completed",
+        messages: [] as Message[],
+      }
+    : mockConv;
+
+  if (loading && !displayConv) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <svg className="h-8 w-8 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (notFound && !mockConv) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <p className="text-lg font-medium text-gray-900">Conversation not found</p>
         <p className="mt-1 text-sm text-gray-500">The conversation "{id}" doesn't exist.</p>
+        <button
+          onClick={() => navigate({ to: "/dashboard/conversations" })}
+          className="mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+        >
+          ← Back to conversations
+        </button>
+      </div>
+    );
+  }
+
+  if (!displayConv) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-lg font-medium text-gray-900">Conversation not found</p>
         <button
           onClick={() => navigate({ to: "/dashboard/conversations" })}
           className="mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-700"
@@ -94,17 +133,17 @@ function ConversationDetailPage() {
           <div className="h-6 w-px bg-gray-200" />
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-50 text-sm font-semibold text-indigo-600">
-              {conv.initials}
+              {displayConv.initials}
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">{conv.name}</h1>
-              <p className="text-xs text-gray-500">{conv.channel} · {id}</p>
+              <h1 className="text-lg font-bold text-gray-900">{displayConv.name}</h1>
+              <p className="text-xs text-gray-500">{displayConv.channel} · {id}</p>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
-            {conv.status}
+            {displayConv.status}
           </span>
         </div>
       </div>
@@ -116,30 +155,35 @@ function ConversationDetailPage() {
             <h2 className="text-sm font-semibold text-gray-900">Conversation Thread</h2>
           </div>
           <div className="space-y-4 p-5">
-            {conv.messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex ${msg.role === "customer" ? "justify-start" : "justify-end"}`}
-              >
+            {displayConv.messages.length > 0 ? (
+              displayConv.messages.map((msg, i) => (
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                    msg.role === "ai"
-                      ? "bg-indigo-50 text-indigo-900"
-                      : msg.role === "human"
-                      ? "bg-amber-50 text-amber-900"
-                      : "bg-gray-100 text-gray-900"
-                  }`}
+                  key={i}
+                  className={`flex ${msg.role === "customer" ? "justify-start" : "justify-end"}`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium opacity-60">
-                      {msg.role === "ai" ? "AI" : msg.role === "human" ? "Human" : conv.name}
-                    </span>
-                    <span className="text-xs opacity-40">{msg.time}</span>
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${msg.role === "ai" ? "bg-indigo-50 text-indigo-900" : msg.role === "human" ? "bg-amber-50 text-amber-900" : "bg-gray-100 text-gray-900"}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium opacity-60">
+                        {msg.role === "ai" ? "AI" : msg.role === "human" ? "Human" : displayConv.name}
+                      </span>
+                      <span className="text-xs opacity-40">{msg.time}</span>
+                    </div>
+                    <p className="mt-1 text-sm leading-relaxed">{msg.content}</p>
                   </div>
-                  <p className="mt-1 text-sm leading-relaxed">{msg.content}</p>
                 </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <p className="text-sm text-gray-500">No detailed transcript available.</p>
+                {conv?.summary && (
+                  <div className="mt-2 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                    <span className="font-medium">Summary:</span> {conv.summary}
+                  </div>
+                )}
               </div>
-            ))}
+            )}
           </div>
         </div>
 
@@ -150,12 +194,15 @@ function ConversationDetailPage() {
             <div className="mt-4 space-y-3">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-gray-400">📞</span>
-                <a href={`tel:${conv.phone}`} className="text-gray-700 hover:text-indigo-600">{conv.phone}</a>
+                <a href={`tel:${displayConv.phone}`} className="text-gray-700 hover:text-indigo-600">{displayConv.phone}</a>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-gray-400">✉️</span>
-                <a href={`mailto:${conv.email}`} className="text-gray-700 hover:text-indigo-600">{conv.email}</a>
+                <a href={`mailto:${displayConv.email}`} className="text-gray-700 hover:text-indigo-600">{displayConv.email}</a>
               </div>
+              {error && (
+                <p className="text-xs text-amber-600">Showing cached data — could not refresh from server.</p>
+              )}
             </div>
           </div>
 
