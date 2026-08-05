@@ -111,34 +111,34 @@ export default function BookPage() {
                   <div>
                     <label className="block text-xs font-medium text-gray-600">Full Name *</label>
                     <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-                      placeholder="Your name" className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      placeholder="Your name" className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600">Phone *</label>
                     <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
-                      placeholder="(555) 123-4567" className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      placeholder="(555) 123-4567" className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600">Email</label>
                     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com" className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      placeholder="you@example.com" className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600">Service</label>
                     <select value={service} onChange={(e) => setService(e.target.value)}
-                      className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                      className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
                       {SERVICE_TYPES.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600">Preferred Date *</label>
                     <input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)}
-                      className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600">Notes (optional)</label>
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
-                      placeholder="Anything we should know..." className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      placeholder="Anything we should know..." className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                 </div>
 
