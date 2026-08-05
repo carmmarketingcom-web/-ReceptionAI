@@ -67,9 +67,9 @@ function SignupPage() {
     <div className="flex min-h-dvh flex-col">
       <Header />
 
-      <main className="flex flex-1 items-center justify-center bg-gradient-to-b from-white via-indigo-50/30 to-white px-4 py-20">
+      <main className="flex flex-1 items-center justify-center bg-gradient-to-b from-white via-indigo-50/30 to-white px-4 py-20" style={{ colorScheme: "light" }}>
         <div className="w-full max-w-md">
-          <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl shadow-gray-100/50">
+          <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl shadow-gray-100/50" style={{ colorScheme: "light" }}>
             <div className="mb-8 text-center">
               <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
               <p className="mt-2 text-sm text-gray-500">14-day free trial. Cancel anytime.</p>
@@ -86,7 +86,7 @@ function SignupPage() {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="John Smith"
-                  className="mt-1.5 block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   autoFocus
                 />
               </div>
@@ -101,7 +101,7 @@ function SignupPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
-                  className="mt-1.5 block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
@@ -118,13 +118,14 @@ function SignupPage() {
                       key={p.slug}
                       type="button"
                       onClick={() => setPlan(p.slug)}
-                      className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition ${
+                      className={`flex-1 cursor-pointer rounded-lg px-3 py-3 text-sm font-medium transition ${
                         plan === p.slug
-                          ? "bg-white text-indigo-700 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700"
+                          ? "bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200"
+                          : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                       }`}
                     >
-                      {p.label}<br /><span className="font-normal opacity-60">{p.price}</span>
+                      <div>{p.label}</div>
+                      <div className="font-normal opacity-60">{p.price}/mo</div>
                     </button>
                   ))}
                 </div>
@@ -144,7 +145,7 @@ function SignupPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Create a password (min 8 characters)"
-                  className="mt-1.5 block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 

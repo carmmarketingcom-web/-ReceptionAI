@@ -61,7 +61,7 @@ function LoginPage() {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex flex-1 items-center justify-center px-6 py-12">
+      <div className="flex flex-1 items-center justify-center px-6 py-12" style={{ colorScheme: "light" }}>
         <div className="w-full max-w-sm">
           {/* Logo for mobile */}
           <div className="mb-10 flex justify-center lg:hidden">
@@ -96,8 +96,8 @@ function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                placeholder="you@company.com"
+                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    placeholder="you@company.com"
               />
             </div>
             <div>
@@ -110,8 +110,8 @@ function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                placeholder="Enter your password"
+                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    placeholder="Enter your password"
               />
             </div>
 

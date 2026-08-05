@@ -62,6 +62,11 @@ function DemoPage() {
         .demo-typing-dot:nth-child(1) { animation-delay: 0s; }
         .demo-typing-dot:nth-child(2) { animation-delay: 0.16s; }
         .demo-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+        ${demoScript.map((_, i) => {
+          const delay = (i + 1) * TYPING_DELAY_MS;
+          return `.demo-msg-${i} { animation: demoFadeIn 0.4s ease-out ${delay}ms forwards !important; }`;
+        }).join("\n")}
+        .demo-typing-final { animation: demoFadeIn 0.3s ease-out ${(demoScript.length + 1) * TYPING_DELAY_MS}ms forwards !important; }
       `}</style>
       <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Title */}
@@ -116,13 +121,11 @@ function DemoPage() {
 
                 {/* Demo script messages — all in HTML, CSS animation with staggered delays */}
                 {demoScript.map((msg, i) => {
-                  const delay = (i + 1) * TYPING_DELAY_MS;
                   const isCaller = msg.speaker === "caller";
                   return (
                     <div
                       key={i}
-                      className={`flex ${isCaller ? "justify-end" : "justify-start"} demo-msg-initial`}
-                      style={{ animation: `demoFadeIn 0.4s ease-out ${delay}ms forwards` }}
+                      className={`flex ${isCaller ? "justify-end" : "justify-start"} demo-msg-initial demo-msg-${i}`}
                     >
                       <div
                         className={`max-w-[85%] rounded-2xl px-4 py-2 shadow-sm ${
@@ -137,10 +140,7 @@ function DemoPage() {
                 })}
 
                 {/* Typing indicator — CSS animated dots */}
-                <div
-                  className="demo-msg-initial flex justify-start"
-                  style={{ animation: `demoFadeIn 0.3s ease-out ${(demoScript.length + 1) * TYPING_DELAY_MS}ms forwards` }}
-                >
+                <div className="demo-msg-initial demo-typing-final flex justify-start">
                   <div className="flex items-center gap-1 rounded-2xl bg-indigo-100 px-4 py-3">
                     <span className="demo-typing-dot inline-block h-2 w-2 rounded-full bg-indigo-400" />
                     <span className="demo-typing-dot inline-block h-2 w-2 rounded-full bg-indigo-400" />

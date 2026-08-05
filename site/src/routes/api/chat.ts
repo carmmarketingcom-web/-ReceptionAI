@@ -97,8 +97,8 @@ export async function POST({ request }: { request: Request }) {
     // Try Gemini, fall back to smart keyword responses
     const apiKey = process.env.GEMINI_API_KEY || "";
 
-    // Only attempt Gemini if key looks valid (starts with AIza)
-    if (apiKey && apiKey.startsWith("AIza")) {
+    // Attempt Gemini if key is set
+    if (apiKey) {
       try {
         const systemPrompt = lang === "es" ? SYSTEM_PROMPT_ES : SYSTEM_PROMPT_EN;
         const contents: { role: string; parts: { text: string }[] }[] = [];
@@ -111,7 +111,7 @@ export async function POST({ request }: { request: Request }) {
         const timeout = setTimeout(() => controller.abort(), 8000);
 
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
