@@ -106,10 +106,10 @@ function SignupPage() {
     <div className="flex min-h-dvh flex-col">
       <Header />
 
-      <main className="flex flex-1 items-center justify-center bg-gradient-to-b from-amber-50/40 via-orange-50/20 to-white px-4 py-20 sm:py-28">
+      <main className="flex flex-1 items-center justify-center bg-gradient-to-b from-amber-50/40 via-orange-50/20 to-white px-4 py-20 sm:py-28" style={{ colorScheme: "light" }}>
         <div className="w-full max-w-lg">
           {/* Card */}
-          <div className="rounded-3xl border border-gray-100 bg-white p-8 shadow-xl shadow-gray-200/50 sm:p-10">
+          <div className="rounded-3xl border border-gray-100 bg-white p-8 shadow-xl shadow-gray-200/50 sm:p-10" style={{ colorScheme: "light" }}>
             {/* Header */}
             <div className="mb-8 text-center">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-md shadow-amber-200">

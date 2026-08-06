@@ -33,6 +33,7 @@ export const Route = createRootRoute({
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:image", content: "https://www.receptionai.store/images/og-image.png" },
       { name: "google-site-verification", content: "QgwuDrpvyBumv82MqfbquRN1ep8cp8pYwBVqvNnr-Ng" },
+      { name: "color-scheme", content: "light" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
