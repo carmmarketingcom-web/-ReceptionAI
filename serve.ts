@@ -2495,6 +2495,7 @@ for (let attempt = 1; ; attempt++) {
           const file = Bun.file(CLIENT_DIR + pathname);
           if (await file.exists()) return new Response(file);
         }
+        // IOS FIX: injected CSS for input visibility — DO NOT REMOVE. See WORKFLOW.md.
         const srrRes = await (handler as any).fetch(req);
         const ct = srrRes.headers.get("content-type") || "";
         if (ct.includes("text/html")) {
