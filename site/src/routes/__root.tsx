@@ -12,6 +12,7 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
+      { name: "color-scheme", content: "light" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "ReceptionAI — AI Receptionist for Small Businesses | 24/7 Call Answering" },
       {

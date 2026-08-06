@@ -6,22 +6,23 @@
     @apply bg-white text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
     font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   }
+}
 
-  /* Force input text visibility on iOS Safari — overrides dark mode inheritance */
-  input:not([type="checkbox"]):not([type="radio"]),
-  textarea,
-  select {
-    color: #111827; /* gray-900 */
-    -webkit-text-fill-color: #111827;
-    background-color: #fff;
-  }
+/* UNSCOPED — highest specificity override for iOS Safari input visibility */
+/* These must be outside @layer to beat Tailwind's dark mode variants */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+textarea,
+select {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+  background-color: #fff !important;
+}
 
-  input::placeholder,
-  textarea::placeholder {
-    color: #9ca3af; /* gray-400 */
-    -webkit-text-fill-color: #9ca3af;
-    opacity: 1;
-  }
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af !important;
+  -webkit-text-fill-color: #9ca3af !important;
+  opacity: 1 !important;
 }
 
 @layer utilities {
