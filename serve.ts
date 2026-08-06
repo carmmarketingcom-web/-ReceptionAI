@@ -2495,7 +2495,16 @@ for (let attempt = 1; ; attempt++) {
           const file = Bun.file(CLIENT_DIR + pathname);
           if (await file.exists()) return new Response(file);
         }
-        return (handler as any).fetch(req);
+        const srrRes = await (handler as any).fetch(req);
+        const ct = srrRes.headers.get("content-type") || "";
+        if (ct.includes("text/html")) {
+          const html = await srrRes.text();
+          const fixCSS = "<style>html{color-scheme:light!important}input:not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]),textarea,select{color:#111827!important;-webkit-text-fill-color:#111827!important;background-color:#fff!important}input::placeholder,textarea::placeholder{color:#9ca3af!important;-webkit-text-fill-color:#9ca3af!important;opacity:1!important}</style>";
+          const injected = html.replace("</head>", fixCSS + "</head>");
+          const hdrs = new Headers(srrRes.headers);
+          return new Response(injected, { status: srrRes.status, headers: hdrs });
+        }
+        return srrRes;
       },
     });
     break;
