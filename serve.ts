@@ -235,13 +235,22 @@ async function cmd(cid: string, action: string, body: any = {}) {
   if (!ok) console.log(`${action} ERR:`, JSON.stringify(d.errors).slice(0, 150));
   return ok;
 }
+// ── TTS voice selection ──────────────────────────────────────────────────────
+// ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise Polly.Joanna.
+// Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
+const ELEVENLABS_API_KEY_REF = process.env.ELEVENLABS_API_KEY_REF || "";
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel"
+function ttsVoiceParams(text: string, lang: string): any {
+  if (ELEVENLABS_API_KEY_REF) {
+    return { payload: text, voice: `ElevenLabs.Default.${ELEVENLABS_VOICE_ID}`, voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF } };
+  }
+  return { payload: text, voice: "Polly.Joanna", language: lang === "es" ? "es-US" : "en-US" };
+}
 
 async function promptAndWait(cid: string, text: string) {
   return cmd(cid, "gather", {
     type: "dtmf",
-    payload: text,
-    voice: "Polly.Joanna",
-    language: "en-US",
+    ...ttsVoiceParams(text, "en"),
     minimum_digits: 1,
     maximum_digits: 1,
     timeout_millis: 8000,
@@ -249,7 +258,7 @@ async function promptAndWait(cid: string, text: string) {
 }
 
 async function speakOnly(cid: string, text: string, lang: string = "en") {
-  return cmd(cid, "speak", { payload: text, voice: "Polly.Joanna", language: lang === "es" ? "es-US" : "en-US" });
+  return cmd(cid, "speak", ttsVoiceParams(text, lang));
 }
 
 // ── Telnyx outbound dial ──────────────────────────────────────────────────
