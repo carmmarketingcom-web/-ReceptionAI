@@ -240,7 +240,7 @@ async function promptAndWait(cid: string, text: string) {
   return cmd(cid, "gather", {
     type: "dtmf",
     payload: text,
-    voice: "female",
+    voice: "Polly.Joanna",
     language: "en-US",
     minimum_digits: 1,
     maximum_digits: 1,
@@ -249,7 +249,7 @@ async function promptAndWait(cid: string, text: string) {
 }
 
 async function speakOnly(cid: string, text: string, lang: string = "en") {
-  return cmd(cid, "speak", { payload: text, voice: "female", language: lang === "es" ? "es-US" : "en-US" });
+  return cmd(cid, "speak", { payload: text, voice: "Polly.Joanna", language: lang === "es" ? "es-US" : "en-US" });
 }
 
 // ── Telnyx outbound dial ──────────────────────────────────────────────────
@@ -950,7 +950,7 @@ for (let attempt = 1; ; attempt++) {
                   cs.answered = true; // caller interacted — mark as answered
                   const isDemo = !cs.orgId;
                   const greeting = isDemo
-                    ? `Hello, this is a demo of ReceptionAI — an AI receptionist with a 14-day free trial. Press 1 for appointments, 2 for pricing, or 3 for call transfers.`
+                    ? `Hello and thank you for calling! You've reached ReceptionAI — a full-service AI receptionist that's available 24/7 to answer calls, book appointments, and manage messages. Press 1 to schedule an appointment, press 2 for pricing information, or press 3 if you have a question. How can I help you today?`
                     : buildGreeting(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
                   await speakOnly(cid, greeting, "en");
                 } else if (digit === "2") {
@@ -959,7 +959,7 @@ for (let attempt = 1; ; attempt++) {
                   cs.answered = true; // caller interacted — mark as answered
                   const isDemo = !cs.orgId;
                   const greeting = isDemo
-                    ? `Hola, esto es una demostración de ReceptionAI — con 14 días de prueba gratis. Presione 1 para citas, 2 para precios, o 3 para transferencias.`
+                    ? `Hola y gracias por llamar. Se ha comunicado con ReceptionAI — un recepcionista virtual disponible 24/7 para contestar llamadas, agendar citas y gestionar mensajes. Presione 1 para agendar una cita, 2 para información de precios, o 3 si tiene alguna pregunta. ¿En qué puedo ayudarle?`
                     : buildGreeting(cs.orgName || "ReceptionAI", "es", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
                   await speakOnly(cid, greeting, "es");
                 } else {
