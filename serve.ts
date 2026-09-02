@@ -1739,9 +1739,9 @@ for (let attempt = 1; ; attempt++) {
                   `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
                   { method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                      system_instruction: { parts: [{ text: isEs ? "Recepcionista IA. Respuestas breves." : "AI receptionist. Brief responses." }] },
+                      system_instruction: { parts: [{ text: isEs ? "Eres ReceptionAI, recepcionista IA. Responde en 2-3 frases breves y completas. No repitas info. Si no sabes, usa la informacion de la pagina." : "You are ReceptionAI, an AI receptionist. Answer in 2-3 concise, complete sentences. Do not ramble or repeat. If unsure, use the info on the page." }] },
                       contents: [{ role: "user", parts: [{ text: message }] }],
-                      generationConfig: { maxOutputTokens: 512, temperature: 0.7 },
+                      generationConfig: { maxOutputTokens: 1024, temperature: 0.5 },
                     }), signal: ctrl.signal },
                 );
                 clearTimeout(t);
