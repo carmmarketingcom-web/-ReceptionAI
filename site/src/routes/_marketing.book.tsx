@@ -98,6 +98,25 @@ export default function BookPage() {
       </div>
 
       <div className="mx-auto max-w-xl px-4 py-12 sm:px-6">
+        {/* Carm Marketing Koalendar booking calendar */}
+        <div className="mb-8">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 text-center">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Carm Marketing</p>
+              <h1 className="mt-1 text-xl font-bold text-gray-900">Book a time with us</h1>
+            </div>
+            <iframe
+              src="https://koalendar.com/u/QcG01XjAXIQUqtNJJR2I6wy420H2"
+              title="Book a time with Carm Marketing"
+              className="h-[820px] w-full rounded-xl border-0"
+              loading="lazy"
+              allow="clipboard-write"
+            />
+          </div>
+          <div className="mt-6 border-t border-gray-200 pt-4 text-center">
+            <span className="text-xs font-medium text-gray-400">— or book a product demo below —</span>
+          </div>
+        </div>
         {/* Step 1: Form */}
         {step === "form" && (
               <div className="space-y-6">
