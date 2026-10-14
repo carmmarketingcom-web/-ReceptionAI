@@ -6,12 +6,30 @@
 import fs from "fs";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const LOGS_FILE = path.join(DATA_DIR, "chat-logs.json");
+/**
+ * Paths are resolved lazily (and browser-safely). This module is imported by
+ * API routes that the TanStack Router statically pulls into the CLIENT bundle,
+ * so nothing here may touch Node globals (process/fs/path) at module scope —
+ * doing so crashes hydration in every browser ("process is not defined").
+ */
+let cachedPaths: { dataDir: string; logsFile: string } | null = null;
+
+function getPaths(): { dataDir: string; logsFile: string } {
+  if (!cachedPaths) {
+    const dataDir =
+      typeof process !== "undefined" && typeof process.cwd === "function"
+        ? path.join(process.cwd(), "data")
+        : "data";
+    cachedPaths = { dataDir, logsFile: path.join(dataDir, "chat-logs.json") };
+  }
+  return cachedPaths;
+}
 
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (typeof process === "undefined") return;
+  const { dataDir } = getPaths();
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
   }
 }
 
@@ -29,9 +47,11 @@ interface ChatLogEntry {
 
 function readLogs(): ChatLogEntry[] {
   ensureDataDir();
-  if (!fs.existsSync(LOGS_FILE)) return [];
+  if (typeof process === "undefined") return [];
+  const { logsFile } = getPaths();
+  if (!fs.existsSync(logsFile)) return [];
   try {
-    return JSON.parse(fs.readFileSync(LOGS_FILE, "utf-8"));
+    return JSON.parse(fs.readFileSync(logsFile, "utf-8"));
   } catch {
     return [];
   }
@@ -39,7 +59,9 @@ function readLogs(): ChatLogEntry[] {
 
 function writeLogs(logs: ChatLogEntry[]) {
   ensureDataDir();
-  fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
+  if (typeof process === "undefined") return;
+  const { logsFile } = getPaths();
+  fs.writeFileSync(logsFile, JSON.stringify(logs, null, 2));
 }
 
 const FALLBACK_PHRASES = [
