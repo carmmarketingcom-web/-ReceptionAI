@@ -1,5 +1,6 @@
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { login } from "../lib/auth";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -13,21 +14,31 @@ function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async () => {
     setError("");
     setLoading(true);
 
-    // Simulate API call — will be replaced with real auth
-    setTimeout(() => {
-      if (email && password) {
-        // Success — redirect to dashboard
-        router.navigate({ to: "/dashboard" });
-      } else {
-        setError("Please fill in all fields.");
+    try {
+      const result = await login(email, password);
+      if (!result.success) {
+        throw new Error(result.error || "Invalid email or password");
       }
+      // Token stored via lib/auth (receptionai_token) — dashboard reads the same key.
+      router.navigate({ to: "/dashboard" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
       setLoading(false);
-    }, 1000);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mode === "login") {
+      await handleLogin();
+    } else {
+      // Registration mode — route to the signup page flow.
+      router.navigate({ to: "/signup" });
+    }
   };
 
   return (

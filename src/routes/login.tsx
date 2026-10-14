@@ -1,5 +1,6 @@
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
+import { login } from "../lib/auth";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -30,22 +31,11 @@ function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Invalid email or password");
+      const result = await login(email, password);
+      if (!result.success) {
+        throw new Error(result.error || "Invalid email or password");
       }
-
-      const data = await res.json() as { token: string; user: Record<string, unknown> };
-      // Store token
-      localStorage.setItem("auth_token", data.token);
-      localStorage.setItem("auth_user", JSON.stringify(data.user));
-      // Redirect to dashboard
+      // Token stored via lib/auth (receptionai_token) — dashboard reads the same key.
       router.navigate({ to: "/dashboard" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
