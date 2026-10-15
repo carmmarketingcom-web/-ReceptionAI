@@ -840,7 +840,7 @@ function getEncKey(): Buffer | null {
 async function encryptToken(plain: string): Promise<string | null> {
   if (!plain) return null;
   const key = getEncKey();
-  if (!key) return `plain:${plain}`;
+  if (!key) return null; // fail closed: no key -> do not persist the token
   const { createCipheriv, randomBytes } = await import("node:crypto");
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -850,8 +850,10 @@ async function encryptToken(plain: string): Promise<string | null> {
 }
 async function decryptToken(stored: string | null): Promise<string | null> {
   if (!stored) return null;
-  if (stored.startsWith("plain:")) return stored.slice(6);
-  if (!stored.startsWith("v1:")) return stored; // legacy plaintext
+  // Fail closed: never return plaintext. Legacy plain:/unencrypted rows are
+  // treated as unusable, so a connection that can't be decrypted is skipped.
+  if (stored.startsWith("plain:")) return null;
+  if (!stored.startsWith("v1:")) return null;
   const key = getEncKey();
   if (!key) return null;
   const parts = stored.split(":");
@@ -2179,6 +2181,9 @@ for (let attempt = 1; ; attempt++) {
             const email = (await getGoogleUserEmail(tokens.access_token)) || "";
             const accessEnc = await encryptToken(tokens.access_token);
             const refreshEnc = tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null;
+            if (!accessEnc || (tokens.refresh_token && !refreshEnc)) {
+              return redirectTo("?calendar=error&reason=encryption_key_missing");
+            }
             const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null;
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) return redirectTo("?calendar=error&reason=db_not_configured");
