@@ -158,6 +158,30 @@ export const holidayOverrides = pgTable(
   ]
 );
 
+// ─── Calendar Sync Log ───────────────────────────────────────────────────────
+
+export const calendarSyncLog = pgTable(
+  "calendar_sync_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, {
+      onDelete: "set null",
+    }),
+    provider: varchar("provider", { length: 50 }).notNull().default("google"),
+    action: varchar("action", { length: 50 }).notNull(),
+    status: varchar("status", { length: 50 }).notNull(),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("calendar_sync_log_org_idx").on(table.organizationId),
+    index("calendar_sync_log_appt_idx").on(table.appointmentId),
+  ]
+);
+
 // ─── Relations ───────────────────────────────────────────────────────────────
 
 export const appointmentsRelations = relations(appointments, ({ one }) => ({
@@ -204,5 +228,16 @@ export const holidayOverridesRelations = relations(holidayOverrides, ({ one }) =
   organization: one(organizations, {
     fields: [holidayOverrides.organizationId],
     references: [organizations.id],
+  }),
+}));
+
+export const calendarSyncLogRelations = relations(calendarSyncLog, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [calendarSyncLog.organizationId],
+    references: [organizations.id],
+  }),
+  appointment: one(appointments, {
+    fields: [calendarSyncLog.appointmentId],
+    references: [appointments.id],
   }),
 }));

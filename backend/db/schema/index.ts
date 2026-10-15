@@ -58,12 +58,14 @@ export {
   calendarIntegrations,
   businessHours,
   holidayOverrides,
+  calendarSyncLog,
   appointmentStatusEnum,
   calendarProviderEnum,
   appointmentsRelations,
   calendarIntegrationsRelations,
   businessHoursRelations,
   holidayOverridesRelations,
+  calendarSyncLogRelations,
 } from "./appointments";
 
 // ─── AI ─────────────────────────────────────────────────────────────────────

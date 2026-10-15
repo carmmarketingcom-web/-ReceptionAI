@@ -326,6 +326,7 @@ async function rescheduleAppointment(apptId: string, newDate: string, newTime: s
     const endTime = endDate.toISOString().split("T")[1].substring(0, 5);
     const newEnd = `${newDate}T${endTime}:00`;
     await sql`UPDATE appointments SET start_time = ${newStart}::timestamp, end_time = ${newEnd}::timestamp, status = 'rescheduled', updated_at = NOW() WHERE id = ${apptId}`;
+    syncAppointmentToGoogle(apptId).catch(() => {});
     console.log(`[DB] Rescheduled appointment ${apptId.slice(0, 8)} to ${newDate} ${newTime}`);
     return true;
   } catch (err) {
@@ -796,6 +797,257 @@ function buildCallSummary(cs: CallState, transcript?: string): string {
     `—`,
     `Check your dashboard: receptionai.store/dashboard`,
   ].filter(Boolean).join("\n");
+}
+// ── JSON response helper ───────────────────────────────────────────────
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+// ── Auth helper for dashboard API routes ────────────────────────────────
+async function requireOrgAuth(
+  req: Request
+): Promise<{ organizationId: string; userId: string; role: string } | Response> {
+  const authHeader = req.headers.get("Authorization") || "";
+  const t = authHeader.replace("Bearer ", "");
+  if (!t) return json({ error: "Authentication required" }, 401);
+  const { jwtVerify } = await import("jose");
+  const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+  let payload: any;
+  try {
+    const r = await jwtVerify(t, new TextEncoder().encode(secKey));
+    payload = r.payload;
+  } catch {
+    return json({ error: "Invalid token" }, 401);
+  }
+  const organizationId = payload.organizationId as string;
+  if (!organizationId) return json({ error: "No organization" }, 400);
+  return {
+    organizationId,
+    userId: (payload.userId as string) || "",
+    role: (payload.role as string) || "agent",
+  };
+}
+// ── Token encryption at rest (AES-256-GCM; key derived from APP_ENC_KEY) ─
+function getEncKey(): Buffer | null {
+  const key = process.env.APP_ENC_KEY || "";
+  if (!key) return null;
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(key);
+  return Buffer.from(hasher.digest("hex"), "hex");
+}
+async function encryptToken(plain: string): Promise<string | null> {
+  if (!plain) return null;
+  const key = getEncKey();
+  if (!key) return `plain:${plain}`;
+  const { createCipheriv, randomBytes } = await import("node:crypto");
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString("base64")}:${tag.toString("base64")}:${enc.toString("base64")}`;
+}
+async function decryptToken(stored: string | null): Promise<string | null> {
+  if (!stored) return null;
+  if (stored.startsWith("plain:")) return stored.slice(6);
+  if (!stored.startsWith("v1:")) return stored; // legacy plaintext
+  const key = getEncKey();
+  if (!key) return null;
+  const parts = stored.split(":");
+  if (parts.length !== 4) return null;
+  try {
+    const { createDecipheriv } = await import("node:crypto");
+    const [, ivB64, tagB64, dataB64] = parts;
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    const dec = Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]);
+    return dec.toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+// ── Google OAuth + Calendar (plain REST via fetch — no extra deps) ──────
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+function googleEnv() {
+  return {
+    clientId: process.env.GOOGLE_CLIENT_ID || "",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || "",
+  };
+}
+function googleConfigured(): boolean {
+  const e = googleEnv();
+  return !!(e.clientId && e.clientSecret && e.redirectUri);
+}
+async function exchangeGoogleCode(code: string): Promise<any | null> {
+  const e = googleEnv();
+  if (!e.clientId || !e.clientSecret || !e.redirectUri) return null;
+  const res = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code, client_id: e.clientId, client_secret: e.clientSecret,
+      redirect_uri: e.redirectUri, grant_type: "authorization_code",
+    }),
+  });
+  if (!res.ok) return null;
+  return await res.json().catch(() => null);
+}
+async function refreshGoogleToken(refreshToken: string): Promise<string | null> {
+  const e = googleEnv();
+  if (!e.clientId || !e.clientSecret || !refreshToken) return null;
+  const res = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken, client_id: e.clientId, client_secret: e.clientSecret,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.access_token || null;
+}
+async function getGoogleUserEmail(accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return data?.email || null;
+  } catch {
+    return null;
+  }
+}
+async function createGoogleCalendarEvent(accessToken: string, calendarId: string, event: any): Promise<string | null> {
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.id || null;
+}
+async function patchGoogleCalendarEvent(accessToken: string, calendarId: string, eventId: string, event: any): Promise<boolean> {
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+  });
+  return res.ok;
+}
+async function deleteGoogleCalendarEvent(accessToken: string, calendarId: string, eventId: string): Promise<boolean> {
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return res.ok || res.status === 404 || res.status === 410;
+}
+
+// ── Calendar sync helpers ───────────────────────────────────────────────
+async function getGoogleConnection(orgId: string): Promise<any | null> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return null;
+  try {
+    const sql = neon(dbUrl);
+    const rows = await sql`
+      SELECT * FROM calendar_integrations
+      WHERE organization_id = ${orgId} AND provider = 'google' AND sync_enabled = true
+      ORDER BY created_at DESC LIMIT 1
+    `;
+    return rows[0] || null;
+  } catch (e) {
+    console.error("[Calendar] connection lookup failed", String(e).slice(0, 120));
+    return null;
+  }
+}
+async function logCalendarSync(orgId: string, appointmentId: string | null, action: string, status: string, detail?: string | null): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  try {
+    const sql = neon(dbUrl);
+    await sql`
+      INSERT INTO calendar_sync_log (id, organization_id, appointment_id, provider, action, status, detail, created_at)
+      VALUES (gen_random_uuid(), ${orgId}, ${appointmentId || null}, 'google', ${action}, ${status}, ${detail || null}, NOW())
+    `;
+  } catch (e) {
+    console.error("[Calendar] sync log failed", String(e).slice(0, 120));
+  }
+}
+// Sync an appointment to the org's connected Google Calendar.
+async function syncAppointmentToGoogle(apptId: string): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  let sql: any;
+  try { sql = neon(dbUrl); } catch { return; }
+  let orgId = "";
+  try {
+    const apptRows = await sql`
+      SELECT a.id, a.organization_id, a.title, a.start_time, a.end_time, a.status,
+             a.service_type, a.external_calendar_event_id, a.notes,
+             c.first_name, c.last_name, c.phone, c.email
+      FROM appointments a
+      LEFT JOIN contacts c ON a.contact_id = c.id
+      WHERE a.id = ${apptId} LIMIT 1
+    `;
+    const appt = apptRows[0];
+    if (!appt) return;
+    orgId = appt.organization_id;
+    const conn = await getGoogleConnection(orgId);
+    if (!conn) return;
+    if (!googleConfigured()) {
+      await logCalendarSync(orgId, apptId, "create", "skipped", "Google OAuth not configured");
+      return;
+    }
+    const refresh = await decryptToken(conn.refresh_token_encrypted);
+    if (!refresh) {
+      await logCalendarSync(orgId, apptId, "create", "failed", "No refresh token");
+      return;
+    }
+    const accessToken = await refreshGoogleToken(refresh);
+    if (!accessToken) {
+      await logCalendarSync(orgId, apptId, "create", "failed", "Token refresh failed");
+      return;
+    }
+    const calendarId = conn.calendar_id || "primary";
+    // Cancelled → delete remote event
+    if (appt.status === "cancelled") {
+      if (appt.external_calendar_event_id) {
+        const ok = await deleteGoogleCalendarEvent(accessToken, calendarId, appt.external_calendar_event_id);
+        await logCalendarSync(orgId, apptId, "delete", ok ? "success" : "failed");
+      }
+      return;
+    }
+    const customerName = [appt.first_name, appt.last_name].filter(Boolean).join(" ").trim();
+    const event: any = {
+      summary: appt.title || appt.service_type || "Appointment",
+      description: appt.notes || appt.service_type || "",
+      start: { dateTime: new Date(appt.start_time).toISOString(), timeZone: "America/Chicago" },
+      end: { dateTime: new Date(appt.end_time).toISOString(), timeZone: "America/Chicago" },
+    };
+    if (customerName && appt.email) {
+      event.attendees = [{ displayName: customerName, email: appt.email, responseStatus: "accepted" }];
+    }
+    if (appt.external_calendar_event_id) {
+      const ok = await patchGoogleCalendarEvent(accessToken, calendarId, appt.external_calendar_event_id, event);
+      await logCalendarSync(orgId, apptId, "update", ok ? "success" : "failed");
+    } else {
+      const eventId = await createGoogleCalendarEvent(accessToken, calendarId, event);
+      if (eventId) {
+        await sql`UPDATE appointments SET external_calendar_event_id = ${eventId}, updated_at = NOW() WHERE id = ${apptId}`;
+        await logCalendarSync(orgId, apptId, "create", "success", eventId);
+      } else {
+        await logCalendarSync(orgId, apptId, "create", "failed");
+      }
+    }
+  } catch (e) {
+    console.error("[Calendar] sync failed", String(e).slice(0, 200));
+    if (orgId) await logCalendarSync(orgId, apptId, "create", "error", String(e).slice(0, 200));
+  }
 }
 const freePort = `for _ in $(seq 1 25); do pids=$(lsof -t -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true); if [ -z "$pids" ]; then exit 0; fi; kill $pids 2>/dev/null || true; sleep 0.2; done`;
 
@@ -1363,7 +1615,7 @@ for (let attempt = 1; ; attempt++) {
             const rows = await sql`
               SELECT
                 a.id, a.title, a.start_time, a.end_time, a.status, a.service_type, a.notes,
-                c.name as customer_name, c.phone as customer_phone, c.email as customer_email
+                COALESCE(NULLIF(TRIM(CONCAT(c.first_name, ' ', c.last_name)), ''), c.phone, 'Unknown') as customer_name, c.phone as customer_phone, c.email as customer_email
               FROM appointments a
               LEFT JOIN contacts c ON a.contact_id = c.id
               WHERE a.organization_id = ${organizationId}
@@ -1547,49 +1799,68 @@ for (let attempt = 1; ; attempt++) {
         // ── Conversations API ────────────────────────────────────────
         if (pathname === "/api/conversations" && req.method === "GET") {
           try {
-            const authHeader = req.headers.get("Authorization") || "";
-            const t = authHeader.replace("Bearer ", "");
-            if (!t) {
-              return new Response(JSON.stringify({ error: "Authentication required" }),
-                { status: 401, headers: { "Content-Type": "application/json" } });
-            }
-            const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
-            let payload: any;
-            try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
-            catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
-            const organizationId = payload.organizationId as string;
-
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
             const dbUrl = process.env.DATABASE_URL;
-            if (!dbUrl) return new Response(JSON.stringify({ error: "DB not configured" }), { status: 500, headers: { "Content-Type": "application/json" } });
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
             const sql = neon(dbUrl);
             const url = new URL(req.url);
             const limit = parseInt(url.searchParams.get("limit") || "20", 10);
             const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-
             const rows = await sql`
               SELECT c.id, c.organization_id, c.contact_id, c.type, c.status, c.direction,
-                     c.started_at, c.ended_at, c.duration_seconds, c.ai_handled, c.escalated_to_human,
-                     co.name as contact_name, co.phone as contact_phone, co.email as contact_email
+                     c.started_at, c.ended_at, c.ai_handled, c.escalated_to_human, c.subject,
+                     c.created_at,
+                     co.first_name, co.last_name, co.phone as contact_phone, co.email as contact_email
               FROM conversations c
               LEFT JOIN contacts co ON c.contact_id = co.id
               WHERE c.organization_id = ${organizationId}
               ORDER BY c.started_at DESC
               LIMIT ${limit} OFFSET ${offset}
             `;
+            const conversations = (rows as any[]).map((r: any) => {
+              const first = r.first_name || "";
+              const last = r.last_name || "";
+              const customerName = (first + " " + last).trim() || r.contact_phone || "Unknown";
+              const startedAt = r.started_at ? new Date(r.started_at).toISOString() : null;
+              const durationSec = r.started_at && r.ended_at
+                ? Math.max(0, Math.round((new Date(r.ended_at).getTime() - new Date(r.started_at).getTime()) / 1000))
+                : null;
+              const duration = durationSec === null
+                ? null
+                : durationSec >= 60
+                  ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+                  : `${durationSec}s`;
+              return {
+                id: r.id,
+                organizationId: r.organization_id,
+                customerName,
+                customerPhone: r.contact_phone || null,
+                customerEmail: r.contact_email || null,
+                channel: r.type || "call",
+                status: r.status || "completed",
+                direction: r.direction || "inbound",
+                summary: r.subject || null,
+                duration,
+                timestamp: startedAt,
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : startedAt,
+                startedAt,
+                aiHandled: r.ai_handled,
+                escalatedToHuman: r.escalated_to_human,
+              };
+            });
             const totalRows = await sql`SELECT COUNT(*) as count FROM conversations WHERE organization_id = ${organizationId}`;
-
-            return new Response(JSON.stringify({
-              conversations: rows,
+            return json({
+              conversations,
               total: Number(totalRows[0]?.count || 0),
               limit, offset,
-            }), { status: 200, headers: { "Content-Type": "application/json" } });
+            });
           } catch (err) {
             console.error("[Conversations API]", String(err).slice(0, 200));
-            return new Response(JSON.stringify({ error: "Failed to fetch conversations" }), { status: 500, headers: { "Content-Type": "application/json" } });
+            return json({ error: "Failed to fetch conversations" }, 500);
           }
         }
-
         if (pathname === "/api/conversations" && req.method === "POST") {
           try {
             const authHeader = req.headers.get("Authorization") || "";
@@ -1635,6 +1906,340 @@ for (let attempt = 1; ; attempt++) {
           }
         }
 
+        // ── Appointments API ──────────────────────────────────────────
+        if (pathname === "/api/appointments" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const url = new URL(req.url);
+            const status = url.searchParams.get("status") || "";
+            const start = url.searchParams.get("start") || "";
+            const end = url.searchParams.get("end") || "";
+            const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 500);
+            const rows = await sql`
+              SELECT a.id, a.organization_id, a.contact_id, a.title, a.description,
+                     a.start_time, a.end_time, a.status, a.service_type, a.staff_assigned_id,
+                     a.location, a.notes, a.created_at, a.updated_at,
+                     co.first_name, co.last_name, co.phone as contact_phone, co.email as contact_email
+              FROM appointments a
+              LEFT JOIN contacts co ON a.contact_id = co.id
+              WHERE a.organization_id = ${organizationId}
+                AND (${status} = '' OR a.status::text = ${status})
+                AND (${start} = '' OR a.start_time >= ${start}::timestamptz)
+                AND (${end} = '' OR a.start_time <= ${end}::timestamptz)
+              ORDER BY a.start_time DESC
+              LIMIT ${limit}
+            `;
+            const appointments = (rows as any[]).map((r: any) => ({
+              id: r.id,
+              organizationId: r.organization_id,
+              contactId: r.contact_id,
+              title: r.title,
+              description: r.description,
+              startTime: r.start_time ? new Date(r.start_time).toISOString() : null,
+              endTime: r.end_time ? new Date(r.end_time).toISOString() : null,
+              status: r.status,
+              serviceType: r.service_type,
+              staffAssignedId: r.staff_assigned_id,
+              location: r.location,
+              notes: r.notes,
+              customerName: [r.first_name, r.last_name].filter(Boolean).join(" ").trim() || null,
+              customerPhone: r.contact_phone || null,
+              customerEmail: r.contact_email || null,
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+              updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+            }));
+            const total = await sql`SELECT COUNT(*) as count FROM appointments WHERE organization_id = ${organizationId}`;
+            return json({ appointments, total: Number(total[0]?.count || 0), limit });
+          } catch (err) {
+            console.error("[Appointments API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch appointments" }, 500);
+          }
+        }
+        // ── Settings API ─────────────────────────────────────────────
+        if (pathname === "/api/settings" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const orgRows = await sql`SELECT * FROM organizations WHERE id = ${organizationId} LIMIT 1`;
+            const org = orgRows[0] || null;
+            const hours = await sql`SELECT * FROM business_hours WHERE organization_id = ${organizationId} ORDER BY day_of_week::int ASC`;
+            const settingsRows = await sql`SELECT key, value FROM organization_settings WHERE organization_id = ${organizationId}`;
+            const settings: Record<string, unknown> = {};
+            for (const s of settingsRows as any[]) settings[s.key] = s.value;
+            return json({
+              organization: org ? {
+                id: org.id, name: org.name, slug: org.slug, timezone: org.timezone,
+                locale: org.locale, industry: org.industry, email: org.email, phone: org.phone,
+                website: org.website, addressLine1: org.address_line1, city: org.city,
+                state: org.state, postalCode: org.postal_code,
+              } : null,
+              businessHours: (hours as any[]).map((h: any) => ({
+                dayOfWeek: h.day_of_week, openTime: h.open_time, closeTime: h.close_time, isClosed: h.is_closed,
+              })),
+              settings,
+            });
+          } catch (err) {
+            console.error("[Settings API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch settings" }, 500);
+          }
+        }
+        if (pathname === "/api/settings" && req.method === "PUT") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const body = (await req.json().catch(() => ({}))) as Record<string, any>;
+            // Org fields
+            if (typeof body.name === "string") await sql`UPDATE organizations SET name = ${body.name}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.industry === "string") await sql`UPDATE organizations SET industry = ${body.industry}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.timezone === "string") await sql`UPDATE organizations SET timezone = ${body.timezone}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.locale === "string") await sql`UPDATE organizations SET locale = ${body.locale}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.phone === "string") await sql`UPDATE organizations SET phone = ${body.phone}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.email === "string") await sql`UPDATE organizations SET email = ${body.email}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.website === "string") await sql`UPDATE organizations SET website = ${body.website}, updated_at = NOW() WHERE id = ${organizationId}`;
+            // Business hours upsert
+            if (Array.isArray(body.businessHours)) {
+              for (const bh of body.businessHours) {
+                const dow = String(bh?.dayOfWeek ?? "");
+                if (!/^[0-6]$/.test(dow)) continue;
+                const openTime = bh?.openTime || null;
+                const closeTime = bh?.closeTime || null;
+                const isClosed = !!bh?.isClosed;
+                await sql`
+                  INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed, created_at, updated_at)
+                  VALUES (gen_random_uuid(), ${organizationId}, ${dow}, ${openTime}, ${closeTime}, ${isClosed}, NOW(), NOW())
+                  ON CONFLICT (organization_id, day_of_week)
+                  DO UPDATE SET open_time = EXCLUDED.open_time, close_time = EXCLUDED.close_time, is_closed = EXCLUDED.is_closed, updated_at = NOW()
+                `;
+              }
+            }
+            // Free-form settings keys (smsSummaries, services, etc.)
+            const reserved = ["name", "timezone", "locale", "email", "phone", "website", "industry", "addressLine1", "addressLine2", "city", "state", "postalCode", "businessHours"];
+            for (const [key, value] of Object.entries(body)) {
+              if (reserved.includes(key) || value === undefined) continue;
+              await sql`
+                INSERT INTO organization_settings (id, organization_id, key, value, created_at, updated_at)
+                VALUES (gen_random_uuid(), ${organizationId}, ${key}, ${JSON.stringify(value)}::jsonb, NOW(), NOW())
+                ON CONFLICT (organization_id, key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+              `;
+            }
+            return json({ success: true });
+          } catch (err) {
+            console.error("[Settings PUT]", String(err).slice(0, 200));
+            return json({ error: "Failed to update settings" }, 500);
+          }
+        }
+        // ── Billing API ──────────────────────────────────────────────
+        if (pathname === "/api/billing" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const PLANS = [
+              { id: "starter", name: "Starter", priceMonthly: 99, priceAnnual: 79, includedPhoneLines: 1, includedAiMinutes: 500, includedSmsMessages: 200, stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9", stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02" },
+              { id: "growth", name: "Growth", priceMonthly: 199, priceAnnual: 159, includedPhoneLines: 2, includedAiMinutes: 2000, includedSmsMessages: 1000, stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy", stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03", popular: true },
+              { id: "scale", name: "Scale", priceMonthly: 399, priceAnnual: 319, includedPhoneLines: 5, includedAiMinutes: 10000, includedSmsMessages: 5000, stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki", stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04" },
+            ];
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) {
+              return json({ subscription: null, usage: { aiMinutesUsed: 0, aiMinutesLimit: 500, aiMinutesPercent: 0, smsUsed: 0, smsLimit: 200, smsPercent: 0, phoneLinesUsed: 1, phoneLinesLimit: 1, phoneLinesPercent: 100 }, plans: PLANS, invoices: [], stripeCustomerPortalUrl: null });
+            }
+            const sql = neon(dbUrl);
+            const subRows = await sql`
+              SELECT s.id, s.status, s.billing_cycle, s.stripe_customer_id,
+                     s.current_period_start, s.current_period_end, s.trial_ends_at, s.cancel_at_period_end,
+                     p.name as plan_id, p.display_name as plan_name, p.price_monthly_cents,
+                     p.included_ai_minutes, p.included_phone_lines, p.included_sms_messages
+              FROM subscriptions s
+              LEFT JOIN subscription_plans p ON s.plan_id = p.id
+              WHERE s.organization_id = ${organizationId}
+              ORDER BY s.created_at DESC
+              LIMIT 1
+            `;
+            const sub = subRows[0] || null;
+            const now = new Date();
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+            const usageRows = await sql`SELECT record_type, SUM(quantity) as qty FROM usage_records WHERE organization_id = ${organizationId} AND recorded_at >= ${monthStart}::timestamptz GROUP BY record_type`;
+            const usageMap: Record<string, number> = {};
+            for (const u of usageRows as any[]) usageMap[u.record_type] = Number(u.qty || 0);
+            const aiMinutesUsed = usageMap["ai_minutes"] || 0;
+            const smsUsed = (usageMap["sms_outbound"] || 0) + (usageMap["sms_inbound"] || 0);
+            const aiLimit = sub?.included_ai_minutes || 500;
+            const smsLimit = sub?.included_sms_messages || 200;
+            const phoneLimit = sub?.included_phone_lines || 1;
+            return json({
+              subscription: sub ? {
+                id: sub.id, planId: sub.plan_id, planName: sub.plan_name, status: sub.status,
+                billingCycle: sub.billing_cycle,
+                priceMonthly: sub.price_monthly_cents ? Number(sub.price_monthly_cents) / 100 : null,
+                currentPeriodStart: sub.current_period_start ? new Date(sub.current_period_start).toISOString() : null,
+                currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end).toISOString() : null,
+                trialEndsAt: sub.trial_ends_at ? new Date(sub.trial_ends_at).toISOString() : null,
+                cancelAtPeriodEnd: sub.cancel_at_period_end,
+              } : null,
+              usage: {
+                aiMinutesUsed, aiMinutesLimit: aiLimit, aiMinutesPercent: aiLimit ? Math.round((aiMinutesUsed / aiLimit) * 100) : 0,
+                smsUsed, smsLimit, smsPercent: smsLimit ? Math.round((smsUsed / smsLimit) * 100) : 0,
+                phoneLinesUsed: 1, phoneLinesLimit: phoneLimit, phoneLinesPercent: phoneLimit ? Math.round((1 / phoneLimit) * 100) : 100,
+              },
+              plans: PLANS,
+              invoices: [],
+              stripeCustomerPortalUrl: sub?.stripe_customer_id ? `https://billing.stripe.com/p/login/${sub.stripe_customer_id}` : null,
+            });
+          } catch (err) {
+            console.error("[Billing API]", String(err).slice(0, 200));
+            return json({ error: "Billing request failed" }, 500);
+          }
+        }
+        if (pathname === "/api/billing/change-plan" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const body = (await req.json().catch(() => ({}))) as { plan?: string };
+            const plan = body.plan;
+            const validPlans = ["basic", "starter", "growth", "scale"];
+            if (!plan || !validPlans.includes(plan)) return json({ error: "Invalid plan" }, 400);
+            const dbUrl = process.env.DATABASE_URL;
+            if (dbUrl) {
+              const sql = neon(dbUrl);
+              await sql`
+                INSERT INTO organization_settings (id, organization_id, key, value, created_at, updated_at)
+                VALUES (gen_random_uuid(), ${organizationId}, 'requested_plan', ${JSON.stringify(plan)}::jsonb, NOW(), NOW())
+                ON CONFLICT (organization_id, key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+              `;
+            }
+            return json({ success: true, message: `Plan change to ${plan} requested`, plan });
+          } catch (err) {
+            console.error("[Billing change-plan]", String(err).slice(0, 200));
+            return json({ error: "Failed to change plan" }, 500);
+          }
+        }
+        // ── Calendar Connect (Google OAuth) ─────────────────────────
+        if (pathname === "/api/calendar/connect/google" && req.method === "GET") {
+          try {
+            if (!googleConfigured()) {
+              return json({ error: "Google Calendar is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI." }, 503);
+            }
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const e = googleEnv();
+            const { SignJWT } = await import("jose");
+            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const state = await new SignJWT({
+              organizationId: auth.organizationId, userId: auth.userId, role: auth.role,
+              purpose: "google_calendar_connect", nonce: crypto.randomUUID(),
+            }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("15m")
+              .sign(new TextEncoder().encode(secKey));
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(e.clientId)}&redirect_uri=${encodeURIComponent(e.redirectUri)}&response_type=code&scope=${encodeURIComponent("https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email")}&access_type=offline&prompt=consent&include_granted_scopes=true&state=${encodeURIComponent(state)}`;
+            return json({ url: authUrl });
+          } catch (err) {
+            console.error("[Calendar connect]", String(err).slice(0, 200));
+            return json({ error: "Failed to start Google Calendar connection" }, 500);
+          }
+        }
+        if (pathname === "/api/calendar/oauth/google/callback" && req.method === "GET") {
+          const redirectTo = (qs: string) => new Response(null, { status: 302, headers: { Location: "/dashboard/settings" + qs } });
+          try {
+            const url = new URL(req.url);
+            const code = url.searchParams.get("code") || "";
+            const state = url.searchParams.get("state") || "";
+            const gerr = url.searchParams.get("error") || "";
+            if (gerr) return redirectTo("?calendar=error&reason=" + encodeURIComponent(gerr));
+            if (!code || !state) return redirectTo("?calendar=error&reason=missing_params");
+            const { jwtVerify } = await import("jose");
+            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            let payload: any;
+            try {
+              const r = await jwtVerify(state, new TextEncoder().encode(secKey));
+              payload = r.payload;
+            } catch {
+              return redirectTo("?calendar=error&reason=invalid_state");
+            }
+            if (payload.purpose !== "google_calendar_connect") return redirectTo("?calendar=error&reason=invalid_state");
+            const organizationId = payload.organizationId as string;
+            const userId = (payload.userId as string) || "";
+            if (!organizationId) return redirectTo("?calendar=error&reason=no_org");
+            const tokens = await exchangeGoogleCode(code);
+            if (!tokens?.access_token) return redirectTo("?calendar=error&reason=token_exchange_failed");
+            const email = (await getGoogleUserEmail(tokens.access_token)) || "";
+            const accessEnc = await encryptToken(tokens.access_token);
+            const refreshEnc = tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null;
+            const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return redirectTo("?calendar=error&reason=db_not_configured");
+            const sql = neon(dbUrl);
+            await sql`
+              INSERT INTO calendar_integrations (id, organization_id, user_id, provider, provider_email, access_token_encrypted, refresh_token_encrypted, token_expires_at, sync_enabled, calendar_id, calendar_name, created_at, updated_at)
+              VALUES (gen_random_uuid(), ${organizationId}, ${userId}, 'google', ${email || "unknown@google.com"}, ${accessEnc}, ${refreshEnc}, ${expiresAt}, true, 'primary', 'Google Calendar', NOW(), NOW())
+              ON CONFLICT (organization_id, provider, provider_email)
+              DO UPDATE SET access_token_encrypted = EXCLUDED.access_token_encrypted, refresh_token_encrypted = EXCLUDED.refresh_token_encrypted, token_expires_at = EXCLUDED.token_expires_at, sync_enabled = true, user_id = EXCLUDED.user_id, updated_at = NOW()
+            `;
+            return redirectTo("?calendar=connected&email=" + encodeURIComponent(email || ""));
+          } catch (err) {
+            console.error("[Calendar callback]", String(err).slice(0, 300));
+            return redirectTo("?calendar=error&reason=exception");
+          }
+        }
+        if (pathname === "/api/calendar/disconnect" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            await sql`DELETE FROM calendar_integrations WHERE organization_id = ${auth.organizationId} AND provider = 'google'`;
+            return json({ success: true });
+          } catch (err) {
+            console.error("[Calendar disconnect]", String(err).slice(0, 200));
+            return json({ error: "Failed to disconnect" }, 500);
+          }
+        }
+        if (pathname === "/api/calendar/status" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) {
+              return json({ configured: googleConfigured(), connected: false, provider: null, email: null, syncEnabled: false });
+            }
+            const sql = neon(dbUrl);
+            const rows = await sql`
+              SELECT provider, provider_email, sync_enabled, calendar_id, calendar_name, last_synced_at, token_expires_at
+              FROM calendar_integrations
+              WHERE organization_id = ${auth.organizationId} AND provider = 'google'
+              ORDER BY created_at DESC LIMIT 1
+            `;
+            const conn = rows[0] || null;
+            return json({
+              configured: googleConfigured(),
+              connected: !!conn,
+              provider: conn?.provider || null,
+              email: conn?.provider_email || null,
+              syncEnabled: !!conn?.sync_enabled,
+              calendarId: conn?.calendar_id || null,
+              calendarName: conn?.calendar_name || null,
+              lastSyncedAt: conn?.last_synced_at ? new Date(conn.last_synced_at).toISOString() : null,
+            });
+          } catch (err) {
+            console.error("[Calendar status]", String(err).slice(0, 200));
+            return json({ error: "Failed to load calendar status" }, 500);
+          }
+        }
         // ── Contacts API ─────────────────────────────────────────────
         if (pathname === "/api/contacts" && req.method === "GET") {
           try {
@@ -1956,6 +2561,8 @@ for (let attempt = 1; ; attempt++) {
                  ${service}, 'confirmed', ${notes || null}, NOW(), NOW())
               RETURNING id
             `;
+            const apptId = appt[0]?.id;
+            if (apptId) syncAppointmentToGoogle(apptId).catch(() => {});
 
             // Send SMS confirmation
             const orgRow = await sql`

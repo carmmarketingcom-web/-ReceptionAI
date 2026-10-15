@@ -150,6 +150,12 @@ function SchedulePage() {
           <p className="mt-1 text-sm text-gray-400">
             {data.totalUpcoming} upcoming appointment{data.totalUpcoming !== 1 ? "s" : ""}
           </p>
+          <a
+            href="/dashboard/settings"
+            className="mt-1 inline-block text-xs font-medium text-indigo-500 hover:text-indigo-600"
+          >
+            Connect Google Calendar to mirror bookings automatically →
+          </a>
         </div>
         <div className="flex items-center gap-2">
           <button
