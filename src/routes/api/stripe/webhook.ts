@@ -129,7 +129,153 @@ async function processStripeEvent(event: any) {
  * f. Store stripeCustomerId on organization
  * g. Create subscription record
  */
+// ── Carm Marketing one-time (founding) checkout detection ──────────────
+// Carm Marketing sells done-for-you plans via one-time Payment Links.
+// Plan tier is encoded in the Stripe *price* metadata (plan_tier, rate),
+// not in the session metadata (Payment Links don't carry session metadata).
+const CARM_PRICE_ID_MAP: Record<string, { tier: string; rate: string; fee?: boolean }> = {
+  "price_1UQbimDqebBmBAbiCEqpXbSE": { tier: "starter", rate: "founding" },
+  "price_1UQbimDqebBmBAbixJIL7zIJ": { tier: "pro", rate: "founding" },
+  "price_1UQbilDqebBmBAbilu2uxOsf": { tier: "growth", rate: "founding" },
+  "price_1UQbilDqebBmBAbicvA3Q9Yu": { tier: "setup", rate: "founding", fee: true },
+};
+
+// Map Carm tier → self-serve plan name (provisioning parity).
+function mapCarmTierToPlan(tier: string): string {
+  switch (tier) {
+    case "pro": return "growth";
+    case "growth": return "scale";
+    case "starter":
+    default: return "starter";
+  }
+}
+
+async function fetchCheckoutLineItems(sessionId: string): Promise<any[]> {
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  if (!key || !sessionId) return [];
+  try {
+    const res = await fetch(
+      `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}/line_items?limit=10&expand[]=data.price`,
+      { headers: { Authorization: `Bearer ${key}` } }
+    );
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => null);
+    return data?.data || [];
+  } catch (e) {
+    console.warn("[Stripe] line_items fetch failed", String(e).slice(0, 120));
+    return [];
+  }
+}
+
+// Determine the Carm tier/rate for a one-time checkout session.
+// Returns null if it's not a recognizable Carm checkout (graceful fallback).
+async function resolveCarmCheckout(session: any): Promise<{ tier: string; rate: string; priceId: string } | null> {
+  const items = await fetchCheckoutLineItems(session.id);
+  for (const item of items) {
+    const price = item?.price || {};
+    const priceId = price.id || "";
+    const tier = price.metadata?.plan_tier || "";
+    const rate = price.metadata?.rate || "";
+    if (tier && !price.metadata?.fee) {
+      return { tier, rate: rate || "founding", priceId };
+    }
+    const known = CARM_PRICE_ID_MAP[priceId];
+    if (known && !known.fee) {
+      return { tier: known.tier, rate: known.rate, priceId };
+    }
+  }
+  return null;
+}
+
+// Provision an org for a one-time Carm Marketing (founding client) payment.
+// Mirrors the self-serve flow: org + admin user + Telnyx number + business hours.
+async function handleCarmOneTimeCheckout(session: any): Promise<void> {
+  const checkoutSessionId = session.id;
+  const stripeCustomerId = session.customer || "";
+  const customerDetails = session.customer_details || {};
+  const email = customerDetails.email || "";
+  const name = customerDetails.name || "";
+  const amountTotal = session.amount_total || 0;
+
+  console.log(`[Stripe] One-time (Carm) checkout: session=${checkoutSessionId}, customer=${stripeCustomerId}, amount=${amountTotal}`);
+
+  const resolved = await resolveCarmCheckout(session);
+  if (!resolved) {
+    console.warn(`[Stripe] Unrecognized one-time checkout (no matching price metadata) — session=${checkoutSessionId}; skipping provisioning (no crash).`);
+    return;
+  }
+  const { tier, rate, priceId } = resolved;
+  if (!email) {
+    console.warn(`[Stripe] Missing customer email for one-time checkout ${checkoutSessionId} — skipping provisioning`);
+    return;
+  }
+  const plan = mapCarmTierToPlan(tier);
+  const companyName = name || email.split("@")[0] || "Business";
+  const orgName = `New Carm Client — ${companyName}`;
+
+  console.log(`[Stripe] Provisioning Carm client: tier=${tier} rate=${rate} plan=${plan} org="${orgName}" email=${email}`);
+
+  const sql = getSql();
+  const orgId = crypto.randomUUID();
+  const userId = crypto.randomUUID();
+  const slug = `carm-${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}`;
+
+  await sql`
+    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale)
+    VALUES (${orgId}, ${orgName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', 'America/Chicago', 'en')
+  `;
+
+  await sql`
+    INSERT INTO users (id, organization_id, email, name, role, password_hash)
+    VALUES (${userId}, ${orgId}, ${email}, ${name || "Owner"}, 'owner', ${generateRandomHash()})
+  `;
+
+  // Phone number (same as self-serve: buy via Telnyx)
+  const purchased = await buyPhoneNumber();
+  if (purchased) {
+    await sql`
+      INSERT INTO phone_numbers (id, organization_id, phone_number, provider, telnyx_number_id, is_active, capabilities)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${purchased.phoneNumber}, 'telnyx', ${purchased.telnyxNumberId}, true, '{"voice":true,"sms":true,"mms":false}'::jsonb)
+    `;
+  } else {
+    console.warn("[Stripe] Failed to buy phone number for Carm client");
+  }
+
+  // Subscription record (one-time; no Stripe subscription object).
+  const planRows = await sql`SELECT id FROM subscription_plans WHERE name = ${plan} LIMIT 1`;
+  const planId = planRows[0]?.id || null;
+  if (planId) {
+    await sql`
+      INSERT INTO subscriptions (id, organization_id, plan_id, stripe_subscription_id, stripe_customer_id, status, billing_cycle, metadata)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${planId}, ${checkoutSessionId}, ${stripeCustomerId}, 'active', 'monthly', ${JSON.stringify({ source: "carm", rate, tier, price_id: priceId, amount_total: amountTotal })}::jsonb)
+    `;
+  }
+
+  // Default business hours (Mon-Fri 9-5)
+  for (let day = 1; day <= 5; day++) {
+    await sql`
+      INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, '09:00', '17:00', false)
+    `;
+  }
+  for (const day of [0, 6]) {
+    await sql`
+      INSERT INTO business_hours (id, organization_id, day_of_week, is_closed)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, true)
+    `;
+  }
+
+  console.log(`[Stripe] Carm onboarding complete for org ${orgId} (${orgName})`);
+}
+
 async function handleCheckoutCompleted(session: any) {
+  // One-time (payment mode) checkout — Carm Marketing Payment Links carry no subscription object.
+  if (!session.subscription) {
+    await handleCarmOneTimeCheckout(session).catch((err) =>
+      console.error("[Stripe] Carm one-time checkout failed:", String(err).slice(0, 300))
+    );
+    return;
+  }
   const {
     id: checkoutSessionId,
     customer: stripeCustomerId,
