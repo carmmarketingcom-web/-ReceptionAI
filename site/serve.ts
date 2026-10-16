@@ -1711,45 +1711,76 @@ for (let attempt = 1; ; attempt++) {
             const msg = message.toLowerCase();
             const isEs = lang === "es";
             const fallback = () => {
-              if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo")) {
-                return isEs ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas), Scale: $399/mes (ilimitado). Prueba gratis 14 dias." : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines), Scale: $399/mo (unlimited). 14-day free trial.";
+              if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("plan")) {
+                return isEs
+                  ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado). Prueba gratis de 14 dias."
+                  : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited). 14-day free trial.";
+              }
+              if (msg.includes("book") || msg.includes("appointment") || msg.includes("reserva") || msg.includes("cita")) {
+                return isEs
+                  ? "Reserva una demo llamando al (727) 966-7556, o empieza tu prueba gratis de 14 dias en receptionai.store/signup."
+                  : "Book a demo by calling (727) 966-7556, or start a 14-day free trial at receptionai.store/signup.";
               }
               if (msg.includes("demo") || msg.includes("try") || msg.includes("probar")) {
-                return isEs ? "Prueba nuestro recepcionista IA! Llama al (727) 966-7556 o registrate en receptionai.store/signup." : "Try our AI receptionist! Call (727) 966-7556 or sign up at receptionai.store/signup.";
+                return isEs
+                  ? "Prueba la demo llamando al (727) 966-7556, o registrate en receptionai.store/signup para una prueba gratis de 14 dias."
+                  : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup for a 14-day free trial.";
               }
               if (msg.includes("feature") || msg.includes("what") || msg.includes("do") || msg.includes("funcion") || msg.includes("que hace")) {
-                return isEs ? "Respondo llamadas 24/7, programo citas, envio recordatorios. Calendario incorporado (sin Google OAuth). Resumenes SMS al dueno." : "I answer calls 24/7, book appointments, send reminders. Built-in calendar (no Google OAuth). SMS summaries to the owner.";
+                return isEs
+                  ? "Atiendo llamadas 24/7 en ingles y espanol, agendo citas, envio recordatorios y confirmaciones por SMS, y mando un resumen por SMS al dueno. Incluye calendario con horario preconfigurado (sin Google)."
+                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments, sends SMS reminders and confirmations, and texts the owner a summary after every call. Includes a built-in calendar with business hours preset - no Google setup.";
               }
               if (msg.includes("signup") || msg.includes("register") || msg.includes("start") || msg.includes("registr")) {
-                return isEs ? "Registrate en receptionai.store/signup — prueba gratis 14 dias, sin tarjeta." : "Sign up at receptionai.store/signup — 14-day free trial, no card needed.";
+                return isEs
+                  ? "Registrate en receptionai.store/signup - prueba gratis de 14 dias, sin tarjeta."
+                  : "Sign up at receptionai.store/signup - 14-day free trial, no card needed.";
               }
-              if (msg.includes("hi") || msg.includes("hello") || msg.includes("hey") || msg.includes("hola")) {
-                return isEs ? "Hola! Soy ReceptionAI, atiendo llamadas y programo citas 24/7. En que puedo ayudarte?" : "Hi! I'm ReceptionAI — I answer calls and book appointments 24/7. How can I help?";
+              if (msg.includes("calendar") || msg.includes("schedule") || msg.includes("calendario") || msg.includes("agenda")) {
+                return isEs
+                  ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o SMS y reciben confirmacion por SMS."
+                  : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or SMS and get SMS confirmations.";
               }
-              if (msg.includes("calendar") || msg.includes("schedule") || msg.includes("booking") || msg.includes("cita") || msg.includes("calendario")) {
-                return isEs ? "Calendario incorporado sin Google OAuth. Tus clientes reservan por telefono, chat o SMS. Confirmaciones automaticas." : "Built-in calendar with no Google OAuth. Clients book via phone, chat, or SMS. Auto confirmations included.";
+              if (/\b(hi|hello|hey|hola|buenas|saludos)\b/.test(msg)) {
+                return isEs
+                  ? "Hola! Como puedo ayudarte? Puedo contarte sobre planes, funciones o como reservar una demo."
+                  : "Hi! How can I help? I can tell you about plans, features, or how to book a demo.";
               }
-              return isEs ? "Soy ReceptionAI — atiendo llamadas 24/7, programo citas, gestiono mensajes. Planes desde $99/mes con prueba gratis. Como puedo ayudarte?" : "I'm ReceptionAI — I handle calls 24/7, book appointments, manage messages. Plans from $99/mo with free trial. How can I help?";
+              return isEs
+                ? "Atiendo llamadas 24/7, agendo citas y envio recordatorios. Planes desde $99/mes con prueba gratis de 14 dias. Que te gustaria saber?"
+                : "ReceptionAI answers calls 24/7, books appointments, and sends reminders. Plans start at $99/mo with a 14-day free trial. What would you like to know?";
             };
             if (apiKey && apiKey.startsWith("AIza")) {
               try {
+                const facts = isEs
+                  ? "Datos del producto (usa SOLO estos; no inventes precios ni funciones):\n- Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado).\n- Prueba gratis de 14 dias, sin tarjeta.\n- Calendario incorporado con horario preconfigurado (no requiere Google).\n- Habla ingles y espanol.\n- Atiende llamadas 24/7, agenda citas, envia recordatorios y manda un resumen por SMS al dueno tras cada llamada.\n- Las confirmaciones de citas se envian por SMS.\n- Demo en vivo: llama al (727) 966-7556."
+                  : "Product facts (use ONLY these; do not invent prices or features):\n- Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).\n- 14-day free trial, no credit card required.\n- Built-in calendar with business hours preset (no Google setup needed).\n- Speaks English and Spanish.\n- Answers calls 24/7, books appointments, sends reminders, and texts the owner a summary after every call.\n- Booking confirmations are sent by SMS.\n- Live demo: call (727) 966-7556.";
+                const sysPrompt = (isEs
+                  ? "Eres ReceptionAI, recepcionista IA de un producto SaaS. Responde usando SOLO los datos del producto. Responde en 1-3 frases cortas (max ~250 caracteres). No uses preambulos como 'Como recepcionista IA'. No inventes precios ni funciones."
+                  : "You are ReceptionAI, an AI receptionist for a SaaS product. Answer using ONLY the product facts. Reply in 1-3 short sentences (max ~250 characters). No preamble like 'As an AI receptionist'. Do not invent prices or features.") + "\n\n" + facts;
                 const ctrl = new AbortController();
                 const t = setTimeout(() => ctrl.abort(), 8000);
                 const gRes = await fetch(
                   `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
                   { method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                      system_instruction: { parts: [{ text: isEs ? "Recepcionista IA. Respuestas breves." : "AI receptionist. Brief responses." }] },
+                      system_instruction: { parts: [{ text: sysPrompt }] },
                       contents: [{ role: "user", parts: [{ text: message }] }],
-                      generationConfig: { maxOutputTokens: 512, temperature: 0.7 },
+                      generationConfig: { maxOutputTokens: 150, temperature: 0.4 },
                     }), signal: ctrl.signal },
                 );
                 clearTimeout(t);
                 if (gRes.ok) {
                   const data = await gRes.json() as any;
-                  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                  if (reply.trim()) {
-                    return new Response(JSON.stringify({ reply: reply.trim() }),
+                  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+                  if (raw) {
+                    let reply = raw;
+                    if (reply.length > 300) {
+                      const cut = reply.slice(0, 300);
+                      const last = Math.max(cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
+                      reply = last > 150 ? reply.slice(0, last + 1).trim() : cut + "...";
+                    }
+                    return new Response(JSON.stringify({ reply }),
                       { status: 200, headers: { "Content-Type": "application/json" } });
                   }
                 }
