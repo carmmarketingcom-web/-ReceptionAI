@@ -837,22 +837,21 @@ function getEncKey(): Buffer | null {
   hasher.update(key);
   return Buffer.from(hasher.digest("hex"), "hex");
 }
-async function encryptToken(plain: string): Promise<string | null> {
-  if (!plain) return null;
+async function encryptToken(token: string): Promise<string | null> {
+  if (!token) return null;
   const key = getEncKey();
   if (!key) return null; // fail closed: no key -> do not persist the token
   const { createCipheriv, randomBytes } = await import("node:crypto");
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const enc = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `v1:${iv.toString("base64")}:${tag.toString("base64")}:${enc.toString("base64")}`;
 }
 async function decryptToken(stored: string | null): Promise<string | null> {
   if (!stored) return null;
-  // Fail closed: never return plaintext. Legacy plain:/unencrypted rows are
-  // treated as unusable, so a connection that can't be decrypted is skipped.
-  if (stored.startsWith("plain:")) return null;
+  // Fail closed: only accept our own v1: ciphertext. Anything else
+  // (including legacy unencrypted rows) is skipped and treated as unusable.
   if (!stored.startsWith("v1:")) return null;
   const key = getEncKey();
   if (!key) return null;
