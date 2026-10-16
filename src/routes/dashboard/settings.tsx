@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
-import { api } from "~/lib/api-client";
+import { api, ApiError } from "~/lib/api-client";
 import { useSettings } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/settings")({
@@ -70,6 +70,10 @@ function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
+  // Calendar connection state
+  const [calStatus, setCalStatus] = useState<{ connected: boolean; email: string | null; configured: boolean } | null>(null);
+  const [calBusy, setCalBusy] = useState(false);
+
   // Phone numbers — mock for now
   const [phoneNumbers] = useState([
     "(555) " + String(Math.floor(Math.random() * 900) + 100) + "-" + String(Math.floor(Math.random() * 9000) + 1000),
@@ -128,6 +132,65 @@ function SettingsPage() {
       setSaving(false);
     }
   }, [companyName, businessType, timezone, hours, smsSummaries]);
+
+  // ── Calendar connection ───────────────────────────────────────────────
+  const loadCalStatus = useCallback(async () => {
+    try {
+      const s = await api.get<{ connected: boolean; email: string | null; configured: boolean }>("/api/calendar/status");
+      setCalStatus(s);
+    } catch {
+      setCalStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCalStatus();
+    // Handle OAuth return (e.g. /dashboard/settings?calendar=connected&email=...)
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const calState = params.get("calendar");
+      if (calState === "connected") {
+        const email = params.get("email");
+        setToast({ message: `Google Calendar connected${email ? ` (${email})` : ""}`, type: "success" });
+        loadCalStatus();
+      } else if (calState === "error") {
+        setToast({ message: "Calendar connection failed. Please try again.", type: "error" });
+      }
+      if (calState) {
+        window.history.replaceState({}, "", "/dashboard/settings");
+      }
+    }
+  }, [loadCalStatus]);
+
+  const handleConnectGoogle = useCallback(async () => {
+    setCalBusy(true);
+    try {
+      const r = await api.get<{ url: string }>("/api/calendar/connect/google");
+      if (r?.url) {
+        window.location.href = r.url;
+        return;
+      }
+      setToast({ message: "Google Calendar is not configured on the server yet.", type: "error" });
+    } catch (e) {
+      setToast({ message: e instanceof ApiError ? e.message : "Failed to start calendar connection", type: "error" });
+    } finally {
+      setCalBusy(false);
+    }
+  }, []);
+
+  const handleDisconnect = useCallback(async () => {
+    setCalBusy(true);
+    try {
+      await api.post("/api/calendar/disconnect");
+      setCalStatus(null);
+      setToast({ message: "Google Calendar disconnected", type: "success" });
+      loadCalStatus();
+    } catch (e) {
+      setToast({ message: e instanceof ApiError ? e.message : "Failed to disconnect", type: "error" });
+    } finally {
+      setCalBusy(false);
+    }
+  }, [loadCalStatus]);
 
   if (loading) {
     return (
@@ -259,6 +322,54 @@ function SettingsPage() {
           >
             Open Schedule
           </a>
+        </div>
+      </div>
+
+      {/* ── Calendar Connections ──────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-50 text-lg">🔗</div>
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Calendar Connections</h2>
+            <p className="mt-0.5 text-xs text-gray-500">Mirror new and changed appointments to your own Google Calendar.</p>
+          </div>
+        </div>
+        <div className="mt-4">
+          {calStatus?.connected ? (
+            <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">✅</span>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Google Calendar connected</p>
+                  {calStatus.email && <p className="text-xs text-gray-500">{calStatus.email}</p>}
+                </div>
+              </div>
+              <button
+                onClick={handleDisconnect}
+                disabled={calBusy}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+              >
+                {calBusy ? "..." : "Disconnect"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">📅</span>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">No calendar connected</p>
+                  <p className="text-xs text-gray-500">Connect Google Calendar to mirror bookings automatically.</p>
+                </div>
+              </div>
+              <button
+                onClick={handleConnectGoogle}
+                disabled={calBusy}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {calBusy ? "Connecting..." : "Connect Google"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

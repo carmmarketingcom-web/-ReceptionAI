@@ -442,6 +442,20 @@ async function migrate() {
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`;
 
+  // Create calendar_sync_log
+  await sql`CREATE TABLE IF NOT EXISTS calendar_sync_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
+    provider VARCHAR(50) NOT NULL DEFAULT 'google',
+    action VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    detail TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS calendar_sync_log_org_idx ON calendar_sync_log(organization_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS calendar_sync_log_appt_idx ON calendar_sync_log(appointment_id)`;
+
   console.log("All tables created!");
 
   // Seed subscription plans
