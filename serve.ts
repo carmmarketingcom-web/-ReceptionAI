@@ -1920,20 +1920,25 @@ for (let attempt = 1; ; attempt++) {
             const start = url.searchParams.get("start") || "";
             const end = url.searchParams.get("end") || "";
             const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 500);
-            const rows = await sql`
-              SELECT a.id, a.organization_id, a.contact_id, a.title, a.description,
-                     a.start_time, a.end_time, a.status, a.service_type, a.staff_assigned_id,
-                     a.location, a.notes, a.created_at, a.updated_at,
-                     co.first_name, co.last_name, co.phone as contact_phone, co.email as contact_email
-              FROM appointments a
-              LEFT JOIN contacts co ON a.contact_id = co.id
-              WHERE a.organization_id = ${organizationId}
-                AND (${status} = '' OR a.status::text = ${status})
-                AND (${start} = '' OR a.start_time >= ${start}::timestamptz)
-                AND (${end} = '' OR a.start_time <= ${end}::timestamptz)
-              ORDER BY a.start_time DESC
-              LIMIT ${limit}
-            `;
+            // Build the WHERE clause conditionally so empty-string filters are
+            // never cast (''::timestamptz throws NeonDbError). Values stay bound.
+            const conditions: string[] = ["a.organization_id = $1"];
+            const params: any[] = [organizationId];
+            if (status) { params.push(status); conditions.push(`a.status::text = $${params.length}`); }
+            if (start) { params.push(start); conditions.push(`a.start_time >= $${params.length}::timestamptz`); }
+            if (end) { params.push(end); conditions.push(`a.start_time <= $${params.length}::timestamptz`); }
+            const rows = await sql.query(
+              `SELECT a.id, a.organization_id, a.contact_id, a.title, a.description,
+                      a.start_time, a.end_time, a.status, a.service_type, a.staff_assigned_id,
+                      a.location, a.notes, a.created_at, a.updated_at,
+                      co.first_name, co.last_name, co.phone as contact_phone, co.email as contact_email
+               FROM appointments a
+               LEFT JOIN contacts co ON a.contact_id = co.id
+               WHERE ${conditions.join(" AND ")}
+               ORDER BY a.start_time DESC
+               LIMIT $${params.length + 1}`,
+              [...params, limit]
+            );
             const appointments = (rows as any[]).map((r: any) => ({
               id: r.id,
               organizationId: r.organization_id,
