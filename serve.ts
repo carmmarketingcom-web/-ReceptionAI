@@ -20,7 +20,7 @@ async function aiRespond(userText: string): Promise<string> {
         body: JSON.stringify({
           system_instruction: { parts: [{ text: "You are a professional AI receptionist. Keep responses BRIEF (1-2 sentences). Be friendly." }] },
           contents: [{ role: "user", parts: [{ text: userText }] }],
-          generationConfig: { maxOutputTokens: 150, temperature: 0.7 },
+          generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
         }),
       }
     );
@@ -2371,7 +2371,7 @@ for (let attempt = 1; ; attempt++) {
                     body: JSON.stringify({
                       system_instruction: { parts: [{ text: sysPrompt }] },
                       contents: [{ role: "user", parts: [{ text: message }] }],
-                      generationConfig: { maxOutputTokens: 150, temperature: 0.4 },
+                      generationConfig: { maxOutputTokens: 1024, temperature: 0.4 },
                     }), signal: ctrl.signal },
                 );
                 clearTimeout(t);
