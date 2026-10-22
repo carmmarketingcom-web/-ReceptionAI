@@ -319,7 +319,7 @@ function FeaturesOverview() {
 /* ─── How It Works (numbered) ─── */
 function HowItWorks() {
   const steps = [
-    { step: "01", title: "Connect Your Number", desc: "Port your existing business number or get a new one. Set your business hours and you're live." },
+    { step: "01", title: "Get Your Number", desc: "You're live in minutes with a new number — or keep your old number by forwarding calls to it. Set your business hours and your AI receptionist is ready." },
     { step: "02", title: "AI Takes the Calls", desc: "Your AI receptionist answers every call, asks the right questions, and books appointments — in English or Spanish." },
     { step: "03", title: "You Focus on Work", desc: "Get SMS summaries after every call. See everything in your dashboard. Only step in when you want to." },
   ];

@@ -209,8 +209,12 @@ export default function PricingPage() {
                 a: "No. All plans are month-to-month. You can cancel anytime — no penalties, no hidden fees.",
               },
               {
-                q: "Can I keep my existing phone number?",
-                a: "Absolutely. You can port your existing business number to ReceptionAI, or get a new one from us.",
+                q: "Can I use my existing phone number?",
+                a: "Yes, but our honest recommendation is to start with a new ReceptionAI number. You're live in minutes, every call is recorded and summarized straight to your phone, and your existing number keeps working for outbound calls, existing customers, and emergencies. Porting your number to us is possible, but we don't recommend it: it typically takes 1–4 weeks with your current carrier, can briefly interrupt service if anything slips, and adds friction you don't need on day one. If you still want to port, we'll handle it with you directly — you send a recent bill and sign a letter of authorization, we submit the port, and we update you at every step. Talk to our team and we'll guide you through it.",
+              },
+              {
+                q: "Can I keep my old number without porting?",
+                a: "Yes — and this is what most of our customers do. Ask your current carrier to forward calls from your existing number to your new ReceptionAI number. Your old number keeps ringing, callers never notice a change, and your AI receptionist answers every call. No porting delays, no downtime, no risk. We'll give you the exact forwarding instructions for your carrier.",
               },
               {
                 q: "How does the 14-day free trial work?",
