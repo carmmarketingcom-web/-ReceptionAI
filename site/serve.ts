@@ -526,11 +526,14 @@ interface CallState {
   rescheduleNewTime?: string;
   surveySent: boolean;
   gatherTimeouts: number;
+  transferred: boolean;
+  transferring: boolean;
 }
 const calls = new Map<string, CallState>(); // cid → CallState
 const pendingHangups = new Set<string>();
 const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string }>(); // outbound cid → callback info
 const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean }>(); // outbound cid → active callback state
+const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean }>(); // outbound owner-leg cid → transfer info
 
 // ── Reschedule flow handler ────────────────────────────────────────────────
 async function handleReschedulePhase(cid: string, digit: string, cs: CallState): Promise<void> {
@@ -742,6 +745,45 @@ function scheduleCallback(cs: CallState): void {
   }, 2 * 60 * 1000); // 2 minutes
 }
 
+// ── Real "talk to the owner" transfer ──────────────────────────────────
+async function transferToOwner(cid: string, cs: CallState): Promise<void> {
+  const es = cs.language === "es";
+  const ownerPhone = cs.orgId ? await getOwnerPhone(cs.orgId) : null;
+  if (!ownerPhone || !cs.toNumber) {
+    await speakOnly(cid, es
+      ? "Lo siento, no hay nadie disponible en este momento. Presione 9 para dejar un mensaje de voz, o espere para volver al menú."
+      : "Sorry, no one is available right now. Press 9 to leave a voicemail, or stay on the line to return to the menu.", cs.language);
+    return;
+  }
+  cs.transferred = true;
+  cs.transferring = true;
+  await speakOnly(cid, es
+    ? "Transfiriendo ahora. Por favor espere."
+    : "Transferring now. Please hold.", cs.language);
+
+  const webhookUrl = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
+  const ownerCid = await dialOutbound(ownerPhone, cs.toNumber, webhookUrl);
+  if (!ownerCid) {
+    cs.transferring = false;
+    await speakOnly(cid, es
+      ? "Lo siento, no pudimos comunicarnos con el equipo. Presione 9 para dejar un mensaje de voz, o espere."
+      : "Sorry, we couldn't reach the team. Press 9 to leave a voicemail, or stay on the line.", cs.language);
+    await sendSms(cs.toNumber, ownerPhone, es
+      ? `📞 Llamada de ${cs.callerNumber}. Intentó comunicarse con usted. Por favor devuélvale la llamada.`
+      : `📞 Call from ${cs.callerNumber}. They tried to reach you. Please call them back.`);
+    return;
+  }
+  transferStates.set(ownerCid, {
+    inboundCid: cid,
+    ownerPhone,
+    callerNumber: cs.callerNumber,
+    businessNumber: cs.toNumber,
+    language: cs.language,
+    answered: false,
+  });
+  console.log(`[Transfer] Dialed owner ${ownerPhone} (leg ${ownerCid.slice(-8)}) for caller ${cs.callerNumber}`);
+}
+
 // ── Get owner phone from DB ─────────────────────────────────────────────
 async function getOwnerPhone(orgId: string): Promise<string | null> {
   try {
@@ -878,6 +920,8 @@ for (let attempt = 1; ; attempt++) {
                 callbackSent: false,
                 surveySent: false,
                 gatherTimeouts: 0,
+                transferred: false,
+                transferring: false,
               });
 
               await cmd(cid, "answer");
@@ -904,8 +948,24 @@ for (let attempt = 1; ; attempt++) {
               return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
             }
 
+            // ── Owner answered for a transfer → bridge caller to owner ──
+            else if (ev === "call.answered") {
+              const t = transferStates.get(cid);
+              if (t) {
+                t.answered = true;
+                await cmd(t.inboundCid, "bridge", { call_control_id: cid });
+                console.log(`[Transfer] Owner answered; bridged ${t.inboundCid.slice(-8)} <-> ${cid.slice(-8)}`);
+              }
+              return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+
             // ── Speak ended → gather or hangup ─────────────────────────
             else if (ev === "call.speak.ended") {
+              const speakCs = calls.get(cid);
+              if (speakCs?.transferring) {
+                // Dialing the owner — wait for the bridge; do not re-prompt.
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               if (pendingHangups.has(cid)) {
                 pendingHangups.delete(cid);
                 setTimeout(() => cmd(cid, "hangup"), 1500);
@@ -922,7 +982,6 @@ for (let attempt = 1; ; attempt++) {
             // ── DTMF pressed ───────────────────────────────────────
             else if (ev === "call.dtmf.received" || ev === "dtmf.received") {
               const digit = p.data?.payload?.digit || "";
-              const toNumber = p.data?.payload?.to || "";
               console.log(`DTMF: ${digit} — call ${cid.slice(-8)}`);
 
               // ── Callback call DTMF? ─────────────────────────────
@@ -1010,18 +1069,15 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "3") {
-                const org = await getOrgByPhoneNumber(toNumber);
-                const isDemo = !org;
+                const isDemo = !cs?.orgId;
                 if (isDemo) {
                   await speakOnly(cid, es
                     ? "En una cuenta real, esto lo transferiría. Gracias por probar la demostración. Adiós."
                     : "In a live account, this would transfer you. Thanks for trying the demo. Goodbye.", lang);
-                } else {
-                  await speakOnly(cid, es
-                    ? "Transfiriendo ahora. Por favor espere."
-                    : "Transferring now. Please hold.", lang);
+                  pendingHangups.add(cid);
+                } else if (cs) {
+                  await transferToOwner(cid, cs);
                 }
-                pendingHangups.add(cid);
               }
 
               else if (digit === "4") {
@@ -1097,6 +1153,31 @@ for (let attempt = 1; ; attempt++) {
               const cs = calls.get(cid);
               console.log(`Hangup: ${cid.slice(-8)}${cs ? ` from ${cs.callerNumber}` : ""}`);
 
+              // ── Owner transfer leg hung up ─────────────────────
+              const tState = transferStates.get(cid);
+              if (tState) {
+                if (!tState.answered) {
+                  // Owner missed — text owner to call the caller back
+                  await sendSms(tState.businessNumber, tState.ownerPhone, tState.language === "es"
+                    ? `📞 Llamada perdida de ${tState.callerNumber}. Intentó comunicarse con usted. Por favor devuélvale la llamada.`
+                    : `📞 Missed call from ${tState.callerNumber}. They tried to reach you. Please call them back.`);
+                  const inbound = calls.get(tState.inboundCid);
+                  if (inbound) {
+                    inbound.transferring = false;
+                    await speakOnly(tState.inboundCid, tState.language === "es"
+                      ? "Lo sentimos, no pudimos comunicarnos con el equipo. Presione 9 para dejar un mensaje de voz, o espere para volver al menú."
+                      : "Sorry, we couldn't reach the team. Press 9 to leave a voicemail, or stay on the line to return to the menu.", tState.language);
+                  }
+                } else {
+                  // Owner hung up after talking — end the caller leg too
+                  const inbound = calls.get(tState.inboundCid);
+                  if (inbound) inbound.transferred = true;
+                  await cmd(tState.inboundCid, "hangup");
+                }
+                transferStates.delete(cid);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
+
               // Stop any in-progress recording
               stopVoicemailRecording(cid);
 
@@ -1118,6 +1199,13 @@ for (let attempt = 1; ; attempt++) {
               // Save caller history to database
               if (cs && cs.orgId) {
                 await saveCallerHistory(cs);
+
+                // Transferred calls were handled by the owner — skip AI summary/notifications
+                if (cs.transferred) {
+                  calls.delete(cid);
+                  pendingHangups.delete(cid);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
 
                 // Generate AI transcript and send notifications
                 const transcript = await generateCallTranscript(cs);
