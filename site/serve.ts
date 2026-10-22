@@ -528,6 +528,7 @@ interface CallState {
   gatherTimeouts: number;
   transferred: boolean;
   transferring: boolean;
+  requestedCallback: boolean;
 }
 const calls = new Map<string, CallState>(); // cid → CallState
 const pendingHangups = new Set<string>();
@@ -748,40 +749,64 @@ function scheduleCallback(cs: CallState): void {
 // ── Real "talk to the owner" transfer ──────────────────────────────────
 async function transferToOwner(cid: string, cs: CallState): Promise<void> {
   const es = cs.language === "es";
-  const ownerPhone = cs.orgId ? await getOwnerPhone(cs.orgId) : null;
-  if (!ownerPhone || !cs.toNumber) {
+  cs.requestedCallback = true;
+  const transferNumber = cs.orgId ? await getTransferNumber(cs.orgId) : null;
+  if (!transferNumber || !cs.toNumber) {
+    // No transfer number configured — tell the caller someone will reach out, then end gracefully.
     await speakOnly(cid, es
-      ? "Lo siento, no hay nadie disponible en este momento. Presione 9 para dejar un mensaje de voz, o espere para volver al menú."
-      : "Sorry, no one is available right now. Press 9 to leave a voicemail, or stay on the line to return to the menu.", cs.language);
+      ? "Gracias. No hay nadie disponible en este momento, pero le avisaremos al equipo y alguien lo contactará pronto."
+      : "Thanks. No one is available right now, but we'll let the team know and someone will reach out shortly.", cs.language);
+    pendingHangups.add(cid);
     return;
   }
-  cs.transferred = true;
   cs.transferring = true;
   await speakOnly(cid, es
     ? "Transfiriendo ahora. Por favor espere."
     : "Transferring now. Please hold.", cs.language);
 
   const webhookUrl = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
-  const ownerCid = await dialOutbound(ownerPhone, cs.toNumber, webhookUrl);
+  const ownerCid = await dialOutbound(transferNumber, cs.toNumber, webhookUrl);
   if (!ownerCid) {
     cs.transferring = false;
     await speakOnly(cid, es
-      ? "Lo siento, no pudimos comunicarnos con el equipo. Presione 9 para dejar un mensaje de voz, o espere."
-      : "Sorry, we couldn't reach the team. Press 9 to leave a voicemail, or stay on the line.", cs.language);
-    await sendSms(cs.toNumber, ownerPhone, es
-      ? `📞 Llamada de ${cs.callerNumber}. Intentó comunicarse con usted. Por favor devuélvale la llamada.`
-      : `📞 Call from ${cs.callerNumber}. They tried to reach you. Please call them back.`);
+      ? "Lo siento, no pudimos comunicarnos con el equipo. Le avisaremos y alguien lo contactará pronto."
+      : "Sorry, we couldn't reach the team. We'll let them know and someone will reach out shortly.", cs.language);
+    pendingHangups.add(cid);
+    await sendSms(cs.toNumber, transferNumber, es
+      ? `🔔 Un llamador (${cs.callerNumber}) pidió hablar con usted y no pudimos transferir la llamada. Por favor devuélvale la llamada.`
+      : `🔔 A caller (${cs.callerNumber}) asked to speak with you and the transfer failed — call them back.`);
     return;
   }
   transferStates.set(ownerCid, {
     inboundCid: cid,
-    ownerPhone,
+    ownerPhone: transferNumber,
     callerNumber: cs.callerNumber,
     businessNumber: cs.toNumber,
     language: cs.language,
     answered: false,
   });
-  console.log(`[Transfer] Dialed owner ${ownerPhone} (leg ${ownerCid.slice(-8)}) for caller ${cs.callerNumber}`);
+  console.log(`[Transfer] Dialed owner ${transferNumber} (leg ${ownerCid.slice(-8)}) for caller ${cs.callerNumber}`);
+}
+
+// ── Resolve the transfer number for an org (transfer_number → org phone → owner phone) ──
+async function getTransferNumber(orgId: string): Promise<string | null> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return null;
+  const sql = neon(dbUrl);
+  // 1) organizations.transfer_number (new optional column)
+  try {
+    const rows = await sql`SELECT transfer_number FROM organizations WHERE id = ${orgId} LIMIT 1`;
+    const tn = (rows[0] as any)?.transfer_number;
+    if (tn) return tn;
+  } catch { /* column may not exist yet */ }
+  // 2) organizations.phone
+  try {
+    const rows = await sql`SELECT phone FROM organizations WHERE id = ${orgId} LIMIT 1`;
+    const ph = (rows[0] as any)?.phone;
+    if (ph) return ph;
+  } catch { /* ignore */ }
+  // 3) owner user phone
+  return getOwnerPhone(orgId);
 }
 
 // ── Get owner phone from DB ─────────────────────────────────────────────
@@ -825,7 +850,7 @@ function buildCallSummary(cs: CallState, transcript?: string): string {
   const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
   const dtmfStr = cs.dtmfHistory.length > 0 ? cs.dtmfHistory.join(" → ") : "none";
   const callerLabel = cs.callerFirstName ? `${cs.callerFirstName} (${cs.callerNumber})` : cs.callerNumber;
-  const outcome = cs.appointmentBooked ? "Appointment booked" : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
+  const outcome = cs.appointmentBooked ? "Appointment booked" : cs.requestedCallback ? "Requested owner callback" : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
 
   return [
     `📞 ReceptionAI Call Summary`,
@@ -922,6 +947,7 @@ for (let attempt = 1; ; attempt++) {
                 gatherTimeouts: 0,
                 transferred: false,
                 transferring: false,
+                requestedCallback: false,
               });
 
               await cmd(cid, "answer");
@@ -953,6 +979,8 @@ for (let attempt = 1; ; attempt++) {
               const t = transferStates.get(cid);
               if (t) {
                 t.answered = true;
+                const inbound = calls.get(t.inboundCid);
+                if (inbound) inbound.transferred = true;
                 await cmd(t.inboundCid, "bridge", { call_control_id: cid });
                 console.log(`[Transfer] Owner answered; bridged ${t.inboundCid.slice(-8)} <-> ${cid.slice(-8)}`);
               }
@@ -1159,19 +1187,18 @@ for (let attempt = 1; ; attempt++) {
                 if (!tState.answered) {
                   // Owner missed — text owner to call the caller back
                   await sendSms(tState.businessNumber, tState.ownerPhone, tState.language === "es"
-                    ? `📞 Llamada perdida de ${tState.callerNumber}. Intentó comunicarse con usted. Por favor devuélvale la llamada.`
-                    : `📞 Missed call from ${tState.callerNumber}. They tried to reach you. Please call them back.`);
+                    ? `🔔 Un llamador (${tState.callerNumber}) pidió hablar con usted y no atendió la transferencia. Por favor devuélvale la llamada.`
+                    : `🔔 A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer — call them back.`);
                   const inbound = calls.get(tState.inboundCid);
                   if (inbound) {
                     inbound.transferring = false;
                     await speakOnly(tState.inboundCid, tState.language === "es"
-                      ? "Lo sentimos, no pudimos comunicarnos con el equipo. Presione 9 para dejar un mensaje de voz, o espere para volver al menú."
-                      : "Sorry, we couldn't reach the team. Press 9 to leave a voicemail, or stay on the line to return to the menu.", tState.language);
+                      ? "No hay nadie disponible en este momento. Le pediremos que lo llamen pronto."
+                      : "No one is available right now. We'll have them call you back shortly.", tState.language);
+                    pendingHangups.add(tState.inboundCid);
                   }
                 } else {
                   // Owner hung up after talking — end the caller leg too
-                  const inbound = calls.get(tState.inboundCid);
-                  if (inbound) inbound.transferred = true;
                   await cmd(tState.inboundCid, "hangup");
                 }
                 transferStates.delete(cid);
@@ -1210,7 +1237,7 @@ for (let attempt = 1; ; attempt++) {
                 // Generate AI transcript and send notifications
                 const transcript = await generateCallTranscript(cs);
                 const summary = buildCallSummary(cs, transcript);
-                const outcome = cs.appointmentBooked ? "Appointment booked" : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
+                const outcome = cs.appointmentBooked ? "Appointment booked" : cs.requestedCallback ? "Requested owner callback" : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
 
                 // Send SMS summary to owner
                 const ownerPhone = await getOwnerPhone(cs.orgId);

@@ -30,6 +30,7 @@ export const organizations = pgTable(
     slug: varchar("slug", { length: 100 }).notNull().unique(),
     email: varchar("email", { length: 255 }),
     phone: varchar("phone", { length: 30 }),
+    transferNumber: varchar("transfer_number", { length: 30 }),
     timezone: varchar("timezone", { length: 100 }).notNull().default("America/Chicago"),
     locale: varchar("locale", { length: 10 }).notNull().default("en"),
     logoUrl: text("logo_url"),

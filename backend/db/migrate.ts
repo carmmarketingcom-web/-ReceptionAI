@@ -39,6 +39,7 @@ async function migrate() {
     slug VARCHAR(100) NOT NULL UNIQUE,
     email VARCHAR(255),
     phone VARCHAR(30),
+    transfer_number VARCHAR(30),
     timezone VARCHAR(100) NOT NULL DEFAULT 'America/Chicago',
     locale VARCHAR(10) NOT NULL DEFAULT 'en',
     logo_url TEXT,
