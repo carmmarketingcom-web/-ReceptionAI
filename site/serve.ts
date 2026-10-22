@@ -768,6 +768,7 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
   const ownerCid = await dialOutbound(transferNumber, cs.toNumber, webhookUrl);
   if (!ownerCid) {
     cs.transferring = false;
+    cs.transferred = false;
     await speakOnly(cid, es
       ? "Lo siento, no pudimos comunicarnos con el equipo. Le avisaremos y alguien lo contactará pronto."
       : "Sorry, we couldn't reach the team. We'll let them know and someone will reach out shortly.", cs.language);
@@ -1192,6 +1193,7 @@ for (let attempt = 1; ; attempt++) {
                   const inbound = calls.get(tState.inboundCid);
                   if (inbound) {
                     inbound.transferring = false;
+                    inbound.transferred = false;
                     await speakOnly(tState.inboundCid, tState.language === "es"
                       ? "No hay nadie disponible en este momento. Le pediremos que lo llamen pronto."
                       : "No one is available right now. We'll have them call you back shortly.", tState.language);
@@ -1203,6 +1205,15 @@ for (let attempt = 1; ; attempt++) {
                 }
                 transferStates.delete(cid);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
+
+              // ── Caller leg hung up while a transfer was in flight → end the owner leg ──
+              for (const [ownerLegCid, st] of transferStates) {
+                if (st.inboundCid === cid) {
+                  await cmd(ownerLegCid, "hangup");
+                  transferStates.delete(ownerLegCid);
+                  break;
+                }
               }
 
               // Stop any in-progress recording
