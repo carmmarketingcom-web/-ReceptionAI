@@ -200,6 +200,7 @@ interface OrgSettings {
     industry?: string;
   };
   businessHours: BusinessHoursDay[];
+  transferNumber?: string | null;
   settings: Record<string, unknown>;
 }
 

@@ -67,6 +67,7 @@ function SettingsPage() {
   const [timezone, setTimezone] = useState("America/Chicago");
   const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
   const [smsSummaries, setSmsSummaries] = useState(true);
+  const [transferNumber, setTransferNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -103,6 +104,7 @@ function SettingsPage() {
       if (data.settings?.smsSummaries !== undefined) {
         setSmsSummaries(!!data.settings.smsSummaries);
       }
+      if (data.transferNumber) setTransferNumber(data.transferNumber);
     }
   }, [data]);
 
@@ -124,6 +126,7 @@ function SettingsPage() {
         timezone,
         businessHours: hoursPayload,
         smsSummaries,
+        transferNumber: transferNumber || null,
       });
       setToast({ message: "Settings saved successfully", type: "success" });
     } catch {
@@ -131,7 +134,7 @@ function SettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [companyName, businessType, timezone, hours, smsSummaries]);
+  }, [companyName, businessType, timezone, hours, smsSummaries, transferNumber]);
 
   // ── Calendar connection ───────────────────────────────────────────────
   const loadCalStatus = useCallback(async () => {
@@ -266,6 +269,19 @@ function SettingsPage() {
           ))}
         </div>
         <p className="mt-3 text-xs text-gray-400">To add more numbers or port an existing one, contact support.</p>
+      </div>
+
+      {/* ── Human Transfer ─────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-900">Transfer calls to (optional)</h2>
+        <p className="mt-0.5 text-xs text-gray-500">When a caller asks to speak to a person, calls forward to this number. Leave blank to send you a text instead.</p>
+        <input
+          type="tel"
+          value={transferNumber}
+          onChange={(e) => setTransferNumber(e.target.value)}
+          placeholder="+1 (555) 123-4567"
+          className="mt-3 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
       </div>
 
       {/* ── Hours ─────────────────────────────────────────── */}

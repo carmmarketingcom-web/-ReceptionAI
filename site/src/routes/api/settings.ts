@@ -40,6 +40,7 @@ export async function GET({ request }: { request: Request }) {
             { dayOfWeek: "5", openTime: "09:00", closeTime: "17:00" },
             { dayOfWeek: "6", isClosed: true },
           ],
+          transferNumber: null,
           settings: {},
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -71,9 +72,12 @@ export async function GET({ request }: { request: Request }) {
       settingsMap[s.key] = s.value;
     }
 
+    const transferNumber = (org as any)?.transferNumber ?? (org as any)?.transfer_number ?? null;
+
     return new Response(
       JSON.stringify({
         organization: org || null,
+        transferNumber,
         businessHours: hours,
         settings: settingsMap,
       }),
@@ -94,6 +98,7 @@ const updateSettingsSchema = z.object({
   locale: z.enum(["en", "es"]).optional(),
   email: z.string().email().optional(),
   phone: z.string().max(30).optional(),
+  transferNumber: z.string().max(30).optional().nullable(),
   website: z.string().max(500).optional(),
   industry: z.string().max(100).optional(),
   addressLine1: z.string().max(255).optional(),
