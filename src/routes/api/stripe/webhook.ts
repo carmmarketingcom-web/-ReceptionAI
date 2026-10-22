@@ -403,6 +403,20 @@ async function handleCheckoutCompleted(session: any) {
       ? `📞 Your phone number (${existingPhoneNumber}) is being ported — we'll notify you when it's live.`
       : `📞 Your phone number: ${phoneNumber}`;
 
+    // 10-digit national number for the call-forwarding dial example
+    const forwardDigits = phoneNumber.replace(/\D/g, "").slice(-10);
+    const hasForwardDigits = forwardDigits.length === 10;
+
+    const forwardingGuide = hasForwardDigits
+      ? `📱 Keep your existing number (no porting):
+Callers can keep dialing your current business number — just forward it to your AI receptionist.
+
+1. On your existing number, dial *72${forwardDigits} and press Call (works on most US carriers).
+2. Or open your carrier's app or website and set Call Forwarding → forward all calls to ${phoneNumber}.
+3. To turn forwarding off later, dial *73.`
+      : `📱 Keep your existing number (no porting):
+Callers can keep dialing your current business number — just set your carrier to forward all calls to your new AI number (${phoneNumber}). On most US carriers, dial *72 followed by your new 10-digit number; dial *73 to turn it off.`;
+
     const welcomeBody = `Hi ${name},
 
 Your AI receptionist is live and ready to answer calls!
@@ -415,6 +429,8 @@ Quick start:
 1. Log in at https://receptionai.store/login
 2. Complete your setup (2 min)
 3. Start receiving calls
+
+${forwardingGuide}
 
 Your 14-day free trial starts now. Cancel anytime.
 
