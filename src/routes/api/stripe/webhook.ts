@@ -403,19 +403,16 @@ async function handleCheckoutCompleted(session: any) {
       ? `📞 Your phone number (${existingPhoneNumber}) is being ported — we'll notify you when it's live.`
       : `📞 Your phone number: ${phoneNumber}`;
 
-    // 10-digit national number for the call-forwarding dial example
-    const forwardDigits = phoneNumber.replace(/\D/g, "").slice(-10);
-    const hasForwardDigits = forwardDigits.length === 10;
+    const keepYourNumberSection = pendingPort
+      ? `Porting can take a few days. To make sure you don't miss a call during the port window, forward your old number to your new ReceptionAI number in the meantime — reply to this email and we'll help you set it up.`
+      : `Keep your old number:
+You can keep your old number by forwarding it to your new one — it takes about 5 minutes at your current phone provider and there's no downtime.
 
-    const forwardingGuide = hasForwardDigits
-      ? `📱 Keep your existing number (no porting):
-Callers can keep dialing your current business number — just forward it to your AI receptionist.
+Here's how (steps vary slightly by provider):
+• Call forwarding at your carrier: on your old phone, dial *72 followed by your new ReceptionAI number and press call. (If *72 doesn't work on your provider, contact them and ask for unconditional call forwarding to ${phoneNumber}.)
+• Or via your provider's web/app portal: find "Call forwarding" / "Forward all calls" and set it to ${phoneNumber}.
 
-1. On your existing number, dial *72${forwardDigits} and press Call (works on most US carriers).
-2. Or open your carrier's app or website and set Call Forwarding → forward all calls to ${phoneNumber}.
-3. To turn forwarding off later, dial *73.`
-      : `📱 Keep your existing number (no porting):
-Callers can keep dialing your current business number — just set your carrier to forward all calls to your new AI number (${phoneNumber}). On most US carriers, dial *72 followed by your new 10-digit number; dial *73 to turn it off.`;
+Callers keep calling the number they already know, and the AI receptionist still answers 24/7. To turn it off later, dial *73.`;
 
     const welcomeBody = `Hi ${name},
 
@@ -430,7 +427,7 @@ Quick start:
 2. Complete your setup (2 min)
 3. Start receiving calls
 
-${forwardingGuide}
+${keepYourNumberSection}
 
 Your 14-day free trial starts now. Cancel anytime.
 
