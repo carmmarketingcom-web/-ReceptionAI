@@ -1198,6 +1198,41 @@ async function sendSms(from: string, to: string, text: string) {
   }
 }
 
+// ── Support request → owner SMS alert ─────────────────────────────────────
+// Same-day priority support (Scale plan): text the owner's phone the moment a
+// support request arrives via an interceptable intake path (web chat, etc.).
+// DB-independent (Telnyx only) — still works while Neon is down.
+const SUPPORT_ALERT_TO = process.env.SUPPORT_ALERT_TO || "+17278593332";
+const SUPPORT_ALERT_FROM = process.env.SUPPORT_ALERT_FROM || "+17279667556";
+
+function isSupportEscalation(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    /\b(human|representative|agent|humano|representante|agente)\b/.test(m) ||
+    m.includes("real person") ||
+    m.includes("persona real") ||
+    m.includes("talk to a person") ||
+    m.includes("talk to someone") ||
+    m.includes("speak to a person") ||
+    m.includes("speak to someone") ||
+    m.includes("contact support") ||
+    m.includes("customer support") ||
+    m.includes("hablar con una persona") ||
+    m.includes("hablar con alguien") ||
+    m.includes("atencion al cliente") ||
+    m.includes("atención al cliente")
+  );
+}
+
+async function notifyOwnerOfSupportRequest(source: string, detail: string): Promise<void> {
+  if (!process.env.TELNYX_API_KEY) {
+    console.warn("[Support] TELNYX_API_KEY not set — cannot alert owner");
+    return;
+  }
+  const text = `🚨 ReceptionAI support request\nSource: ${source}\n${detail}`;
+  await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text);
+}
+
 // ── Build SMS summary from call state ───────────────────────────────────
 function buildCallSummary(cs: CallState, transcript?: string): string {
   const duration = Math.round((Date.now() - cs.startTime.getTime()) / 1000);
@@ -2196,6 +2231,16 @@ for (let attempt = 1; ; attempt++) {
             const apiKey = process.env.GEMINI_API_KEY || "";
             const msg = message.toLowerCase();
             const isEs = lang === "es";
+            // Same-day priority support: text the owner when a visitor asks for a human.
+            if (isSupportEscalation(message)) {
+              void notifyOwnerOfSupportRequest("web chat", `Message: "${message.slice(0, 300)}\nLanguage: ${lang}`);
+              return new Response(JSON.stringify({
+                reply: isEs
+                  ? "Gracias — he avisado a nuestro equipo. Para ayuda más rápida, llama al (727) 966-7556 o escribe a support@receptionai.ctonew.app."
+                  : "Thanks — I've flagged this to our team. For the fastest help, call (727) 966-7556 or email support@receptionai.ctonew.app.",
+              }), { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+
             const fallback = () => {
               if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("plan")) {
                 return isEs
