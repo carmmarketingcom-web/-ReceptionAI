@@ -34,7 +34,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "hero.cta": {
     en: "Start Today",
-    es: "Prueba Gratis",
+    es: "Comenzar",
   },
   "hero.watchDemo": { en: "Watch Demo", es: "Ver Demo" },
   "hero.stats": {
