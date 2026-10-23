@@ -790,24 +790,18 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
   console.log(`[Transfer] Dialed owner ${transferNumber} (leg ${ownerCid.slice(-8)}) for caller ${cs.callerNumber}`);
 }
 
-// ── Resolve the transfer number for an org (transfer_number → org phone → owner phone) ──
+// ── Resolve the transfer number for an org (transfer_number → owner phone) ──
 async function getTransferNumber(orgId: string): Promise<string | null> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) return null;
   const sql = neon(dbUrl);
-  // 1) organizations.transfer_number (new optional column)
+  // 1) organizations.transfer_number (explicit override)
   try {
     const rows = await sql`SELECT transfer_number FROM organizations WHERE id = ${orgId} LIMIT 1`;
     const tn = (rows[0] as any)?.transfer_number;
     if (tn) return tn;
   } catch { /* column may not exist yet */ }
-  // 2) organizations.phone
-  try {
-    const rows = await sql`SELECT phone FROM organizations WHERE id = ${orgId} LIMIT 1`;
-    const ph = (rows[0] as any)?.phone;
-    if (ph) return ph;
-  } catch { /* ignore */ }
-  // 3) owner user phone
+  // 2) owner user phone (fallback)
   return getOwnerPhone(orgId);
 }
 
@@ -1141,6 +1135,9 @@ for (let attempt = 1; ; attempt++) {
           for (const [cid] of callbackStates) {
             if (callbackStates.get(cid) && !callbackStates.get(cid)!.answered) callbackStates.delete(cid);
           }
+          // Transfer legs and pending outbound callbacks whose events never arrived are stale.
+          transferStates.clear();
+          pendingCallbacks.clear();
         }
 
         if (pathname === "/api/telnyx/voice" && req.method === "POST") {
@@ -1233,9 +1230,9 @@ for (let attempt = 1; ; attempt++) {
               if (t) {
                 t.answered = true;
                 const inbound = calls.get(t.inboundCid);
-                if (inbound) inbound.transferred = true;
-                await cmd(t.inboundCid, "bridge", { call_control_id: cid });
-                console.log(`[Transfer] Owner answered; bridged ${t.inboundCid.slice(-8)} <-> ${cid.slice(-8)}`);
+                const bridged = await cmd(t.inboundCid, "bridge", { call_control_id: cid });
+                if (bridged && inbound) inbound.transferred = true;
+                console.log(`[Transfer] Owner answered; bridge ${bridged ? "ok" : "FAILED"} ${t.inboundCid.slice(-8)} <-> ${cid.slice(-8)}`);
               }
               return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
             }
@@ -2111,7 +2108,7 @@ for (let attempt = 1; ; attempt++) {
                 id: org.id, name: org.name, slug: org.slug, timezone: org.timezone,
                 locale: org.locale, industry: org.industry, email: org.email, phone: org.phone,
                 website: org.website, addressLine1: org.address_line1, city: org.city,
-                state: org.state, postalCode: org.postal_code,
+                state: org.state, postalCode: org.postal_code, transferNumber: org.transfer_number,
               } : null,
               businessHours: (hours as any[]).map((h: any) => ({
                 dayOfWeek: h.day_of_week, openTime: h.open_time, closeTime: h.close_time, isClosed: h.is_closed,
@@ -2140,6 +2137,7 @@ for (let attempt = 1; ; attempt++) {
             if (typeof body.phone === "string") await sql`UPDATE organizations SET phone = ${body.phone}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.email === "string") await sql`UPDATE organizations SET email = ${body.email}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.website === "string") await sql`UPDATE organizations SET website = ${body.website}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.transferNumber === "string" || body.transferNumber === null) await sql`UPDATE organizations SET transfer_number = ${body.transferNumber}, updated_at = NOW() WHERE id = ${organizationId}`;
             // Business hours upsert
             if (Array.isArray(body.businessHours)) {
               for (const bh of body.businessHours) {
@@ -2157,7 +2155,7 @@ for (let attempt = 1; ; attempt++) {
               }
             }
             // Free-form settings keys (smsSummaries, services, etc.)
-            const reserved = ["name", "timezone", "locale", "email", "phone", "website", "industry", "addressLine1", "addressLine2", "city", "state", "postalCode", "businessHours"];
+            const reserved = ["name", "timezone", "locale", "email", "phone", "website", "industry", "addressLine1", "addressLine2", "city", "state", "postalCode", "businessHours", "transferNumber"];
             for (const [key, value] of Object.entries(body)) {
               if (reserved.includes(key) || value === undefined) continue;
               await sql`
