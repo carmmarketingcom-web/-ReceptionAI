@@ -1,9 +1,9 @@
 // Production server — AI Receptionist
 // Auto-load .env file (Bun v1.3 does not support process.loadEnvFile)
 try { const envContent = await (await import("fs")).promises.readFile(".env", "utf-8"); for (const line of envContent.split("\n")) { const idx = line.indexOf("="); if (idx > 0 && !line.startsWith("#")) { const key = line.slice(0, idx).trim(); const val = line.slice(idx + 1).trim(); if (key && !process.env[key]) process.env[key] = val; } } } catch {}
-// Security: fail fast if JWT_SECRET is missing (never sign with a dev fallback)
-if (!process.env.JWT_SECRET) {
-  console.error("[FATAL] JWT_SECRET is not set. Refusing to start: auth tokens must never use a fallback secret.");
+// Security: fail fast if JWT_SECRET is missing/short (never sign with a weak/fallback secret)
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  console.error("[FATAL] JWT_SECRET is missing or shorter than 32 chars. Refusing to start: auth tokens must never use a weak/fallback secret.");
   process.exit(1);
 }
 import handler from "./dist/server/server.js";

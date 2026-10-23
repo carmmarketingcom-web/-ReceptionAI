@@ -15,8 +15,8 @@ const JWT_EXPIRY = "24h";
 // would let anyone forge org-scoped tokens).
 function jwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error("JWT_SECRET is not configured — refusing to sign/verify auth tokens.");
+  if (!secret || secret.length < 32) {
+    throw new Error("JWT_SECRET is not configured (must be >=32 chars) — refusing to sign/verify auth tokens.");
   }
   return new TextEncoder().encode(secret);
 }

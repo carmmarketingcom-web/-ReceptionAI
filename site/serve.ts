@@ -1,6 +1,11 @@
 // Production server — AI Receptionist
 // Auto-load .env file (Bun v1.3 does not support process.loadEnvFile)
 try { const envContent = await (await import("fs")).promises.readFile(".env", "utf-8"); for (const line of envContent.split("\n")) { const idx = line.indexOf("="); if (idx > 0 && !line.startsWith("#")) { const key = line.slice(0, idx).trim(); const val = line.slice(idx + 1).trim(); if (key && !process.env[key]) process.env[key] = val; } } } catch {}
+// Security: fail fast if JWT_SECRET is missing/short (never sign with a weak/fallback secret)
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  console.error("[FATAL] JWT_SECRET is missing or shorter than 32 chars. Refusing to start: auth tokens must never use a weak/fallback secret.");
+  process.exit(1);
+}
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
 
@@ -1805,7 +1810,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(t, new TextEncoder().encode(secKey));
@@ -1913,7 +1918,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(t, new TextEncoder().encode(secKey));
@@ -2040,7 +2045,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
             catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
@@ -2085,7 +2090,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
             catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
@@ -2131,7 +2136,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
             catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
@@ -2551,7 +2556,7 @@ for (let attempt = 1; ; attempt++) {
               // Mock mode: accept demo credentials
               if (email === "demo@receptionai.com" && password === "demo1234") {
                 const { SignJWT } = await import("jose");
-                const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+                const secret = process.env.JWT_SECRET!;
                 const token = await new SignJWT({
                   userId: "mock-user-1", organizationId: "mock-org-1", email, role: "owner",
                 }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("24h")
@@ -2589,7 +2594,7 @@ for (let attempt = 1; ; attempt++) {
             }
 
             const { SignJWT } = await import("jose");
-            const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secret = process.env.JWT_SECRET!;
             const token = await new SignJWT({
               userId: user.user_id, organizationId: user.organization_id,
               email: user.email, role: user.role,
@@ -2660,7 +2665,7 @@ for (let attempt = 1; ; attempt++) {
 
             // Create user
             const { SignJWT } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             const userResult = await sql`
               INSERT INTO users (id, organization_id, email, name, password_hash, role)
               VALUES (gen_random_uuid(), ${orgId}, ${email}, ${name}, ${passwordHash}, 'admin')
@@ -2804,7 +2809,7 @@ for (let attempt = 1; ; attempt++) {
 
             const user = users[0] as any;
             const { SignJWT } = await import("jose");
-            const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secret = process.env.JWT_SECRET!;
             const resetToken = await new SignJWT({
               userId: user.id, email: user.email, purpose: "password-reset",
             }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("1h")
@@ -2858,7 +2863,7 @@ for (let attempt = 1; ; attempt++) {
 
             // Verify JWT
             const { jwtVerify } = await import("jose");
-            const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secret = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const result = await jwtVerify(token, new TextEncoder().encode(secret));
@@ -2904,7 +2909,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(t, new TextEncoder().encode(secKey));
