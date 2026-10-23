@@ -2541,9 +2541,9 @@ for (let attempt = 1; ; attempt++) {
             if (auth instanceof Response) return auth;
             const organizationId = auth.organizationId;
             const PLANS = [
-              { id: "starter", name: "Starter", priceMonthly: 99, priceAnnual: 79, includedPhoneLines: 1, includedAiMinutes: 500, includedSmsMessages: 200, stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9", stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02" },
-              { id: "growth", name: "Growth", priceMonthly: 199, priceAnnual: 159, includedPhoneLines: 2, includedAiMinutes: 2000, includedSmsMessages: 1000, stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy", stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03", popular: true },
-              { id: "scale", name: "Scale", priceMonthly: 399, priceAnnual: 319, includedPhoneLines: 5, includedAiMinutes: 10000, includedSmsMessages: 5000, stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki", stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04" },
+              { id: "starter", name: "Starter", priceMonthly: 99, priceAnnual: 79, includedPhoneLines: 1, includedAiMinutes: 500, includedSmsMessages: 200, stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM", stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02" },
+              { id: "growth", name: "Growth", priceMonthly: 199, priceAnnual: 159, includedPhoneLines: 2, includedAiMinutes: 2000, includedSmsMessages: 1000, stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn", stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03", popular: true },
+              { id: "scale", name: "Scale", priceMonthly: 399, priceAnnual: 319, includedPhoneLines: 5, includedAiMinutes: 10000, includedSmsMessages: 5000, stripePriceId: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z", stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04" },
             ];
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) {
@@ -3324,9 +3324,9 @@ for (let attempt = 1; ; attempt++) {
             }
 
             const PRICE_IDS: Record<string, string> = {
-              starter: "price_1TtXMGDqebBmBAbi165hKXK9",
-              growth: "price_1TtXMGDqebBmBAbiqd7ybQzy",
-              scale: "price_1TtXMGDqebBmBAbidd4SJgki",
+              starter: "price_1TxrHbP7NtNpgQde64Zp1tgM",
+              growth: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
+              scale: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
             };
             const priceId = PRICE_IDS[plan];
             if (!priceId) {
@@ -3346,7 +3346,7 @@ for (let attempt = 1; ; attempt++) {
 
             const params = new URLSearchParams({
               "customer_email": email,
-              "mode": "payment",
+              "mode": "subscription",
               "success_url": `${baseUrl}/signup/success?plan=${plan}&email=${encodeURIComponent(email)}`,
               "cancel_url": `${baseUrl}/signup`,
               "line_items[0][price]": priceId,
@@ -3358,6 +3358,9 @@ for (let attempt = 1; ; attempt++) {
               "metadata[password]": password,
               "metadata[useExistingNumber]": String(!!useExistingNumber),
               "metadata[existingPhoneNumber]": existingPhoneNumber,
+              "subscription_data[trial_period_days]": "14",
+              "discounts[0][coupon]": "FOUNDER50",
+              "subscription_data[metadata][companyName]": companyName,
             });
 
             const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {

@@ -24,7 +24,7 @@ const plans = [
       "English & Spanish",
     ],
     stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02",
-    stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9",
+    stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM",
   },
   {
     id: "growth",
@@ -43,7 +43,7 @@ const plans = [
       "Priority support",
     ],
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
-    stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy",
+    stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
     popular: true,
   },
   {
@@ -63,7 +63,7 @@ const plans = [
       "24/7 priority support",
     ],
     stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04",
-    stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki",
+    stripePriceId: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
   },
 ];
 

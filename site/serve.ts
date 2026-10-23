@@ -2711,9 +2711,9 @@ for (let attempt = 1; ; attempt++) {
             }
 
             const PRICE_IDS: Record<string, string> = {
-              starter: "price_1TtXMGDqebBmBAbi165hKXK9",
-              growth: "price_1TtXMGDqebBmBAbiqd7ybQzy",
-              scale: "price_1TtXMGDqebBmBAbidd4SJgki",
+              starter: "price_1TxrHbP7NtNpgQde64Zp1tgM",
+              growth: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
+              scale: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
             };
             const priceId = PRICE_IDS[plan];
             if (!priceId) {
@@ -2733,7 +2733,7 @@ for (let attempt = 1; ; attempt++) {
 
             const params = new URLSearchParams({
               "customer_email": email,
-              "mode": "payment",
+              "mode": "subscription",
               "success_url": `${baseUrl}/signup/success?plan=${plan}&email=${encodeURIComponent(email)}`,
               "cancel_url": `${baseUrl}/signup`,
               "line_items[0][price]": priceId,
@@ -2745,6 +2745,9 @@ for (let attempt = 1; ; attempt++) {
               "metadata[password]": password,
               "metadata[useExistingNumber]": String(!!useExistingNumber),
               "metadata[existingPhoneNumber]": existingPhoneNumber,
+              "subscription_data[trial_period_days]": "14",
+              "discounts[0][coupon]": "FOUNDER50",
+              "subscription_data[metadata][companyName]": companyName,
             });
 
             const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
