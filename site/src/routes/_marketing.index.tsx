@@ -68,6 +68,7 @@ function HomePage() {
     <div className="bg-white">
       <HeroSection />
       <LogoMarquee />
+      <MissedCallCalculator />
       <HowItWorksSection />
       <BuiltForTrades />
       <FeaturesOverview />
@@ -123,7 +124,7 @@ function HeroSection() {
                 to="/signup"
                 className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               >
-                Start Free Trial
+                Get Started
                 <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
@@ -135,10 +136,22 @@ function HeroSection() {
                 </svg>
               </Link>
             </div>
+            {/* Try it live — call the AI */}
+            <div className="mt-8 flex items-center gap-3 rounded-2xl border border-green-500/20 bg-green-500/5 px-5 py-4 backdrop-blur-sm lg:justify-self-start w-fit mx-auto lg:mx-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
+                <Icon name="phone" className="h-5 w-5 text-green-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-green-300">Try it live — call the AI now</p>
+                <a href="tel:+17279667556" className="text-xl font-bold text-green-400 hover:text-green-300 transition tracking-wide">
+                  (727) 966-7556
+                </a>
+              </div>
+            </div>
 
             {/* Trust */}
             <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-gray-500 lg:justify-start justify-center">
-              {["Free 14-day trial", "No credit card needed", "Cancel anytime"].map((label) => (
+              {["Founder pricing: 50% off first 3 months", "Built-in calendar — zero setup", "Cancel anytime"].map((label) => (
                 <div key={label} className="flex items-center gap-2">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   {label}
@@ -186,6 +199,76 @@ function LogoMarquee() {
               {ind}
             </span>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+/* ─── Missed-call calculator ─── */
+function MissedCallCalculator() {
+  const [missedCalls, setMissedCalls] = useState(10);
+  const [averageJobValue, setAverageJobValue] = useState(300);
+  const annualRevenueLost = missedCalls * averageJobValue * 52 / 3;
+  const monthlyRevenueLost = annualRevenueLost / 12;
+  const formatMoney = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
+  const copy = {
+    headline: "How much are missed calls costing you?",
+    callsLabel: "Calls you miss per week",
+    jobLabel: "Average job value",
+    assumption: "Assumes 1 in 3 missed callers would have become a paying job.",
+    outputLabel: "REVENUE_LOST / YEAR",
+    cta: "Stop the leak — get started",
+  };
+
+  return (
+    <section id="missed-call-calculator" className="relative overflow-hidden bg-gradient-to-br from-gray-950 via-indigo-950 to-purple-950 py-20 text-white sm:py-28">
+      <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:radial-gradient(#b8b8ff_1px,transparent_1px)] [background-size:22px_22px]" />
+      <div className="pointer-events-none absolute -right-40 top-0 h-96 w-96 rounded-full bg-purple-600/20 blur-3xl" />
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-indigo-200">Missed-call calculator</span>
+          <h2 className="mt-5 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">{copy.headline}</h2>
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-indigo-100/75">Put a number on the opportunities that disappear when the phone rings while your team is busy.</p>
+        </div>
+
+        <div className="mx-auto mt-14 grid max-w-5xl overflow-hidden rounded-3xl border border-white/15 bg-white/10 shadow-2xl shadow-indigo-950/40 backdrop-blur-xl lg:grid-cols-[1fr_.95fr]">
+          <div className="space-y-8 p-7 sm:p-10 lg:p-12">
+            <div>
+              <div className="flex items-center justify-between text-sm font-semibold text-white"><span>{copy.callsLabel}</span><output>{missedCalls}</output></div>
+              <div className="mt-4 flex items-center gap-4">
+                <button type="button" aria-label="Decrease missed calls" disabled={missedCalls === 1} onClick={() => setMissedCalls((value) => Math.max(1, value - 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">−</button>
+                <output className="min-w-12 text-center text-2xl font-black">{missedCalls}</output>
+                <button type="button" aria-label="Increase missed calls" disabled={missedCalls === 50} onClick={() => setMissedCalls((value) => Math.min(50, value + 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">+</button>
+              </div>
+              <div className="mt-2 flex justify-between text-xs text-indigo-200/60"><span>1</span><span>50</span></div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-white">{copy.jobLabel}</div>
+              <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={copy.jobLabel}>
+                {[150, 300, 500, 1000].map((value) => {
+                  const active = averageJobValue === value;
+                  return <button key={value} type="button" aria-pressed={active} onClick={() => setAverageJobValue(value)} className={`rounded-full border px-4 py-2 text-sm font-bold transition ${active ? "border-indigo-200 bg-indigo-400/60 text-white" : "border-white/20 bg-white/5 text-indigo-100 hover:bg-white/15"}`}>{formatMoney(value)}</button>;
+                })}
+              </div>
+            </div>
+
+            <p className="text-xs leading-relaxed text-indigo-100/70">{copy.assumption}</p>
+          </div>
+
+          <div className="flex flex-col justify-between bg-gray-950/55 p-7 sm:p-10 lg:p-12">
+            <div>
+              <div className="text-xs font-extrabold tracking-[.16em] text-indigo-200">{copy.outputLabel}</div>
+              <div className="mt-3 text-5xl font-black tracking-[-.08em] text-white sm:text-6xl">{formatMoney(annualRevenueLost)}</div>
+              <p className="mt-5 max-w-sm text-sm leading-relaxed text-indigo-100/75">That's about {formatMoney(monthlyRevenueLost)} a month — far more than the cost of never missing a call again.</p>
+            </div>
+            <div>
+              <Link to="/signup" className="mt-10 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-extrabold text-indigo-700 shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-50">{copy.cta}<span aria-hidden>→</span></Link>
+              <p className="mt-3 text-center text-xs text-indigo-100/55">Estimate only — your results will vary.</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -392,7 +475,7 @@ function StatsSection() {
     { icon: "phone", title: "24/7 Call Answering" },
     { icon: "globe", title: "English & Spanish" },
     { icon: "calendar", title: "Built-in Calendar" },
-    { icon: "sparkle", title: "14-Day Free Trial" },
+    { icon: "sparkle", title: "Smart Follow-ups" },
   ];
 
   return (
@@ -477,14 +560,14 @@ function FinalCta() {
             Ready to never miss a lead again?
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl">
-            Start your 14-day free trial today and see how ReceptionAI handles your inbound calls and messages.
+            Start today and see ReceptionAI handle your inbound calls and messages — 50% off your first 3 months with founder pricing.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               to="/signup"
               className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
             >
-              Start Free Trial
+              Get Started
               <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
@@ -493,7 +576,7 @@ function FinalCta() {
               View Pricing
             </Link>
           </div>
-          <p className="mt-5 text-sm text-gray-500">Free 14-day trial. No credit card required. Cancel anytime.</p>
+          <p className="mt-5 text-sm text-gray-500">Founder pricing: 50% off your first 3 months. Cancel anytime.</p>
         </Reveal>
       </div>
     </section>
