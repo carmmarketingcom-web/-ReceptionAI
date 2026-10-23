@@ -278,7 +278,29 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.scale.feature3": { en: "Custom AI response training", es: "Entrenamiento personalizado de respuestas IA" },
   "pricing.scale.feature4": { en: "All channels included", es: "Todos los canales incluidos" },
   "pricing.scale.feature5": { en: "Dedicated account manager", es: "Gerente de cuenta dedicado" },
-  "pricing.scale.feature6": { en: "24/7 priority phone support", es: "Soporte telefónico prioritario 24/7" },
+  "pricing.scale.feature6": { en: "24/7 priority support — same-day human response", es: "Soporte prioritario 24/7 — respuesta humana el mismo día" },
+
+  /* ─── Pricing — Scale premium block ─── */
+  "pricing.scaleBlock.title": { en: "What changes at Scale — and why", es: "Qué cambia en Scale — y por qué" },
+  "pricing.scaleBlock.subtitle": {
+    en: "Scale isn't a bigger minute allowance — it's a different operating level: capacity, customization, and service you can't run a high-volume business without.",
+    es: "Scale no es solo más minutos de IA — es un nivel operativo diferente: capacidad, personalización y servicio sin los cuales no puedes manejar un negocio de alto volumen.",
+  },
+  "pricing.scaleBlock.capacity": { en: "Capacity", es: "Capacidad" },
+  "pricing.scaleBlock.capacityDesc": {
+    en: "Unlimited phone lines for every location and department, and 10,000+ AI-minutes so peak season never hits a ceiling.",
+    es: "Líneas telefónicas ilimitadas para cada ubicación y departamento, y más de 10,000 minutos de IA para que la temporada alta nunca toque un techo.",
+  },
+  "pricing.scaleBlock.customization": { en: "Customization", es: "Personalización" },
+  "pricing.scaleBlock.customizationDesc": {
+    en: "Your AI is trained on your services, pricing, and FAQs — callers hear your business, not a generic receptionist.",
+    es: "Tu IA se entrena con tus servicios, precios y preguntas frecuentes — los llamantes escuchan tu negocio, no una recepcionista genérica.",
+  },
+  "pricing.scaleBlock.service": { en: "Service", es: "Servicio" },
+  "pricing.scaleBlock.serviceDesc": {
+    en: "A dedicated account manager, and priority support with a same-day human response — when you can't afford to wait.",
+    es: "Un gerente de cuenta dedicado y soporte prioritario con respuesta humana el mismo día — para cuando no puedes darte el lujo de esperar.",
+  },
 
   /* ─── Pricing — Add-ons ─── */
   "pricing.addons.title": { en: "Optional Add-ons", es: "Complementos Opcionales" },

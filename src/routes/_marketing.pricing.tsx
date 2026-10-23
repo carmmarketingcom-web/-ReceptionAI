@@ -160,6 +160,36 @@ export default function PricingPage() {
             ))}
           </div>
 
+          {/* Why Scale costs more */}
+          <div className="mt-12 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/70 p-8 sm:p-10">
+            <h3 className="text-center text-xl font-bold text-gray-900">
+              {t("pricing.scaleBlock.title")}
+            </h3>
+            <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-gray-500">
+              {t("pricing.scaleBlock.subtitle")}
+            </p>
+            <div className="mt-8 grid gap-6 sm:grid-cols-3">
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">{t("pricing.scaleBlock.capacity")}</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  {t("pricing.scaleBlock.capacityDesc")}
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">{t("pricing.scaleBlock.customization")}</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  {t("pricing.scaleBlock.customizationDesc")}
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">{t("pricing.scaleBlock.service")}</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  {t("pricing.scaleBlock.serviceDesc")}
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Billing note */}
           <p className="mt-8 text-center text-sm text-gray-500">
             {t("pricing.billingNote")}
