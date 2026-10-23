@@ -34,7 +34,7 @@ const PLANS = [
     ],
     stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM",
     stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02",
-    cta: "Start Free Trial",
+    cta: "Start Today",
   },
   {
     id: "growth",
@@ -55,7 +55,7 @@ const PLANS = [
     ],
     stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: true,
   },
   {
@@ -109,7 +109,7 @@ async function handleGetPlans() {
     JSON.stringify({
       plans: PLANS,
       annualDiscount: "Save 20% with annual billing",
-      trialDays: 14,
+      trialDays: 0,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );

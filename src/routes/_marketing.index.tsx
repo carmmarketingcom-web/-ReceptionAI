@@ -123,7 +123,7 @@ function HeroSection() {
                 to="/signup"
                 className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               >
-                Start Free Trial
+                Start Today
                 <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
@@ -138,7 +138,7 @@ function HeroSection() {
 
             {/* Trust */}
             <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-gray-500 lg:justify-start justify-center">
-              {["Free 14-day trial", "No credit card needed", "Cancel anytime"].map((label) => (
+              {["Live in minutes", "Bilingual (EN/ES)", "Cancel anytime"].map((label) => (
                 <div key={label} className="flex items-center gap-2">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   {label}
@@ -405,7 +405,7 @@ function StatsSection() {
     { icon: "phone", title: "24/7 Call Answering" },
     { icon: "globe", title: "English & Spanish" },
     { icon: "calendar", title: "Built-in Calendar" },
-    { icon: "sparkle", title: "14-Day Free Trial" },
+    { icon: "sparkle", title: "Live in Minutes" },
   ];
 
   return (
@@ -490,14 +490,14 @@ function FinalCta() {
             Ready to never miss a lead again?
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl">
-            Start your 14-day free trial today and see how ReceptionAI handles your inbound calls and messages.
+            Start today and see how ReceptionAI handles your inbound calls and messages.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               to="/signup"
               className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
             >
-              Start Free Trial
+              Start Today
               <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
@@ -506,7 +506,7 @@ function FinalCta() {
               View Pricing
             </Link>
           </div>
-          <p className="mt-5 text-sm text-gray-500">Free 14-day trial. No credit card required. Cancel anytime.</p>
+          <p className="mt-5 text-sm text-gray-500">FOUNDER50 — 50% off your first 3 months. Cancel anytime.</p>
           <div className="mt-8 inline-flex items-center gap-3 rounded-2xl border border-green-500/20 bg-green-500/5 px-6 py-4 backdrop-blur-sm">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
               <Icon name="phone" className="h-5 w-5 text-green-400" />

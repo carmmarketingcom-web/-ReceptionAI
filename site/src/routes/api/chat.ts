@@ -20,7 +20,7 @@ const SYSTEM_PROMPT_EN = `You are ReceptionAI, a 24/7 AI receptionist for small 
 
 Features: AI answers calls/texts/chats 24/7 in English & Spanish. Auto-schedules appointments. Sends confirmations & reminders. Built-in calendar (no Google OAuth needed). Post-call SMS summaries to owner. Repeat caller recognition. Abandoned booking follow-up.
 
-Pricing: Starter $99/mo, Growth $199/mo, Scale $399/mo. 14-day free trial.
+Pricing: Starter $99/mo, Growth $199/mo, Scale $399/mo. Founders get 50% off the first 3 months.
 
 Contact: (727) 966-7556, hello@receptionai.store, signup at receptionai.store/signup.`;
 
@@ -40,12 +40,12 @@ function smartReply(message: string, lang: string): string {
   if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("cuanto")) {
     return isEs
       ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas, 2000 min), Scale: $399/mes (ilimitado). Prueba gratis 14 dias. Quieres registrarte?"
-      : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines, 2000 min), Scale: $399/mo (unlimited). 14-day free trial. Want to sign up?";
+      : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines, 2000 min), Scale: $399/mo (unlimited). Founders get 50% off their first 3 months. Want to sign up?";
   }
   if (msg.includes("demo") || msg.includes("try") || msg.includes("test") || msg.includes("probar")) {
     return isEs
-      ? "Puedes probar ReceptionAI ahora mismo! Llama al (727) 966-7556 y habla con nuestro recepcionista IA. O registrate en receptionai.store/signup para la prueba gratuita de 14 dias."
-      : "You can try ReceptionAI right now! Call (727) 966-7556 and talk to our AI receptionist. Or sign up at receptionai.store/signup for a 14-day free trial.";
+      ? "Puedes probar ReceptionAI ahora mismo! Llama al (727) 966-7556 y habla con nuestro recepcionista IA. O registrate en receptionai.store/signup — los fundadores obtienen 50% de descuento los primeros 3 meses."
+      : "You can try ReceptionAI right now! Call (727) 966-7556 and talk to our AI receptionist. Or sign up at receptionai.store/signup — founders get 50% off their first 3 months.";
   }
   if (msg.includes("feature") || msg.includes("do") || msg.includes("what") || msg.includes("que hace") || msg.includes("funcion")) {
     return isEs
@@ -54,8 +54,8 @@ function smartReply(message: string, lang: string): string {
   }
   if (msg.includes("signup") || msg.includes("register") || msg.includes("start") || msg.includes("registr") || msg.includes("comenzar")) {
     return isEs
-      ? "Registrate en receptionai.store/signup. Elige un plan y comienza tu prueba gratuita de 14 dias. No se requiere tarjeta."
-      : "Sign up at receptionai.store/signup. Pick a plan and start your 14-day free trial. No card required.";
+      ? "Registrate en receptionai.store/signup. Elige un plan y comienza hoy — los fundadores ahorran 50% los primeros 3 meses."
+      : "Sign up at receptionai.store/signup. Pick a plan and get started — founders save 50% on their first 3 months.";
   }
   if (msg.includes("contact") || msg.includes("phone") || msg.includes("email") || msg.includes("contacto") || msg.includes("telefono")) {
     return "Call us at (727) 966-7556 or email hello@receptionai.store. We'd love to help!";
@@ -74,7 +74,7 @@ function smartReply(message: string, lang: string): string {
   // Default response
   return isEs
     ? "Soy el recepcionista IA de ReceptionAI — atiendo llamadas, programo citas y gestiono mensajes 24/7. Precios desde $99/mes con prueba gratis. Preguntame sobre funciones, precios o como empezar!"
-    : "I'm ReceptionAI — I handle calls, book appointments, and manage messages 24/7 for service businesses. Plans from $99/mo with a free trial. Ask me about features, pricing, or how to get started!";
+    : "I'm ReceptionAI — I handle calls, book appointments, and manage messages 24/7 for service businesses. Plans from $99/mo with founder pricing. Ask me about features, pricing, or how to get started!";
 }
 
 export async function POST({ request }: { request: Request }) {

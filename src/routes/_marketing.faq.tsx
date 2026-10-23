@@ -24,7 +24,7 @@ function FaqPage() {
         <div className="mx-auto max-w-3xl">
           <div className="flex items-center gap-3 mb-8">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 text-lg font-bold text-white">1</span>
-            <h2 className="text-2xl font-bold text-gray-900">Sign Up for Your Free Trial</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Sign Up for Your Plan</h2>
           </div>
 
           <div className="space-y-6 text-gray-700 leading-relaxed">
@@ -34,7 +34,7 @@ function FaqPage() {
                 <li>
                   <strong>Go to the signup page.</strong> Visit{" "}
                   <a href="/signup" className="text-indigo-600 underline">receptionai.ctonew.app/signup</a>{" "}
-                  or click <strong>Start Free Trial</strong> from the homepage.
+                  or click <strong>Start Today</strong> from the homepage.
                 </li>
                 <li>
                   <strong>Enter your full name.</strong> This will appear on your account and in communications.
@@ -43,16 +43,16 @@ function FaqPage() {
                   <strong>Enter your email address.</strong> Use your business email — this is where login links and notifications will be sent.
                 </li>
                 <li>
-                  <strong>Choose your plan.</strong> Select <strong>Starter</strong> ($99/mo), <strong>Growth</strong> ($199/mo), or <strong>Scale</strong> ($399/mo) from the dropdown. All plans include a 14-day free trial.
+                  <strong>Choose your plan.</strong> Select <strong>Starter</strong> ($99/mo), <strong>Growth</strong> ($199/mo), or <strong>Scale</strong> ($399/mo) from the dropdown. Founders get 50% off their first 3 months (FOUNDER50).
                 </li>
                 <li>
                   <strong>Create a password.</strong> Must be at least 8 characters.
                 </li>
                 <li>
-                  <strong>Check the terms box</strong> and click <strong>Start Free Trial</strong>.
+                  <strong>Check the terms box</strong> and click <strong>Start Today</strong>.
                 </li>
                 <li>
-                  <strong>Complete payment.</strong> You'll be redirected to Stripe's secure checkout. Enter your card details. You won't be charged until your 14-day trial ends.
+                  <strong>Complete payment.</strong> You'll be redirected to Stripe's secure checkout. Enter your card details. you'll be charged for your first month at founder pricing (50% off).
                 </li>
                 <li>
                   <strong>Done!</strong> After payment, your account is created automatically — your phone number is provisioned and your dashboard is ready.
@@ -68,7 +68,7 @@ function FaqPage() {
                 className="w-full"
               />
               <p className="bg-gray-50 px-4 py-2 text-xs text-gray-500 text-center">
-                The signup form — fill in your details, pick a plan, and start your free trial.
+                The signup form — fill in your details, pick a plan, and you're live.
               </p>
             </div>
 
@@ -132,8 +132,8 @@ function FaqPage() {
           <div className="space-y-4">
             {[
               {
-                q: "How long is the free trial?",
-                a: "14 days. You won't be charged until the trial ends. Cancel anytime before then and you won't pay anything.",
+                q: "How does billing work?",
+                a: "You're charged for your first month at checkout. Founder pricing (FOUNDER50) gives 50% off your first 3 months; standard rates apply after. Cancel anytime.",
               },
               {
                 q: "What happens after I sign up?",
@@ -195,14 +195,14 @@ function FaqPage() {
         <div className="mx-auto max-w-3xl text-center">
           <h2 className="text-3xl font-bold text-white">Ready to get started?</h2>
           <p className="mt-3 text-lg text-indigo-100">
-            Try ReceptionAI free for 14 days. No credit card required until your trial ends.
+            Try ReceptionAI — founder pricing is 50% off your first 3 months. Cancel anytime.
           </p>
           <div className="mt-8">
             <Link
               to="/signup"
               className="inline-block rounded-xl bg-white px-8 py-3 text-base font-semibold text-indigo-600 shadow-lg hover:bg-indigo-50 transition"
             >
-              Start Free Trial
+              Start Today
             </Link>
           </div>
         </div>

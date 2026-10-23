@@ -17,7 +17,7 @@ const tiers = [
       "English & Spanish support",
       "Email support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02",
     stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM",
@@ -34,7 +34,7 @@ const tiers = [
       "Team management",
       "Priority email & chat support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: true,
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
     stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
@@ -51,7 +51,7 @@ const tiers = [
       "Dedicated account manager",
       "24/7 priority phone support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04",
     stripePriceId: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
@@ -164,7 +164,7 @@ export default function PricingPage() {
 
           {/* Annual billing note */}
           <p className="mt-8 text-center text-sm text-gray-500">
-            All plans include a 14-day free trial. Your card is entered at checkout for billing, but you won't be charged until your trial ends. Cancel anytime.
+            Simple monthly pricing. You're charged for your first month at checkout. FOUNDER50 — 50% off your first 3 months. Cancel anytime.
           </p>
         </div>
       </section>
@@ -213,8 +213,8 @@ export default function PricingPage() {
                 a: "Absolutely. You can port your existing business number to ReceptionAI, or get a new one from us.",
               },
               {
-                q: "How does the 14-day free trial work?",
-                a: "You get full access to all features for 14 days, including 500 AI-minutes on Starter. Your card is entered at checkout but you're only charged after the trial ends — cancel before then and you pay nothing.",
+                q: "How does billing work?",
+                a: "You're charged at checkout for your first month. Founders get 50% off for the first 3 months (FOUNDER50); standard rates apply after. Cancel anytime.",
               },
             ].map((faq) => (
               <div key={faq.q} className="rounded-xl border border-gray-100 bg-white p-6">
@@ -238,7 +238,7 @@ export default function PricingPage() {
               to="/signup"
               className="inline-flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-semibold text-indigo-600 transition hover:bg-indigo-50"
             >
-              Start Free Trial
+              Start Today
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>

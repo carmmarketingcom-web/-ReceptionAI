@@ -118,10 +118,10 @@ function SignupPage() {
                 </svg>
               </div>
               <h1 className="text-2xl font-extrabold tracking-tight text-gray-900 sm:text-3xl">
-                Start your free trial
+                Create your account
               </h1>
               <p className="mt-1.5 text-sm text-gray-500">
-                No credit card required. Set up in under 2 minutes.
+                Secure checkout. Set up in under 2 minutes.
               </p>
             </div>
 
@@ -286,7 +286,7 @@ function SignupPage() {
                       </>
                     ) : (
                       <>
-                        Start My Free Trial
+                        Start Today
                         <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                         </svg>
@@ -318,7 +318,7 @@ function SignupPage() {
 
             {/* Footer links */}
             <p className="mt-6 text-center text-xs text-gray-400">
-              You won't be charged until your trial ends.{" "}
+              You'll be charged for your first month at checkout.{" "}
               <a href="/terms" className="underline decoration-gray-300 underline-offset-2 transition hover:text-gray-600 hover:decoration-gray-400">
                 Terms of Service
               </a>
