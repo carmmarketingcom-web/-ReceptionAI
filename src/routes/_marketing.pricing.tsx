@@ -42,14 +42,14 @@ const tiers = [
   {
     name: "Scale",
     price: "$399",
-    description: "For high-volume businesses that need unlimited capacity and custom AI.",
+    description: "For high-volume, multi-location businesses: the complete reception desk — capacity and customization without a ceiling.",
     features: [
       "Unlimited phone lines (5+ add-on)",
       "10,000+ AI-minutes/month",
       "Custom AI response training",
       "All channels included",
       "Dedicated account manager",
-      "24/7 priority phone support",
+      "24/7 priority support — same-day human response",
     ],
     cta: "Start Today",
     popular: false,
@@ -160,6 +160,35 @@ export default function PricingPage() {
                 </Link>
               </div>
             ))}
+          </div>
+          {/* Why Scale costs more */}
+          <div className="mt-12 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/70 p-8 sm:p-10">
+            <h3 className="text-center text-xl font-bold text-gray-900">
+              What changes at Scale — and why
+            </h3>
+            <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-gray-500">
+              Scale isn't a bigger minute allowance — it's a different operating level: capacity, customization, and service you can't run a high-volume business without.
+            </p>
+            <div className="mt-8 grid gap-6 sm:grid-cols-3">
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">Capacity</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  Unlimited phone lines for every location and department, and 10,000+ AI-minutes so peak season never hits a ceiling.
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">Customization</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  Your AI is trained on your services, pricing, and FAQs — callers hear your business, not a generic receptionist.
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">Service</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  A dedicated account manager, and priority support with a same-day human response — when you can't afford to wait.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Annual billing note */}
