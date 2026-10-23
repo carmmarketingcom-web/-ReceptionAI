@@ -17,7 +17,7 @@ const tiers = [
       "English & Spanish support",
       "Email support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02",
     stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9",
@@ -34,7 +34,7 @@ const tiers = [
       "Team management",
       "Priority email & chat support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: true,
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
     stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy",
@@ -51,7 +51,7 @@ const tiers = [
       "Dedicated account manager",
       "24/7 priority phone support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04",
     stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki",
@@ -164,7 +164,7 @@ export default function PricingPage() {
 
           {/* Annual billing note */}
           <p className="mt-8 text-center text-sm text-gray-500">
-            Save 20% with annual billing. All plans include a 14-day free trial. No credit card required.
+            Simple monthly pricing. You're charged for your first month at checkout — no contracts, no auto-renewals, cancel anytime.
           </p>
         </div>
       </section>
@@ -217,8 +217,8 @@ export default function PricingPage() {
                 a: "Yes — and this is what most of our customers do. Ask your current carrier to forward calls from your existing number to your new ReceptionAI number. Your old number keeps ringing, callers never notice a change, and your AI receptionist answers every call. No porting delays, no downtime, no risk. We'll give you the exact forwarding instructions for your carrier.",
               },
               {
-                q: "How does the 14-day free trial work?",
-                a: "You get full access to all features for 14 days, including 100 AI-minutes. No credit card required.",
+                q: "How does billing work?",
+                a: "You're charged at checkout for your first month of your chosen plan. There's no auto-renewal — each month is a fresh payment whenever you choose to continue. Cancel anytime by simply not renewing.",
               },
             ].map((faq) => (
               <div key={faq.q} className="rounded-xl border border-gray-100 bg-white p-6">
@@ -242,7 +242,7 @@ export default function PricingPage() {
               to="/signup"
               className="inline-flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-semibold text-indigo-600 transition hover:bg-indigo-50"
             >
-              Start Free Trial
+              Start Today
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>

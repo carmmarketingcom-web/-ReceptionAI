@@ -206,19 +206,6 @@ function SignupPage() {
                 </div>
               </div>
 
-              {/* FOUNDER50 — exclusive limited offer */}
-              <div className="relative overflow-hidden rounded-xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-yellow-50 px-4 py-3">
-                <div className="absolute -right-3 -top-3 h-12 w-12 rounded-full bg-amber-200/50" />
-                <p className="relative text-center text-sm font-bold text-amber-800">
-                  <span className="inline-flex items-center gap-0.5">
-                    <svg className="h-4 w-4 text-amber-500" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-                    FOUNDER50
-                    <svg className="h-4 w-4 text-amber-500" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-                  </span>
-                  {" — "}
-                  50% off for 3 months, automatically applied!
-                </p>
-              </div>
 
               {/* Password — with trust cue */}
               <div>

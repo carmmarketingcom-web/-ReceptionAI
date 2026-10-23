@@ -129,10 +129,7 @@ function SignupPage() {
                     </button>
                   ))}
                 </div>
-                <p className="mt-2 text-center text-xs text-indigo-600 font-medium">
-                  🎉 <strong>FOUNDER50</strong> — 50% off for 3 months, automatically applied!
-                </p>
-              </div>
+                              </div>
 
               {/* Password */}
               <div>
