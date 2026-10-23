@@ -252,7 +252,10 @@ function MissedCallCalculator() {
               <div className="mt-3 text-5xl font-black tracking-[-.08em] text-white sm:text-6xl">{formatMoney(annualRevenueLost)}</div>
               <p className="mt-5 max-w-sm text-sm leading-relaxed text-indigo-100/75">That's about {formatMoney(monthlyRevenueLost)} a month — far more than the cost of never missing a call again.</p>
             </div>
-            <Link to="/signup" className="mt-10 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-extrabold text-indigo-700 shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-50">{copy.cta}<span aria-hidden>→</span></Link>
+            <div>
+              <Link to="/signup" className="mt-10 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-extrabold text-indigo-700 shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-50">{copy.cta}<span aria-hidden>→</span></Link>
+              <p className="mt-3 text-center text-xs text-indigo-100/55">Estimate only — your results will vary.</p>
+            </div>
           </div>
         </div>
       </div>
