@@ -516,7 +516,7 @@ interface CallState {
   appointmentIntent: boolean;
   appointmentBooked: boolean;
   language: 'en' | 'es';
-  phase: 'language' | 'menu' | 'reschedule_lookup' | 'reschedule_confirm' | 'reschedule_date' | 'reschedule_time' | 'reschedule_final' | 'survey' | 'waitlist';
+  phase: 'language' | 'menu' | 'reschedule_lookup' | 'reschedule_confirm' | 'reschedule_date' | 'reschedule_time' | 'reschedule_final' | 'survey' | 'waitlist' | 'booking_slots';
   answered: boolean;
   callbackSent: boolean;
   rescheduleApptId?: string;
@@ -530,6 +530,7 @@ interface CallState {
   transferred: boolean;
   transferring: boolean;
   requestedCallback: boolean;
+  bookingSlots?: { date: string; time: string; endTime: string }[];
 }
 const calls = new Map<string, CallState>(); // cid → CallState
 const pendingHangups = new Set<string>();
@@ -725,6 +726,366 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
       return;
     }
   }
+}
+
+
+
+// ── Voice booking helpers ────────────────────────────────────────────────
+// Shared timezone + slot-generation + booking logic. Reuses the exact
+// business-hours / holiday / buffer rules from the public web widget
+// (/api/booking/slots) rather than duplicating them.
+
+// IANA offset (ms) of `tz` at instant `date` as (local − utc).
+function getTimezoneOffsetMs(date: Date, tz: string): number {
+  try {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    });
+    const parts = dtf.formatToParts(date);
+    const get = (t: string) => parseInt(parts.find(p => p.type === t)?.value || "0", 10);
+    let h = get("hour");
+    if (h === 24) h = 0;
+    const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), h, get("minute"), get("second"));
+    return asUtc - date.getTime();
+  } catch { return 0; }
+}
+
+// Convert an org-local wall-clock "YYYY-MM-DD" + "HH:MM" to a tz-aware UTC Date.
+function zonedToUtc(dateStr: string, timeStr: string, tz: string): Date {
+  const naive = new Date(`${dateStr}T${timeStr}:00Z`);
+  const off1 = getTimezoneOffsetMs(naive, tz);
+  let utc = new Date(naive.getTime() - off1);
+  const off2 = getTimezoneOffsetMs(utc, tz);
+  if (off2 !== off1) utc = new Date(naive.getTime() - off2);
+  return utc;
+}
+
+async function getOrgTimezone(orgId: string): Promise<string> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return "America/Chicago";
+  try {
+    const sql = neon(dbUrl);
+    const rows = await sql`SELECT timezone FROM organizations WHERE id = ${orgId} LIMIT 1`;
+    return (rows[0]?.timezone as string) || "America/Chicago";
+  } catch { return "America/Chicago"; }
+}
+
+// Generate available slots for one org-local date (same rules as /api/booking/slots).
+async function getSlotsForDate(
+  orgId: string, date: string, duration = 60, tz?: string,
+): Promise<{ date: string; slots: any[]; closed: boolean; holiday?: boolean }> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return { date, slots: [], closed: true };
+  const sql = neon(dbUrl);
+  const tzName = tz || (await getOrgTimezone(orgId));
+
+  const [y, m, d] = date.split("-").map(Number);
+  const dow = String(new Date(Date.UTC(y, m - 1, d)).getUTCDay());
+
+  const hoursRows = await sql`
+    SELECT day_of_week, is_closed, open_time, close_time
+    FROM business_hours WHERE organization_id = ${orgId} AND day_of_week = ${dow}
+    LIMIT 1
+  `;
+  const bh = hoursRows[0];
+  if (!bh || bh.is_closed || !bh.open_time || !bh.close_time) {
+    return { date, slots: [], closed: true };
+  }
+
+  const holiday = await sql`
+    SELECT is_closed, open_time, close_time FROM holiday_overrides
+    WHERE organization_id = ${orgId} AND date = ${date}::date LIMIT 1
+  `;
+  if (holiday[0]?.is_closed) {
+    return { date, slots: [], closed: true, holiday: true };
+  }
+  const openT = holiday[0]?.open_time || bh.open_time;
+  const closeT = holiday[0]?.close_time || bh.close_time;
+
+  const dayStart = zonedToUtc(date, "00:00", tzName);
+  const nd = new Date(Date.UTC(y, m - 1, d + 1));
+  const nextDate = `${nd.getUTCFullYear()}-${String(nd.getUTCMonth() + 1).padStart(2, "0")}-${String(nd.getUTCDate()).padStart(2, "0")}`;
+  const nextDayStart = zonedToUtc(nextDate, "00:00", tzName);
+
+  const booked = await sql`
+    SELECT start_time, end_time FROM appointments
+    WHERE organization_id = ${orgId}
+      AND status IN ('confirmed', 'scheduled')
+      AND start_time >= ${dayStart.toISOString()}
+      AND start_time < ${nextDayStart.toISOString()}
+  `;
+
+  const slots: any[] = [];
+  const [oh, om] = openT.split(":").map(Number);
+  const [ch, cm] = closeT.split(":").map(Number);
+  let cur = oh * 60 + om;
+  const endM = ch * 60 + cm;
+  const buf = 15;
+
+  while (cur + duration <= endM) {
+    const st = `${String(Math.floor(cur / 60)).padStart(2, "0")}:${String(cur % 60).padStart(2, "0")}`;
+    const et = `${String(Math.floor((cur + duration) / 60)).padStart(2, "0")}:${String((cur + duration) % 60).padStart(2, "0")}`;
+    const slotStart = zonedToUtc(date, st, tzName);
+    const slotEnd = zonedToUtc(date, et, tzName);
+
+    const conflict = booked.some((b: any) => {
+      const bs = new Date(new Date(b.start_time).getTime() - buf * 60000);
+      const be = new Date(new Date(b.end_time).getTime() + buf * 60000);
+      return slotStart < be && slotEnd > bs;
+    });
+
+    if (!conflict) slots.push({ date, time: st, endTime: et, available: true });
+    cur += 30;
+  }
+
+  return { date, slots, closed: false };
+}
+
+// Find the next `count` future slots across upcoming days.
+async function findNextAvailableSlots(
+  orgId: string, tz: string, count = 4, daysAhead = 14, duration = 60,
+): Promise<any[]> {
+  const result: any[] = [];
+  const now = Date.now();
+  const today = new Date();
+  for (let i = 0; i < daysAhead && result.length < count; i++) {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + i));
+    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    let daySlots: any[] = [];
+    try { daySlots = (await getSlotsForDate(orgId, dateStr, duration, tz)).slots; } catch { daySlots = []; }
+    for (const s of daySlots) {
+      if (zonedToUtc(s.date, s.time, tz).getTime() <= now) continue;
+      result.push(s);
+      if (result.length >= count) break;
+    }
+  }
+  return result;
+}
+
+// Human-friendly spoken slot ("Tuesday, October 27 at 9:00 AM").
+function formatSlotSpeech(slot: { date: string; time: string }, lang: "en" | "es"): string {
+  const [y, m, d] = slot.date.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const loc = lang === "es" ? "es-ES" : "en-US";
+  const weekday = dt.toLocaleDateString(loc, { weekday: "long", timeZone: "UTC" });
+  const month = dt.toLocaleDateString(loc, { month: "long", timeZone: "UTC" });
+  const day = dt.getUTCDate();
+  const [h, min] = slot.time.split(":").map(Number);
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const timeStr = `${h12}:${String(min).padStart(2, "0")} ${ampm}`;
+  return lang === "es"
+    ? `${weekday} ${day} de ${month} a las ${timeStr}`
+    : `${weekday}, ${month} ${day} at ${timeStr}`;
+}
+
+// Bilingual reminder message (mirrors src/lib/reminders.ts templates).
+function buildReminderMessage(
+  p: { customerName: string; service: string; date: string; time: string; orgName: string },
+  type: string, lang: "en" | "es",
+): string {
+  if (type === "24h_before") {
+    return lang === "es"
+      ? `Hola ${p.customerName}, recordatorio: tiene una cita en ${p.orgName} para ${p.service} mañana (${p.date}) a las ${p.time}.`
+      : `Hi ${p.customerName}, reminder: you have an appointment at ${p.orgName} for ${p.service} tomorrow (${p.date}) at ${p.time}.`;
+  }
+  if (type === "2h_before") {
+    return lang === "es"
+      ? `Hola ${p.customerName}, su cita en ${p.orgName} para ${p.service} es en 2 horas (${p.time}). ¡Le esperamos!`
+      : `Hi ${p.customerName}, your appointment at ${p.orgName} for ${p.service} is in 2 hours (${p.time}). See you soon!`;
+  }
+  return lang === "es"
+    ? `Hola ${p.customerName}, esperamos que su cita de ${p.service} en ${p.orgName} haya sido excelente.`
+    : `Hi ${p.customerName}, we hope your ${p.service} appointment at ${p.orgName} went well!`;
+}
+
+// Schedule reminder rows for a newly booked appointment (same as calendar/book).
+async function scheduleRemindersInline(p: {
+  appointmentId: string; organizationId: string; customerName: string; customerPhone: string;
+  service: string; date: string; time: string; orgName: string; orgPhone: string; tz: string;
+  lang: "en" | "es";
+}): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  try {
+    const sql = neon(dbUrl);
+    const apptTime = zonedToUtc(p.date, p.time, p.tz);
+    const reminders = [
+      { type: "24h_before", at: apptTime.getTime() - 24 * 3600 * 1000 },
+      { type: "2h_before", at: apptTime.getTime() - 2 * 3600 * 1000 },
+      { type: "follow_up", at: apptTime.getTime() + 1 * 3600 * 1000 },
+    ];
+    const now = Date.now();
+    for (const r of reminders) {
+      if (r.at <= now) continue;
+      const msg = buildReminderMessage(p, r.type, p.lang);
+      await sql`
+        INSERT INTO appointment_reminders
+          (id, appointment_id, organization_id, reminder_type, scheduled_at, status, channel, recipient_phone, message_body)
+        VALUES
+          (gen_random_uuid(), ${p.appointmentId}, ${p.organizationId}, ${r.type},
+           ${new Date(r.at).toISOString()}, 'pending', 'sms', ${p.customerPhone}, ${msg})
+      `;
+    }
+    const next = await sql`
+      SELECT MIN(scheduled_at) as next_at FROM appointment_reminders
+      WHERE appointment_id = ${p.appointmentId} AND status = 'pending'
+    `;
+    if (next[0]?.next_at) {
+      await sql`UPDATE appointments SET next_reminder_at = ${next[0].next_at}, updated_at = NOW() WHERE id = ${p.appointmentId}`;
+    }
+  } catch (err) {
+    console.error("[Reminders] schedule failed:", String(err).slice(0, 120));
+  }
+}
+
+// Shared appointment insert (reused by voice booking; mirrors /api/booking + calendar/book).
+async function createVoiceBooking(p: {
+  orgId: string; name: string; phone: string; date: string; time: string; endTime: string;
+  service: string; tz: string; lang: "en" | "es"; orgName: string; fromNumber: string;
+}): Promise<{ success: boolean; appointmentId?: string; error?: string }> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return { success: false, error: "DB not configured" };
+  try {
+    const sql = neon(dbUrl);
+    const startUtc = zonedToUtc(p.date, p.time, p.tz);
+    const endUtc = zonedToUtc(p.date, p.endTime, p.tz);
+
+    let contactId = "";
+    const existing = await sql`SELECT id, first_name FROM contacts WHERE organization_id = ${p.orgId} AND phone = ${p.phone} LIMIT 1`;
+    if (existing[0]) {
+      contactId = existing[0].id;
+      await sql`
+        UPDATE contacts SET
+          first_name = COALESCE(NULLIF(first_name, ''), ${p.name}),
+          preferred_language = ${p.lang},
+          updated_at = NOW()
+        WHERE id = ${contactId}
+      `;
+    } else {
+      const c = await sql`
+        INSERT INTO contacts (id, organization_id, first_name, last_name, phone, preferred_language, created_at, updated_at)
+        VALUES (gen_random_uuid(), ${p.orgId}, ${p.name}, '', ${p.phone}, ${p.lang}, NOW(), NOW())
+        RETURNING id
+      `;
+      contactId = c[0]?.id;
+    }
+    if (!contactId) return { success: false, error: "Contact creation failed" };
+
+    const title = `${p.service} - ${p.name}`;
+    const appt = await sql`
+      INSERT INTO appointments
+        (id, organization_id, contact_id, title, start_time, end_time, timezone, service_type, status, created_at, updated_at)
+      VALUES
+        (gen_random_uuid(), ${p.orgId}, ${contactId}, ${title},
+         ${startUtc.toISOString()}, ${endUtc.toISOString()}, ${p.tz},
+         ${p.service}, 'confirmed', NOW(), NOW())
+      RETURNING id
+    `;
+    const apptId = appt[0]?.id;
+    if (!apptId) return { success: false, error: "Appointment creation failed" };
+
+    await scheduleRemindersInline({
+      appointmentId: apptId, organizationId: p.orgId, customerName: p.name,
+      customerPhone: p.phone, service: p.service, date: p.date, time: p.time,
+      orgName: p.orgName, orgPhone: p.fromNumber, tz: p.tz, lang: p.lang,
+    });
+
+    const confirmation = p.lang === "es"
+      ? `Hola ${p.name}, su cita para ${p.service} el ${p.date} a las ${p.time} está confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${p.fromNumber}.`
+      : `Hi ${p.name}, your appointment for ${p.service} on ${p.date} at ${p.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${p.fromNumber}.`;
+    if (p.fromNumber && p.phone) await sendSms(p.fromNumber, p.phone, confirmation);
+
+    return { success: true, appointmentId: apptId };
+  } catch (err) {
+    console.error("[Voice Booking] create failed:", String(err).slice(0, 150));
+    return { success: false, error: String(err).slice(0, 100) };
+  }
+}
+
+// Entry point for digit "1" on a live org: offer slots over DTMF.
+async function startVoiceBooking(cid: string, cs: CallState): Promise<void> {
+  const lang = cs.language || "en";
+  const es = lang === "es";
+  if (!cs.orgId) return;
+  try {
+    const tz = await getOrgTimezone(cs.orgId);
+    const slots = await findNextAvailableSlots(cs.orgId, tz, 4, 14, 60);
+    if (slots.length === 0) {
+      cs.phase = "waitlist";
+      await speakOnly(cid, es
+        ? "No hay citas disponibles en este momento. ¿Le gustaría unirse a la lista de espera? Le avisaremos cuando se abra un espacio. Presione 1 para sí, 2 para volver al menú."
+        : "No appointments available right now. Would you like to join the waitlist? We'll text you when a slot opens. Press 1 for yes, 2 to return to the menu.", lang);
+      return;
+    }
+    cs.bookingSlots = slots;
+    cs.phase = "booking_slots";
+    let msg = "";
+    if (es) {
+      msg = "Estos son los próximos horarios disponibles. ";
+      slots.forEach((s, i) => { msg += `Opción ${i + 1}: ${formatSlotSpeech(s, "es")}. `; });
+      msg += "Presione 1, 2, 3 o 4 para reservar, o 9 para hablar con el equipo.";
+    } else {
+      msg = "Here are the next available times. ";
+      slots.forEach((s, i) => { msg += `Option ${i + 1}: ${formatSlotSpeech(s, "en")}. `; });
+      msg += "Press 1, 2, 3, or 4 to book, or 9 to speak with the team.";
+    }
+    await speakOnly(cid, msg, lang);
+  } catch (err) {
+    console.error("[Voice Booking] slot fetch failed:", String(err).slice(0, 150));
+    cs.phase = "waitlist";
+    await speakOnly(cid, es
+      ? "No pude consultar la disponibilidad en este momento. ¿Le gustaría unirse a la lista de espera? Presione 1 para sí, 2 para volver al menú."
+      : "I couldn't check availability right now. Would you like to join the waitlist? Press 1 for yes, 2 to return to the menu.", lang);
+  }
+}
+
+// Handle DTMF selections during the booking slot-offer phase.
+async function handleBookingPhase(cid: string, digit: string, cs: CallState): Promise<void> {
+  const lang = cs.language || "en";
+  const es = lang === "es";
+  const slots = cs.bookingSlots || [];
+
+  if (digit >= "1" && digit <= "4") {
+    const slot = slots[parseInt(digit, 10) - 1];
+    if (!slot) {
+      await speakOnly(cid, es ? "Opción no válida. " : "Invalid option. ", lang);
+      return;
+    }
+    if (!cs.orgId) return;
+    const name = cs.callerFirstName || "Caller";
+    const tz = await getOrgTimezone(cs.orgId);
+    const result = await createVoiceBooking({
+      orgId: cs.orgId, name, phone: cs.callerNumber,
+      date: slot.date, time: slot.time, endTime: slot.endTime,
+      service: "General Service", tz, lang, orgName: cs.orgName || "our team", fromNumber: cs.toNumber,
+    });
+    if (result.success) {
+      cs.appointmentBooked = true;
+      cs.phase = "menu";
+      await speakOnly(cid, es
+        ? `Su cita quedó reservada para ${formatSlotSpeech(slot, "es")}. Le enviaremos un SMS de confirmación y un recordatorio. ¡Gracias! ¡Adiós!`
+        : `Your appointment is booked for ${formatSlotSpeech(slot, "en")}. We'll text you a confirmation and a reminder. Thank you! Goodbye!`, lang);
+      pendingHangups.add(cid);
+    } else {
+      cs.phase = "waitlist";
+      await speakOnly(cid, es
+        ? "Lo siento, no pudimos completar su reserva. ¿Le gustaría unirse a la lista de espera? Presione 1 para sí, 2 para volver al menú."
+        : "Sorry, we couldn't complete your booking. Would you like to join the waitlist? Press 1 for yes, 2 to return to the menu.", lang);
+    }
+    return;
+  }
+
+  if (digit === "9") {
+    cs.phase = "menu";
+    await transferToOwner(cid, cs);
+    return;
+  }
+
+  await speakOnly(cid, es
+    ? "Disculpe, presione 1, 2, 3 o 4 para reservar, o 9 para hablar con el equipo."
+    : "Sorry, press 1, 2, 3, or 4 to book, or 9 to speak with the team.", lang);
 }
 
 // ── Missed call auto-callback ─────────────────────────────────────────────
@@ -1319,6 +1680,11 @@ for (let attempt = 1; ; attempt++) {
                 await handleReschedulePhase(cid, digit, cs);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
+              // ── Booking slot selection phase ────────────────
+              if (cs?.phase === "booking_slots") {
+                await handleBookingPhase(cid, digit, cs);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
 
               // ── Menu phase ──────────────────────────────────────
               const lang = cs?.language || "en";
@@ -1331,12 +1697,9 @@ for (let attempt = 1; ; attempt++) {
                   await speakOnly(cid, es
                     ? "Esto es una demostración. En una cuenta real, revisaría el calendario y agendaría su cita. Visite nuestro sitio web para obtener su propio recepcionista IA."
                     : "This is a demo. In a live account, I would check the calendar and book your appointment. Visit our website to get your own AI receptionist.", lang);
-                } else {
-                  // Offer waitlist for real businesses
-                  if (cs) { cs.phase = "waitlist"; }
-                  await speakOnly(cid, es
-                    ? "No hay citas disponibles en este momento. ¿Le gustaría unirse a la lista de espera? Le avisaremos cuando se abra un espacio. Presione 1 para sí, 2 para volver al menú."
-                    : "No appointments available right now. Would you like to join the waitlist? We'll text you when a slot opens. Press 1 for yes, 2 to return to the menu.", lang);
+                } else if (cs) {
+                  // Real voice booking: fetch next available slots and offer them over DTMF
+                  await startVoiceBooking(cid, cs);
                 }
               }
 
@@ -1399,7 +1762,7 @@ for (let attempt = 1; ; attempt++) {
             else if (ev === "call.gather.ended") {
               const cs = calls.get(cid);
               // Handle reschedule/waitlist timeouts — return to menu
-              if (cs?.phase?.startsWith("reschedule_") || cs?.phase === "waitlist") {
+              if (cs?.phase?.startsWith("reschedule_") || cs?.phase === "waitlist" || cs?.phase === "booking_slots") {
                 cs.phase = "menu";
                 const lang = cs.language || "en";
                 const es = lang === "es";
@@ -2547,67 +2910,12 @@ for (let attempt = 1; ; attempt++) {
                 { status: 500, headers: { "Content-Type": "application/json" } });
             }
 
-            const sql = neon(dbUrl);
-            const dayOfWeek = String(new Date(date).getDay());
-
-            // Business hours
-            const hoursRows = await sql`
-              SELECT day_of_week, is_closed, open_time, close_time
-              FROM business_hours WHERE organization_id = ${orgId} AND day_of_week = ${dayOfWeek}
-              LIMIT 1
-            `;
-            const bh = hoursRows[0];
-            if (!bh || bh.is_closed || !bh.open_time || !bh.close_time) {
-              return new Response(JSON.stringify({ date, slots: [], closed: true }),
+            const result = await getSlotsForDate(orgId, date, duration);
+            if (result.closed) {
+              return new Response(JSON.stringify({ date, slots: [], closed: true, ...(result.holiday ? { holiday: true } : {}) }),
                 { status: 200, headers: { "Content-Type": "application/json" } });
             }
-
-            // Holiday check
-            const holiday = await sql`
-              SELECT is_closed, open_time, close_time FROM holiday_overrides
-              WHERE organization_id = ${orgId} AND date = ${date}::date LIMIT 1
-            `;
-            if (holiday[0]?.is_closed) {
-              return new Response(JSON.stringify({ date, slots: [], closed: true, holiday: true }),
-                { status: 200, headers: { "Content-Type": "application/json" } });
-            }
-
-            const openT = holiday[0]?.open_time || bh.open_time;
-            const closeT = holiday[0]?.close_time || bh.close_time;
-
-            // Existing appointments for this date
-            const booked = await sql`
-              SELECT start_time, end_time FROM appointments
-              WHERE organization_id = ${orgId}
-                AND status IN ('confirmed', 'scheduled')
-                AND DATE(start_time) = ${date}::date
-            `;
-
-            // Generate slots
-            const slots: any[] = [];
-            const [oh, om] = openT.split(":").map(Number);
-            const [ch, cm] = closeT.split(":").map(Number);
-            let cur = oh * 60 + om;
-            const endM = ch * 60 + cm;
-            const buf = 15;
-
-            while (cur + duration <= endM) {
-              const st = `${String(Math.floor(cur/60)).padStart(2,"0")}:${String(cur%60).padStart(2,"0")}`;
-              const et = `${String(Math.floor((cur+duration)/60)).padStart(2,"0")}:${String((cur+duration)%60).padStart(2,"0")}`;
-              const slotStart = new Date(`${date}T${st}:00`);
-              const slotEnd = new Date(`${date}T${et}:00`);
-
-              const conflict = booked.some((b: any) => {
-                const bs = new Date(new Date(b.start_time).getTime() - buf*60000);
-                const be = new Date(new Date(b.end_time).getTime() + buf*60000);
-                return slotStart < be && slotEnd > bs;
-              });
-
-              if (!conflict) slots.push({ date, time: st, endTime: et, available: true });
-              cur += 30;
-            }
-
-            return new Response(JSON.stringify({ date, slots, total: slots.length }),
+            return new Response(JSON.stringify({ date, slots: result.slots, total: result.slots.length }),
               { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Booking Slots]", String(err).slice(0, 200));
