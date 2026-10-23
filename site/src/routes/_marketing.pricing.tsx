@@ -164,7 +164,7 @@ export default function PricingPage() {
 
           {/* Annual billing note */}
           <p className="mt-8 text-center text-sm text-gray-500">
-            Simple monthly pricing. You're charged for your first month at checkout. FOUNDER50 — 50% off your first 3 months. Cancel anytime.
+            Simple monthly pricing. You're charged for your first month at checkout. FOUNDER50 — 50% off your first 3 months (first 100 customers only). Cancel anytime.
           </p>
         </div>
       </section>
@@ -214,7 +214,7 @@ export default function PricingPage() {
               },
               {
                 q: "How does billing work?",
-                a: "You're charged at checkout for your first month. Founders get 50% off for the first 3 months (FOUNDER50); standard rates apply after. Cancel anytime.",
+                a: "You're charged at checkout for your first month. Founders get 50% off for the first 3 months (FOUNDER50 — limited to the first 100 customers); standard rates apply after. Cancel anytime.",
               },
             ].map((faq) => (
               <div key={faq.q} className="rounded-xl border border-gray-100 bg-white p-6">

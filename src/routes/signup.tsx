@@ -217,7 +217,7 @@ function SignupPage() {
                     <svg className="h-4 w-4 text-amber-500" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
                   </span>
                   {" — "}
-                  50% off for 3 months, automatically applied!
+                  50% off your first 3 months — for the first 100 customers only! Auto-applied at checkout.
                 </p>
               </div>
               {/* Password — with trust cue */}

@@ -43,7 +43,7 @@ function FaqPage() {
                   <strong>Enter your email address.</strong> Use your business email — this is where login links and notifications will be sent.
                 </li>
                 <li>
-                  <strong>Choose your plan.</strong> Select <strong>Starter</strong> ($99/mo), <strong>Growth</strong> ($199/mo), or <strong>Scale</strong> ($399/mo) from the dropdown. Founders get 50% off their first 3 months (FOUNDER50).
+                  <strong>Choose your plan.</strong> Select <strong>Starter</strong> ($99/mo), <strong>Growth</strong> ($199/mo), or <strong>Scale</strong> ($399/mo) from the dropdown. Founders get 50% off their first 3 months (FOUNDER50 — limited to the first 100 customers).
                 </li>
                 <li>
                   <strong>Create a password.</strong> Must be at least 8 characters.
@@ -133,7 +133,7 @@ function FaqPage() {
             {[
               {
                 q: "How does billing work?",
-                a: "You're charged for your first month at checkout. Founder pricing (FOUNDER50) gives 50% off your first 3 months; standard rates apply after. Cancel anytime.",
+                a: "You're charged for your first month at checkout. Founder pricing (FOUNDER50) gives 50% off your first 3 months, limited to the first 100 customers; standard rates apply after. Cancel anytime.",
               },
               {
                 q: "What happens after I sign up?",
@@ -195,7 +195,7 @@ function FaqPage() {
         <div className="mx-auto max-w-3xl text-center">
           <h2 className="text-3xl font-bold text-white">Ready to get started?</h2>
           <p className="mt-3 text-lg text-indigo-100">
-            Try ReceptionAI — founder pricing is 50% off your first 3 months. Cancel anytime.
+            Try ReceptionAI — founder pricing: 50% off your first 3 months, limited to the first 100 customers. Cancel anytime.
           </p>
           <div className="mt-8">
             <Link

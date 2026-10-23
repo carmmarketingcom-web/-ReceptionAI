@@ -3358,7 +3358,7 @@ for (let attempt = 1; ; attempt++) {
               "metadata[password]": password,
               "metadata[useExistingNumber]": String(!!useExistingNumber),
               "metadata[existingPhoneNumber]": existingPhoneNumber,
-              "discounts[0][coupon]": "FOUNDER50",
+              "discounts[0][coupon]": "0JvBz6Xv",
               "subscription_data[metadata][companyName]": companyName,
             });
 

@@ -40,7 +40,7 @@ function smartReply(message: string, lang: string): string {
   if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("cuanto")) {
     return isEs
       ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas, 2000 min), Scale: $399/mes (ilimitado). Prueba gratis 14 dias. Quieres registrarte?"
-      : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines, 2000 min), Scale: $399/mo (unlimited). Founders get 50% off their first 3 months. Want to sign up?";
+      : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines, 2000 min), Scale: $399/mo (unlimited). Founders get 50% off their first 3 months (limited to the first 100 customers). Want to sign up?";
   }
   if (msg.includes("demo") || msg.includes("try") || msg.includes("test") || msg.includes("probar")) {
     return isEs
