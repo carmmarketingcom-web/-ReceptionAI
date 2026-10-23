@@ -169,7 +169,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.scale.feature3": { en: "Custom AI responses", es: "Respuestas IA personalizadas" },
   "pricing.scale.feature4": { en: "Priority support", es: "Soporte prioritario" },
   "pricing.scale.feature5": { en: "All channels included", es: "Todos los canales incluidos" },
-  "pricing.cta": { en: "Start Today", es: "Prueba Gratis" },
+  "pricing.cta": { en: "Start Today", es: "Empezar" },
   "pricing.popular": { en: "Most Popular", es: "Más Popular" },
 
   /* Demo Page */
