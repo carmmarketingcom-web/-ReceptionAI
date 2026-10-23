@@ -193,8 +193,8 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
   const checkoutSessionId = session.id;
   const stripeCustomerId = session.customer || "";
   const customerDetails = session.customer_details || {};
-  const email = customerDetails.email || "";
-  const name = customerDetails.name || "";
+  const email = session.metadata?.email || customerDetails.email || "";
+  const name = session.metadata?.name || customerDetails.name || "";
   const amountTotal = session.amount_total || 0;
 
   console.log(`[Stripe] One-time (Carm) checkout: session=${checkoutSessionId}, customer=${stripeCustomerId}, amount=${amountTotal}`);
@@ -209,16 +209,21 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
     console.warn(`[Stripe] Missing customer email for one-time checkout ${checkoutSessionId} — skipping provisioning`);
     return;
   }
-  const plan = mapCarmTierToPlan(tier);
-  const companyName = name || email.split("@")[0] || "Business";
-  const orgName = `New Carm Client — ${companyName}`;
+  const meta = session.metadata || {};
+  const isSelfServe = !!(meta.email && meta.plan);
+  const plan = isSelfServe
+    ? (["starter", "growth", "scale"].includes(meta.plan) ? meta.plan : "starter")
+    : (rate === "standard" ? tier : mapCarmTierToPlan(tier));
+  const companyName = meta.companyName || name || email.split("@")[0] || "Business";
+  const orgName = isSelfServe ? companyName : `New Carm Client — ${companyName}`;
+  const passwordHash = meta.password ? await bcrypt.hash(meta.password, 10) : generateRandomHash();
 
-  console.log(`[Stripe] Provisioning Carm client: tier=${tier} rate=${rate} plan=${plan} org="${orgName}" email=${email}`);
+  console.log(`[Stripe] Provisioning client: tier=${tier} rate=${rate} plan=${plan} org="${orgName}" email=${email}`);
 
   const sql = getSql();
   const orgId = crypto.randomUUID();
   const userId = crypto.randomUUID();
-  const slug = `carm-${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}`;
+  const slug = `${isSelfServe ? "" : "carm-"}${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}`;
 
   await sql`
     INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale)
@@ -227,7 +232,7 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
 
   await sql`
     INSERT INTO users (id, organization_id, email, name, role, password_hash)
-    VALUES (${userId}, ${orgId}, ${email}, ${name || "Owner"}, 'owner', ${generateRandomHash()})
+    VALUES (${userId}, ${orgId}, ${email}, ${name || "Owner"}, 'owner', ${passwordHash})
   `;
 
   // Phone number (same as self-serve: buy via Telnyx)
@@ -247,7 +252,7 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
   if (planId) {
     await sql`
       INSERT INTO subscriptions (id, organization_id, plan_id, stripe_subscription_id, stripe_customer_id, status, billing_cycle, metadata)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${planId}, ${checkoutSessionId}, ${stripeCustomerId}, 'active', 'monthly', ${JSON.stringify({ source: "carm", rate, tier, price_id: priceId, amount_total: amountTotal })}::jsonb)
+      VALUES (${crypto.randomUUID()}, ${orgId}, ${planId}, ${checkoutSessionId}, ${stripeCustomerId}, 'active', 'monthly', ${JSON.stringify({ source: isSelfServe ? "self-serve" : "carm", rate, tier, price_id: priceId, amount_total: amountTotal })}::jsonb)
     `;
   }
 
