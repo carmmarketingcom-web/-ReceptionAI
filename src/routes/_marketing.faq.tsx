@@ -140,12 +140,35 @@ function FaqPage() {
                 a: "Your account is created automatically. A phone number is provisioned for your business, and your dashboard is ready immediately. You can start receiving calls right away.",
               },
               {
-                q: "Can I use my existing phone number?",
-                a: "Yes, but our honest recommendation is to start with a new ReceptionAI number. You're live in minutes, every call is recorded and summarized straight to your phone, and your existing number keeps working for outbound calls, existing customers, and emergencies. Porting your number to us is possible, but we don't recommend it: it typically takes 1–4 weeks with your current carrier, can briefly interrupt service if anything slips, and adds friction you don't need on day one. If you still want to port, we'll handle it with you directly — you send a recent bill and sign a letter of authorization, we submit the port, and we update you at every step. Talk to our team and we'll guide you through it.",
+                q: "Will my customers have to dial a new number?",
+                a: "Yes — and that's intentional. When you sign up you get a dedicated AI receptionist number, so your new AI assistant has one clear, always-on line. Your customers can keep using the number they already know by forwarding it to your new one — dial *72 followed by your new number (turn it off with *73), or set it up in your provider's portal in about 5 minutes — with no downtime and the option to switch it off anytime.",
               },
               {
-                q: "Can I keep my old number without porting?",
-                a: "Yes — and this is what most of our customers do. Ask your current carrier to forward calls from your existing number to your new ReceptionAI number. Your old number keeps ringing, callers never notice a change, and your AI receptionist answers every call. No porting delays, no downtime, no risk. We'll give you the exact forwarding instructions for your carrier.",
+                q: "Can I use (port) my own phone number instead?",
+                a: (
+                  <>
+                    <p>Yes, you can — but we don't recommend it, and here's exactly why.</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      <li>
+                        <strong>Instant:</strong> your number is live the moment you sign up. Porting takes 1–2 weeks, during which you could be missing calls.
+                      </li>
+                      <li>
+                        <strong>No hidden risk:</strong> porting requires your current provider to release the number — it can be declined, delayed, or temporarily disrupt service.
+                      </li>
+                      <li>
+                        <strong>Cleaner AI experience:</strong> the AI receptionist is built around its own number — post-call text summaries, repeat-caller recognition, and reminders all flow automatically. Porting complicates that setup for little benefit.
+                      </li>
+                      <li>
+                        <strong>Forwarding gives you everything porting does</strong> — customers keep calling the number they know — with none of the wait or risk.
+                      </li>
+                    </ul>
+                    <p className="mt-2">If you still want to port, choose "Use my existing number" at signup — we record the request and a temporary number keeps you covered until the transfer completes (expect 1–2 weeks and possible hiccups with your current carrier). For 95% of businesses, the smart move is: keep your advertised number, forward it to your new AI number — same customer experience, zero downtime.</p>
+                  </>
+                ),
+              },
+              {
+                q: "What if a caller wants to speak to a real person?",
+                a: "The AI recognizes the request and forwards the call straight to you (or whoever you configure as the owner). If you can't answer, the system texts you the caller's number so you can call them back — no missed opportunities.",
               },
               {
                 q: "How do I cancel?",
