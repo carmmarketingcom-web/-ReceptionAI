@@ -237,8 +237,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.popular": { en: "Most Popular", es: "Más Popular" },
   "pricing.cta": { en: "Start Today", es: "Comenzar Hoy" },
   "pricing.billingNote": {
-    en: "Simple monthly pricing. You're charged for your first month at checkout — no contracts, no auto-renewals, cancel anytime.",
-    es: "Precios mensuales simples. Se te cobra el primer mes al finalizar la compra — sin contratos, sin renovaciones automáticas, cancela cuando quieras.",
+    en: "Simple monthly pricing. You're charged for your first month at checkout and billed monthly after that. Cancel anytime.",
+    es: "Precios mensuales simples. Se te cobra el primer mes al finalizar la compra y se te factura mensualmente después. Cancela cuando quieras.",
   },
 
   "pricing.starter.name": { en: "Starter", es: "Starter" },
@@ -348,8 +348,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "pricing.faq4.q": { en: "How does billing work?", es: "¿Cómo funciona la facturación?" },
   "pricing.faq4.a": {
-    en: "You're charged at checkout for your first month of your chosen plan. There's no auto-renewal — each month is a fresh payment whenever you choose to continue. Cancel anytime by simply not renewing.",
-    es: "Se te cobra el primer mes de tu plan al finalizar la compra. No hay renovación automática — cada mes es un pago nuevo cuando decidas continuar. Cancela cuando quieras simplemente no renovando.",
+    en: "You're charged at checkout for your first month; the plan renews monthly at the same price until you cancel. Cancel anytime.",
+    es: "Se te cobra el primer mes al finalizar la compra; el plan se renueva mensualmente al mismo precio hasta que canceles. Cancela cuando quieras.",
   },
 
   /* ─── Pricing — CTA ─── */
@@ -383,14 +383,14 @@ export const translations: Record<string, { en: string; es: string }> = {
     es: "Ingresa tu correo electrónico. Usa tu correo de negocio — ahí se enviarán los enlaces de inicio de sesión y las notificaciones.",
   },
   "faq.signup.step4": {
-    en: "Choose your plan. Select Starter ($99/mo), Growth ($199/mo), or Scale ($399/mo) from the dropdown. Your first month is charged at checkout — no auto-renewals.",
-    es: "Elige tu plan. Selecciona Starter ($99/mes), Growth ($199/mes) o Scale ($399/mes) del menú desplegable. Tu primer mes se cobra al finalizar la compra — sin renovaciones automáticas.",
+    en: "Choose your plan. Select Starter ($99/mo), Growth ($199/mo), or Scale ($399/mo) from the dropdown. Your first month is charged at checkout, then renews monthly. Cancel anytime.",
+    es: "Elige tu plan. Selecciona Starter ($99/mes), Growth ($199/mes) o Scale ($399/mes) del menú desplegable. Tu primer mes se cobra al finalizar la compra y luego se renueva mensualmente. Cancela cuando quieras.",
   },
   "faq.signup.step5": { en: "Create a password. Must be at least 8 characters.", es: "Crea una contraseña. Debe tener al menos 8 caracteres." },
   "faq.signup.step6": { en: "Check the terms box and click Start Today.", es: "Marca la casilla de términos y haz clic en Comenzar Hoy." },
   "faq.signup.step7": {
-    en: "Complete payment. You'll be redirected to Stripe's secure checkout. Enter your card details. You'll be charged for your first month. No hidden fees, no auto-renewals — cancel anytime.",
-    es: "Completa el pago. Serás redirigido al checkout seguro de Stripe. Ingresa los datos de tu tarjeta. Se te cobrará el primer mes. Sin cargos ocultos, sin renovaciones automáticas — cancela cuando quieras.",
+    en: "Complete payment. You'll be redirected to Stripe's secure checkout. Enter your card details. You'll be charged for your first month. No hidden fees — your plan renews monthly and you can cancel anytime.",
+    es: "Completa el pago. Serás redirigido al checkout seguro de Stripe. Ingresa los datos de tu tarjeta. Se te cobrará el primer mes. Sin cargos ocultos — tu plan se renueva mensualmente y puedes cancelar cuando quieras.",
   },
   "faq.signup.step8": {
     en: "Done! After payment, your account is created automatically — your phone number is provisioned and your dashboard is ready.",
@@ -426,8 +426,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "faq.list.title": { en: "Frequently Asked Questions", es: "Preguntas Frecuentes" },
   "faq.list.q1": { en: "How does billing work?", es: "¿Cómo funciona la facturación?" },
   "faq.list.a1": {
-    en: "You're charged at checkout for your first month. There's no auto-renewal — each month is a fresh payment whenever you choose to continue. Cancel anytime by simply not renewing.",
-    es: "Se te cobra el primer mes al finalizar la compra. No hay renovación automática — cada mes es un pago nuevo cuando decidas continuar. Cancela cuando quieras simplemente no renovando.",
+    en: "You're charged at checkout for your first month; the plan renews monthly at the same price until you cancel. Cancel anytime.",
+    es: "Se te cobra el primer mes al finalizar la compra; el plan se renueva mensualmente al mismo precio hasta que canceles. Cancela cuando quieras.",
   },
   "faq.list.q2": { en: "What happens after I sign up?", es: "¿Qué pasa después de registrarme?" },
   "faq.list.a2": {
