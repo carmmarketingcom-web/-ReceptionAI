@@ -59,7 +59,7 @@ export default function Footer() {
                 </a>
               </li>
               <li>
-                <a href="#" className="text-sm text-gray-500 transition hover:text-gray-900">
+                <a href="mailto:hello@receptionai.store" className="text-sm text-gray-500 transition hover:text-gray-900">
                   {t("footer.contact")}
                 </a>
               </li>
