@@ -68,6 +68,7 @@ function HomePage() {
     <div className="bg-white">
       <HeroSection />
       <LogoMarquee />
+      <MissedCallCalculator />
       <HowItWorksSection />
       <BuiltForTrades />
       <FeaturesOverview />
@@ -199,6 +200,130 @@ function LogoMarquee() {
               {ind}
             </span>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+/* ─── Missed-call calculator ─── */
+function MissedCallCalculator() {
+  const [missedCalls, setMissedCalls] = useState(12);
+  const [averageJob, setAverageJob] = useState(350);
+  const [bookingRate, setBookingRate] = useState(35);
+
+  const monthlyOpportunities = Math.round(missedCalls * 4.33);
+  const estimatedRevenue = Math.round(monthlyOpportunities * (bookingRate / 100) * averageJob);
+  const revenueLabel = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(estimatedRevenue);
+
+  return (
+    <section className="relative overflow-hidden border-y border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-20 sm:py-28">
+      <div className="pointer-events-none absolute inset-0 opacity-40 [background-image:radial-gradient(#c7d2fe_1px,transparent_1px)] [background-size:22px_22px]" />
+      <div className="pointer-events-none absolute -right-40 top-10 h-96 w-96 rounded-full bg-purple-300/25 blur-3xl" />
+      <div className="pointer-events-none absolute -left-40 bottom-0 h-80 w-80 rounded-full bg-indigo-300/20 blur-3xl" />
+
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/80 px-4 py-1.5 text-sm font-semibold text-indigo-700 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-indigo-500" />
+            The cost of a missed call
+          </span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-950 sm:text-5xl">
+            See what your missed calls could be costing you.
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-gray-600">
+            A few missed calls can quietly become thousands in lost work. Adjust the numbers to see your own estimate — then put every opportunity back on the calendar.
+          </p>
+        </div>
+
+        <div className="mx-auto mt-14 grid max-w-5xl overflow-hidden rounded-3xl border border-indigo-100 bg-white/90 shadow-[0_24px_80px_-28px_rgba(67,56,202,0.35)] backdrop-blur-sm lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="space-y-8 p-7 sm:p-10 lg:p-12">
+            <div>
+              <label htmlFor="missed-calls" className="flex items-center justify-between text-sm font-semibold text-gray-900">
+                <span>Missed calls per week</span>
+                <output htmlFor="missed-calls" className="rounded-lg bg-indigo-50 px-3 py-1 text-base font-bold text-indigo-700">{missedCalls}</output>
+              </label>
+              <input
+                id="missed-calls"
+                type="range"
+                min="1"
+                max="40"
+                step="1"
+                value={missedCalls}
+                onChange={(event) => setMissedCalls(Number(event.target.value))}
+                className="mt-4 h-2 w-full cursor-pointer accent-indigo-600"
+              />
+              <div className="mt-2 flex justify-between text-xs text-gray-400"><span>1</span><span>40+</span></div>
+            </div>
+
+            <div>
+              <label htmlFor="average-job" className="flex items-center justify-between text-sm font-semibold text-gray-900">
+                <span>Average job value</span>
+                <output htmlFor="average-job" className="rounded-lg bg-indigo-50 px-3 py-1 text-base font-bold text-indigo-700">${averageJob}</output>
+              </label>
+              <input
+                id="average-job"
+                type="range"
+                min="50"
+                max="2000"
+                step="50"
+                value={averageJob}
+                onChange={(event) => setAverageJob(Number(event.target.value))}
+                className="mt-4 h-2 w-full cursor-pointer accent-indigo-600"
+              />
+              <div className="mt-2 flex justify-between text-xs text-gray-400"><span>$50</span><span>$2,000</span></div>
+            </div>
+
+            <div>
+              <label htmlFor="booking-rate" className="flex items-center justify-between text-sm font-semibold text-gray-900">
+                <span>Calls that become booked jobs</span>
+                <output htmlFor="booking-rate" className="rounded-lg bg-indigo-50 px-3 py-1 text-base font-bold text-indigo-700">{bookingRate}%</output>
+              </label>
+              <input
+                id="booking-rate"
+                type="range"
+                min="5"
+                max="80"
+                step="5"
+                value={bookingRate}
+                onChange={(event) => setBookingRate(Number(event.target.value))}
+                className="mt-4 h-2 w-full cursor-pointer accent-indigo-600"
+              />
+              <div className="mt-2 flex justify-between text-xs text-gray-400"><span>5%</span><span>80%</span></div>
+            </div>
+          </div>
+
+          <div className="relative flex flex-col justify-between bg-gray-950 p-7 text-white sm:p-10 lg:p-12">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_0%,rgba(129,140,248,0.28),transparent_44%),radial-gradient(circle_at_0%_100%,rgba(168,85,247,0.2),transparent_42%)]" />
+            <div className="relative">
+              <div className="flex items-center gap-3 text-sm font-semibold text-indigo-200">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-400/15 ring-1 ring-indigo-300/20">
+                  <Icon name="chart" className="h-4 w-4" />
+                </span>
+                Your monthly estimate
+              </div>
+              <p className="mt-10 text-sm text-gray-400">Potential revenue left on the table</p>
+              <p className="mt-2 text-5xl font-black tracking-tight text-white sm:text-6xl">{revenueLabel}</p>
+              <p className="mt-5 max-w-sm text-sm leading-relaxed text-gray-400">
+                Based on approximately <span className="font-semibold text-gray-200">{monthlyOpportunities} missed opportunities</span> per month at your average job value and booking rate.
+              </p>
+            </div>
+            <div className="relative mt-10">
+              <Link
+                to="/signup"
+                className="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-bold text-indigo-700 shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-50"
+              >
+                Protect every opportunity
+                <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+              </Link>
+              <p className="mt-3 text-center text-xs text-gray-500">Estimate only — your results will vary.</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>
