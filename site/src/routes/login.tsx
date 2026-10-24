@@ -86,7 +86,7 @@ function LoginPage() {
             <p className="mt-2 text-sm text-gray-500">
               {mode === "login"
                 ? "Sign in to your ReceptionAI dashboard."
-                : "Start your 14-day free trial. No credit card needed."}
+                : "Get started today."}
             </p>
           </div>
 
@@ -155,7 +155,7 @@ function LoginPage() {
                   onClick={() => setMode("register")}
                   className="font-medium text-indigo-600 hover:text-indigo-700"
                 >
-                  Start free trial
+                  Start today
                 </button>
               </>
             ) : (

@@ -32,9 +32,9 @@ const PLANS = [
       "English & Spanish support",
       "Email support",
     ],
-    stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9",
+    stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM",
     stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02",
-    cta: "Start Free Trial",
+    cta: "Start Today",
   },
   {
     id: "growth",
@@ -53,9 +53,9 @@ const PLANS = [
       "Team management",
       "Priority email & chat support",
     ],
-    stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy",
+    stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
-    cta: "Start Free Trial",
+    cta: "Start Today",
     popular: true,
   },
   {
@@ -75,7 +75,7 @@ const PLANS = [
       "Dedicated account manager",
       "24/7 priority phone support",
     ],
-    stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki",
+    stripePriceId: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
     stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04",
     cta: "Contact Sales",
   },
@@ -109,7 +109,7 @@ async function handleGetPlans() {
     JSON.stringify({
       plans: PLANS,
       annualDiscount: "Save 20% with annual billing",
-      trialDays: 14,
+      trialDays: 0,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );

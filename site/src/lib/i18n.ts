@@ -33,8 +33,8 @@ export const translations: Record<string, { en: string; es: string }> = {
     es: "ReceptionAI responde llamadas, textos, chats web y mensajes — en inglés y español — agenda citas, envía recordatorios y transfiere a tu equipo cuando sea necesario. Todo por menos del costo de un recepcionista humano.",
   },
   "hero.cta": {
-    en: "Start Free Trial",
-    es: "Prueba Gratis",
+    en: "Start Today",
+    es: "Comenzar",
   },
   "hero.watchDemo": { en: "Watch Demo", es: "Ver Demo" },
   "hero.stats": {
@@ -169,7 +169,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.scale.feature3": { en: "Custom AI responses", es: "Respuestas IA personalizadas" },
   "pricing.scale.feature4": { en: "Priority support", es: "Soporte prioritario" },
   "pricing.scale.feature5": { en: "All channels included", es: "Todos los canales incluidos" },
-  "pricing.cta": { en: "Start Free Trial", es: "Prueba Gratis" },
+  "pricing.cta": { en: "Start Today", es: "Empezar" },
   "pricing.popular": { en: "Most Popular", es: "Más Popular" },
 
   /* Demo Page */
@@ -231,7 +231,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   "login.welcome": { en: "Welcome back", es: "Bienvenido de nuevo" },
   "login.subtitle": { en: "Sign in to your ReceptionAI dashboard.", es: "Inicia sesión en tu panel de ReceptionAI." },
   "login.createAccount": { en: "Create your account", es: "Crea tu cuenta" },
-  "login.createSubtitle": { en: "Start your 14-day free trial. No credit card needed.", es: "Comienza tu prueba gratuita de 14 días. Sin necesidad de tarjeta de crédito." },
+  "login.createSubtitle": { en: "Get started today.", es: "Empieza hoy." },
   "login.email": { en: "Business Email", es: "Correo Electrónico" },
   "login.password": { en: "Password", es: "Contraseña" },
   "login.signIn": { en: "Sign In", es: "Iniciar Sesión" },
@@ -240,7 +240,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   "login.forgotPassword": { en: "Forgot password?", es: "¿Olvidaste tu contraseña?" },
   "login.noAccount": { en: "Don't have an account?", es: "¿No tienes una cuenta?" },
   "login.hasAccount": { en: "Already have an account?", es: "¿Ya tienes una cuenta?" },
-  "login.startTrial": { en: "Start free trial", es: "Prueba gratuita" },
+  "login.startTrial": { en: "Start today", es: "Empezar" },
   "login.pleaseWait": { en: "Please wait...", es: "Espere por favor..." },
   "login.fillFields": { en: "Please fill in all fields.", es: "Por favor complete todos los campos." },
 };

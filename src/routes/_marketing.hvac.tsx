@@ -49,7 +49,7 @@ function HeroSection() {
             to="/signup"
             className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-orange-200 transition hover:bg-orange-700 hover:shadow-orange-300"
           >
-            Start Free Trial
+            Start Today
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
@@ -211,7 +211,7 @@ function FinalCtaSection() {
           Ready to never miss an HVAC call again?
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-lg text-orange-100">
-          Start your 14-day free trial. No credit card required. Your AI receptionist goes live
+          Start today — founders get 50% off your first 3 months. Your AI receptionist goes live
           in minutes — not days.
         </p>
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -219,13 +219,13 @@ function FinalCtaSection() {
             to="/signup"
             className="inline-flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-semibold text-orange-600 shadow-lg transition hover:bg-orange-50"
           >
-            Start Free Trial
+            Start Today
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </Link>
         </div>
-        <p className="mt-4 text-sm text-orange-200">Free 14-day trial. Cancel anytime.</p>
+        <p className="mt-4 text-sm text-orange-200">FOUNDER50 — 50% off your first 3 months. Cancel anytime.</p>
       </div>
     </section>
   );
