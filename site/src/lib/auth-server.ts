@@ -8,11 +8,18 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32"
-);
-
 const JWT_EXPIRY = "24h";
+
+// Resolve the signing secret lazily and fail closed if it's missing/short —
+// never fall back to a hardcoded dev value (security: a public fallback
+// would let anyone forge org-scoped tokens).
+function jwtSecret(): Uint8Array {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("JWT_SECRET is not configured (must be >=32 chars) — refusing to sign/verify auth tokens.");
+  }
+  return new TextEncoder().encode(secret);
+}
 
 export interface JwtPayload {
   userId: string;
@@ -46,7 +53,7 @@ export async function createToken(payload: JwtPayload): Promise<string> {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(JWT_EXPIRY)
-    .sign(JWT_SECRET);
+    .sign(jwtSecret());
 }
 
 /**
@@ -54,8 +61,9 @@ export async function createToken(payload: JwtPayload): Promise<string> {
  * Returns the payload or null if invalid/expired.
  */
 export async function verifyToken(token: string): Promise<JwtPayload | null> {
+  const secret = jwtSecret();
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, secret);
     return payload as unknown as JwtPayload;
   } catch {
     return null;
