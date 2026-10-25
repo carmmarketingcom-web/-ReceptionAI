@@ -241,15 +241,26 @@ async function cmd(cid: string, action: string, body: any = {}) {
   return ok;
 }
 // ── TTS voice selection ──────────────────────────────────────────────────────
-// ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise Polly.Joanna.
+// Two tiers: ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise per-language Polly neural voices.
 // Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
 const ELEVENLABS_API_KEY_REF = process.env.ELEVENLABS_API_KEY_REF || "";
-const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel"
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (English)
+const ELEVENLABS_VOICE_ID_ES = process.env.ELEVENLABS_VOICE_ID_ES || ELEVENLABS_VOICE_ID; // Spanish (falls back to English voice)
 function ttsVoiceParams(text: string, lang: string): any {
+  const l = lang === "es" ? "es" : "en";
   if (ELEVENLABS_API_KEY_REF) {
-    return { payload: text, voice: `ElevenLabs.Default.${ELEVENLABS_VOICE_ID}`, voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF } };
+    const voiceId = l === "es" ? ELEVENLABS_VOICE_ID_ES : ELEVENLABS_VOICE_ID;
+    return {
+      payload: text,
+      voice: `ElevenLabs.Default.${voiceId}`,
+      voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF },
+    };
   }
-  return { payload: text, voice: "Polly.Joanna", language: lang === "es" ? "es-US" : "en-US" };
+  return {
+    payload: text,
+    voice: l === "es" ? "Polly.Lupe-Neural" : "Polly.Joanna-Neural",
+    language: l === "es" ? "es-US" : "en-US",
+  };
 }
 
 async function promptAndWait(cid: string, text: string) {
@@ -1942,9 +1953,9 @@ for (let attempt = 1; ; attempt++) {
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="1" timeout="10" action="/api/voice/incoming/gather">
-    <Say voice="Polly.Joanna">Hello! Welcome to ${companyName}. Press 1 to book an appointment, press 2 for business hours, or press 0 to leave a message.</Say>
+    <Say voice="Polly.Joanna-Neural">Hello! Welcome to ${companyName}. Press 1 to book an appointment, press 2 for business hours, or press 0 to leave a message.</Say>
   </Gather>
-  <Say voice="Polly.Joanna">Sorry, we did not receive your selection. Goodbye!</Say>
+  <Say voice="Polly.Joanna-Neural">Sorry, we did not receive your selection. Goodbye!</Say>
 </Response>`;
 
             return new Response(twiml, {
