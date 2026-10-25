@@ -1,7 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import ChatWidgetPreview from "~/components/ChatWidgetPreview";
-import { t } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/")({
   component: HomePage,
@@ -64,13 +63,12 @@ function Icon({ name, className = "h-6 w-6" }: { name: string; className?: strin
   );
 }
 
-const INDUSTRY_KEYS = ["ind.hvac", "ind.plumbing", "ind.electrical", "ind.dental", "ind.veterinary", "ind.law", "ind.medspa", "ind.homeservices"];
-
 function HomePage() {
   return (
     <div className="bg-white">
       <HeroSection />
       <LogoMarquee />
+      <MissedCallCalculator />
       <HowItWorksSection />
       <BuiltForTrades />
       <FeaturesOverview />
@@ -103,20 +101,22 @@ function HeroSection() {
             {/* Badge */}
             <div className="mb-8 inline-flex items-center gap-2.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-5 py-2 text-sm font-medium text-indigo-300 backdrop-blur-sm">
               <span className="flex h-2.5 w-2.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)] animate-pulse" />
-              {t("home.badge")}
+              AI Receptionist — Now Available
             </div>
 
             <h1 className="text-5xl font-extrabold tracking-tight text-white sm:text-6xl md:text-7xl lg:text-7xl xl:text-8xl leading-[1.05]">
-              {t("home.hero.line1")}
+              Never miss
               <br />
               <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                {t("home.hero.highlight")}
+                another lead
               </span>
-              {" "}{t("home.hero.line2")}
+              {" "}again.
             </h1>
 
             <p className="mx-auto mt-8 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl lg:mx-0">
-              {t("home.hero.subtitle")}
+              ReceptionAI answers calls, texts, web chats, and messages — in English and
+              Spanish. Books appointments, sends reminders, and transfers to your
+              team when needed. Everything a $55,000 receptionist does. Never sick. Never late. Always on. $99/month.
             </p>
 
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:justify-start">
@@ -124,13 +124,13 @@ function HeroSection() {
                 to="/signup"
                 className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               >
-                {t("home.hero.cta")}
+                Get Started
                 <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
               </Link>
               <Link to="/features" className="group inline-flex items-center gap-2 rounded-xl px-6 py-4 text-sm font-medium text-gray-400 transition hover:text-white hover:bg-white/5">
-                {t("home.hero.secondary")}
+                See how it works
                 <svg className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                 </svg>
@@ -139,7 +139,7 @@ function HeroSection() {
 
             {/* Trust */}
             <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-gray-500 lg:justify-start justify-center">
-              {[t("home.hero.trust1"), t("home.hero.trust2"), t("home.hero.trust3")].map((label) => (
+              {["Founder pricing: 50% off first 3 months", "Built-in calendar — zero setup", "Cancel anytime"].map((label) => (
                 <div key={label} className="flex items-center gap-2">
                   <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   {label}
@@ -153,7 +153,7 @@ function HeroSection() {
                 <Icon name="phone" className="h-5 w-5 text-green-400" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-green-300">{t("home.hero.tryTitle")}</p>
+                <p className="text-sm font-semibold text-green-300">Try it live — call the AI now</p>
                 <a href="tel:+17279667556" className="text-xl font-bold text-green-400 hover:text-green-300 transition tracking-wide">
                   (727) 966-7556
                 </a>
@@ -183,21 +183,93 @@ function HeroSection() {
 
 /* ─── Logo Marquee ─── */
 function LogoMarquee() {
+  const industries = ["HVAC", "Plumbing", "Electrical", "Dental", "Veterinary", "Law", "Med Spa", "Home Services"];
+
   return (
     <section className="border-b border-gray-100 bg-white py-12">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <p className="mb-8 text-center text-sm font-semibold uppercase tracking-widest text-gray-400">
-          {t("home.marquee.title")}
+          Built for every service industry
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
-          {INDUSTRY_KEYS.map((key) => (
+          {industries.map((ind) => (
             <span
-              key={key}
+              key={ind}
               className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-700 hover:shadow-md"
             >
-              {t(key)}
+              {ind}
             </span>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+/* ─── Missed-call calculator ─── */
+function MissedCallCalculator() {
+  const [missedCalls, setMissedCalls] = useState(10);
+  const [averageJobValue, setAverageJobValue] = useState(300);
+  const annualRevenueLost = missedCalls * averageJobValue * 52 / 3;
+  const monthlyRevenueLost = annualRevenueLost / 12;
+  const formatMoney = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
+  const copy = {
+    headline: "How much are missed calls costing you?",
+    callsLabel: "Calls you miss per week",
+    jobLabel: "Average job value",
+    assumption: "Assumes 1 in 3 missed callers would have become a paying job.",
+    outputLabel: "REVENUE_LOST / YEAR",
+    cta: "Stop the leak — get started",
+  };
+
+  return (
+    <section id="missed-call-calculator" className="relative overflow-hidden bg-gradient-to-br from-gray-950 via-indigo-950 to-purple-950 py-20 text-white sm:py-28">
+      <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:radial-gradient(#b8b8ff_1px,transparent_1px)] [background-size:22px_22px]" />
+      <div className="pointer-events-none absolute -right-40 top-0 h-96 w-96 rounded-full bg-purple-600/20 blur-3xl" />
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-indigo-200">Missed-call calculator</span>
+          <h2 className="mt-5 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">{copy.headline}</h2>
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-indigo-100/75">Put a number on the opportunities that disappear when the phone rings while your team is busy.</p>
+        </div>
+
+        <div className="mx-auto mt-14 grid max-w-5xl overflow-hidden rounded-3xl border border-white/15 bg-white/10 shadow-2xl shadow-indigo-950/40 backdrop-blur-xl lg:grid-cols-[1fr_.95fr]">
+          <div className="space-y-8 p-7 sm:p-10 lg:p-12">
+            <div>
+              <div className="flex items-center justify-between text-sm font-semibold text-white"><span>{copy.callsLabel}</span><output>{missedCalls}</output></div>
+              <div className="mt-4 flex items-center gap-4">
+                <button type="button" aria-label="Decrease missed calls" disabled={missedCalls === 1} onClick={() => setMissedCalls((value) => Math.max(1, value - 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">−</button>
+                <output className="min-w-12 text-center text-2xl font-black">{missedCalls}</output>
+                <button type="button" aria-label="Increase missed calls" disabled={missedCalls === 50} onClick={() => setMissedCalls((value) => Math.min(50, value + 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">+</button>
+              </div>
+              <div className="mt-2 flex justify-between text-xs text-indigo-200/60"><span>1</span><span>50</span></div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-white">{copy.jobLabel}</div>
+              <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={copy.jobLabel}>
+                {[150, 300, 500, 1000].map((value) => {
+                  const active = averageJobValue === value;
+                  return <button key={value} type="button" aria-pressed={active} onClick={() => setAverageJobValue(value)} className={`rounded-full border px-4 py-2 text-sm font-bold transition ${active ? "border-indigo-200 bg-indigo-400/60 text-white" : "border-white/20 bg-white/5 text-indigo-100 hover:bg-white/15"}`}>{formatMoney(value)}</button>;
+                })}
+              </div>
+            </div>
+
+            <p className="text-xs leading-relaxed text-indigo-100/70">{copy.assumption}</p>
+          </div>
+
+          <div className="flex flex-col justify-between bg-gray-950/55 p-7 sm:p-10 lg:p-12">
+            <div>
+              <div className="text-xs font-extrabold tracking-[.16em] text-indigo-200">{copy.outputLabel}</div>
+              <div className="mt-3 text-5xl font-black tracking-[-.08em] text-white sm:text-6xl">{formatMoney(annualRevenueLost)}</div>
+              <p className="mt-5 max-w-sm text-sm leading-relaxed text-indigo-100/75">That's about {formatMoney(monthlyRevenueLost)} a month — far more than the cost of never missing a call again.</p>
+            </div>
+            <div>
+              <Link to="/signup" className="mt-10 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-extrabold text-indigo-700 shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-50">{copy.cta}<span aria-hidden>→</span></Link>
+              <p className="mt-3 text-center text-xs text-indigo-100/55">Estimate only — your results will vary.</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -207,17 +279,17 @@ function LogoMarquee() {
 /* ─── How It Works ─── */
 function HowItWorksSection() {
   const steps = [
-    { icon: "phone", title: t("home.how.step1.title"), desc: t("home.how.step1.desc") },
-    { icon: "calendar", title: t("home.how.step2.title"), desc: t("home.how.step2.desc") },
-    { icon: "sms", title: t("home.how.step3.title"), desc: t("home.how.step3.desc") },
+    { icon: "phone", title: "We answer your calls 24/7", desc: "In English or Spanish. Every call, every time — no missed leads." },
+    { icon: "calendar", title: "We book appointments automatically", desc: "On your built-in calendar. No Google account needed. Just set your hours." },
+    { icon: "sms", title: "You get an SMS summary after every call", desc: "Caller info, duration, and outcome — straight to your phone. No dashboard required." },
   ];
 
   return (
     <section className="bg-white py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">{t("home.how.badge")}</span>
-          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">{t("home.how.title1")}<br /><span className="text-indigo-600">{t("home.how.title2")}</span></h2>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">How it works</span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">Your AI receptionist<br /><span className="text-indigo-600">in 3 simple steps</span></h2>
         </Reveal>
 
         <div className="mt-16 grid gap-8 md:grid-cols-3">
@@ -240,6 +312,8 @@ function HowItWorksSection() {
 
 /* ─── Built for Trades ─── */
 function BuiltForTrades() {
+  const industries = ["HVAC", "Plumbing", "Electrical", "Dental", "Veterinary", "Legal", "Med Spa", "Home Services"];
+
   return (
     <section className="relative bg-gray-950 py-20 sm:py-28 overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:48px_48px]" />
@@ -253,17 +327,18 @@ function BuiltForTrades() {
                 <Icon name="wrench" className="h-6 w-6" />
               </span>
               <h2 className="text-2xl font-extrabold text-white sm:text-3xl">
-                {t("home.trades.title")}
+                Built for trades — no integrations needed
               </h2>
             </div>
             <p className="text-lg leading-relaxed text-gray-400 sm:text-xl">
-              {t("home.trades.desc")}
+              Your calendar is built right in. No ServiceTitan. No Housecall Pro.
+              Nothing to connect. Nothing to sync. Just set your hours and go.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-gray-500">
-              <span className="font-semibold text-gray-300">{t("home.trades.worksFor")}</span>
-              {INDUSTRY_KEYS.map((key, i) => (
-                <span key={key}>
-                  {t(key)}{i < INDUSTRY_KEYS.length - 1 ? " •" : ""}
+              <span className="font-semibold text-gray-300">Works great for:</span>
+              {industries.map((ind, i) => (
+                <span key={ind}>
+                  {ind}{i < industries.length - 1 ? " •" : ""}
                 </span>
               ))}
             </div>
@@ -277,21 +352,21 @@ function BuiltForTrades() {
 /* ─── Features ─── */
 function FeaturesOverview() {
   const features = [
-    { icon: "phone", title: t("feature.247.title"), desc: t("feature.247.desc") },
-    { icon: "globe", title: t("feature.multilingual.title"), desc: t("feature.multilingual.desc") },
-    { icon: "calendar", title: t("feature.scheduling.title"), desc: t("feature.scheduling.desc") },
-    { icon: "chat", title: t("feature.multichannel.title"), desc: t("feature.multichannel.desc") },
-    { icon: "refresh", title: t("feature.human.title"), desc: t("feature.human.desc") },
-    { icon: "chart", title: t("feature.analytics.title"), desc: t("feature.analytics.desc") },
+    { icon: "phone", title: "24/7 Call Answering", desc: "Never miss a business opportunity. AI answers every call instantly, day or night, weekends and holidays included." },
+    { icon: "globe", title: "Bilingual (English & Spanish)", desc: "Serve your customers in the language they're most comfortable with. Seamless switching between English and Spanish." },
+    { icon: "calendar", title: "Smart Appointment Scheduling", desc: "AI reads your calendar and books appointments automatically. Sends confirmations, reminders, and follow-ups." },
+    { icon: "chat", title: "Omnichannel Inbox", desc: "Calls, texts, web chat, WhatsApp, Facebook — all conversations in one place. Never lose track of a lead." },
+    { icon: "refresh", title: "Human Handoff When Needed", desc: "Smart escalation to your team. When the AI detects a complex issue, it transfers the call or chat seamlessly." },
+    { icon: "chart", title: "Analytics & Insights", desc: "See how many calls you're missing, booking rates, peak hours, and customer satisfaction — all in one dashboard." },
   ];
 
   return (
     <section className="bg-white py-24 sm:py-32" id="features">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">{t("home.features.badge")}</span>
-          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">{t("home.features.title")}</h2>
-          <p className="mt-5 text-lg leading-relaxed text-gray-500 sm:text-xl">{t("home.features.subtitle")}</p>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">Features</span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">Everything your business needs</h2>
+          <p className="mt-5 text-lg leading-relaxed text-gray-500 sm:text-xl">One platform. Calls, messages, scheduling — so you can focus on the work.</p>
         </Reveal>
 
         <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -315,17 +390,17 @@ function FeaturesOverview() {
 /* ─── How It Works (numbered) ─── */
 function HowItWorks() {
   const steps = [
-    { step: "01", title: t("home.setup.step1.title"), desc: t("home.setup.step1.desc") },
-    { step: "02", title: t("home.setup.step2.title"), desc: t("home.setup.step2.desc") },
-    { step: "03", title: t("home.setup.step3.title"), desc: t("home.setup.step3.desc") },
+    { step: "01", title: "Get Your Number", desc: "You're live in minutes with a new number — or keep your old number by forwarding calls to it. Set your business hours and your AI receptionist is ready." },
+    { step: "02", title: "AI Takes the Calls", desc: "Your AI receptionist answers every call, asks the right questions, and books appointments — in English or Spanish." },
+    { step: "03", title: "You Focus on Work", desc: "Get SMS summaries after every call. See everything in your dashboard. Only step in when you want to." },
   ];
 
   return (
     <section className="bg-gray-50 py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">{t("home.setup.badge")}</span>
-          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">{t("home.setup.title")}</h2>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">Simple Setup</span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">Up and running in minutes</h2>
         </Reveal>
 
         <div className="mt-16 grid gap-8 md:grid-cols-3">
@@ -352,9 +427,9 @@ function HowItWorks() {
 /* ─── Social Proof ─── */
 function SocialProof() {
   const quotes = [
-    { text: t("home.social.q1"), author: t("home.social.q1.author"), role: t("home.social.q1.role"), icon: "phone" },
-    { text: t("home.social.q2"), author: t("home.social.q2.author"), role: t("home.social.q2.role"), icon: "calendar" },
-    { text: t("home.social.q3"), author: t("home.social.q3.author"), role: t("home.social.q3.role"), icon: "sms" },
+    { text: "ReceptionAI handles all our after-hours calls. We've booked 40+ emergency jobs we would've missed.", author: "Mike R.", role: "HVAC Owner, Phoenix", icon: "phone" },
+    { text: "My front desk was drowning. Now the AI handles routine booking and my staff focuses on patients in the office.", author: "Dr. Sarah L.", role: "Dental Practice, Austin", icon: "calendar" },
+    { text: "The SMS summaries are genius. I know what happened on every call without logging into anything.", author: "James K.", role: "Plumbing Co., Denver", icon: "sms" },
   ];
 
   return (
@@ -365,12 +440,12 @@ function SocialProof() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-4 py-1.5 text-sm font-semibold text-indigo-300 backdrop-blur-sm">
-            {t("home.social.badge")}
+            Trusted by service businesses
           </span>
           <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-            {t("home.social.title1")}
+            Real results from
             <br />
-            <span className="text-indigo-400">{t("home.social.title2")}</span>
+            <span className="text-indigo-400">real business owners</span>
           </h2>
         </Reveal>
 
@@ -398,10 +473,10 @@ function SocialProof() {
 /* ─── Stats Bar ─── */
 function StatsSection() {
   const features = [
-    { icon: "phone", title: t("home.stats.1") },
-    { icon: "globe", title: t("home.stats.2") },
-    { icon: "calendar", title: t("home.stats.3") },
-    { icon: "sparkle", title: t("home.stats.4") },
+    { icon: "phone", title: "24/7 Call Answering" },
+    { icon: "globe", title: "English & Spanish" },
+    { icon: "calendar", title: "Built-in Calendar" },
+    { icon: "sparkle", title: "Smart Follow-ups" },
   ];
 
   return (
@@ -427,9 +502,18 @@ function StatsSection() {
 /* ─── FAQ ─── */
 function HonestFaq() {
   const faqs = [
-    { q: t("home.faq.q1"), a: t("home.faq.a1") },
-    { q: t("home.faq.q2"), a: t("home.faq.a2") },
-    { q: t("home.faq.q3"), a: t("home.faq.a3") },
+    {
+      q: "Will my customers know it's AI?",
+      a: "They'll hear a professional, friendly voice that greets them by name. Most callers don't realize it's AI — they just know someone answered and helped them. If they ever ask, we're transparent: they're speaking with an automated receptionist that can connect them to a real person anytime.",
+    },
+    {
+      q: "What about emergencies? Burst pipe. No heat.",
+      a: 'Press 3 at any time to transfer to you or your team. We suggest customizing your greeting: "If this is an emergency, press 3 now." Your customers always have a path to a human.',
+    },
+    {
+      q: "What if it gets something wrong?",
+      a: "You get an SMS after every call with the caller's number, what they asked, and what happened. If something needs your attention, you'll know within seconds. And we're always improving the AI — your feedback makes it smarter.",
+    },
   ];
 
   return (
@@ -437,12 +521,12 @@ function HonestFaq() {
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">
-            {t("home.faq.badge")}
+            You've got questions. Fair ones.
           </span>
           <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">
-            {t("home.faq.title1")}
+            Honest answers from a team
             <br />
-            <span className="text-indigo-600">{t("home.faq.title2")}</span>
+            <span className="text-indigo-600">that builds for trades</span>
           </h2>
         </Reveal>
 
@@ -474,32 +558,32 @@ function FinalCta() {
       <div className="relative mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
         <Reveal>
           <h2 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-            {t("home.final.title")}
+            Ready to never miss a lead again?
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl">
-            {t("home.final.subtitle")}
+            Start today and see ReceptionAI handle your inbound calls and messages — 50% off your first 3 months with founder pricing.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               to="/signup"
               className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
             >
-              {t("home.final.cta")}
+              Get Started
               <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
             <Link to="/pricing" className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-8 py-4 text-base font-semibold text-gray-300 transition-all hover:bg-white/10 hover:text-white hover:border-white/20">
-              {t("home.final.pricing")}
+              View Pricing
             </Link>
           </div>
-          <p className="mt-5 text-sm text-gray-500">{t("home.final.note")}</p>
+          <p className="mt-5 text-sm text-gray-500">Founder pricing: 50% off your first 3 months. Cancel anytime.</p>
           <div className="mt-8 inline-flex items-center gap-3 rounded-2xl border border-green-500/20 bg-green-500/5 px-6 py-4 backdrop-blur-sm">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
               <Icon name="phone" className="h-5 w-5 text-green-400" />
             </div>
             <div className="text-left">
-              <p className="text-sm font-semibold text-green-300">{t("home.final.tryIt")}</p>
+              <p className="text-sm font-semibold text-green-300">Or try it now — call the AI</p>
               <a href="tel:+17279667556" className="text-xl font-bold text-green-400 hover:text-green-300 transition tracking-wide">
                 (727) 966-7556
               </a>
