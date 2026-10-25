@@ -65,7 +65,6 @@ export async function POST({ request }: { request: Request }) {
       "metadata[password]": password || "",
       "metadata[useExistingNumber]": String(!!useExistingNumber),
       "metadata[existingPhoneNumber]": existingPhoneNumber || "",
-      "subscription_data[trial_period_days]": "14",
       "payment_behavior": "default_incomplete",
       "allow_promotion_codes": "true",
       "subscription_data[metadata][companyName]": companyName,

@@ -256,14 +256,14 @@ export default function FeaturesPage() {
             Ready to transform your business communications?
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-lg text-indigo-100">
-            Join 500+ businesses that never miss a lead. Start your free trial today.
+            Join 500+ businesses that never miss a lead. Start today.
           </p>
           <div className="mt-8">
             <Link
               to="/signup"
               className="inline-flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-semibold text-indigo-600 transition hover:bg-indigo-50"
             >
-              Start Free Trial
+              Start Today
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>

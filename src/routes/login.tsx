@@ -138,7 +138,7 @@ function LoginPage() {
           <p className="mt-6 text-center text-sm text-gray-500">
             Don't have an account?{" "}
             <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-700">
-              Start free trial
+              Start today
             </Link>
           </p>
         </div>

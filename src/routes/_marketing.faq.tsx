@@ -43,7 +43,7 @@ function FaqPage() {
                   <strong>Enter your email address.</strong> Use your business email — this is where login links and notifications will be sent.
                 </li>
                 <li>
-                  <strong>Choose your plan.</strong> Select <strong>Starter</strong> ($99/mo), <strong>Growth</strong> ($199/mo), or <strong>Scale</strong> ($399/mo) from the dropdown. Your first month is charged at checkout — no auto-renewals.
+                  <strong>Choose your plan.</strong> Select <strong>Starter</strong> ($99/mo), <strong>Growth</strong> ($199/mo), or <strong>Scale</strong> ($399/mo) from the dropdown. Founders get 50% off their first 3 months (FOUNDER50 — limited to the first 100 customers).
                 </li>
                 <li>
                   <strong>Create a password.</strong> Must be at least 8 characters.
@@ -52,7 +52,7 @@ function FaqPage() {
                   <strong>Check the terms box</strong> and click <strong>Start Today</strong>.
                 </li>
                 <li>
-                  <strong>Complete payment.</strong> You'll be redirected to Stripe's secure checkout. Enter your card details. You'll be charged for your first month. No hidden fees, no auto-renewals — cancel anytime.
+                  <strong>Complete payment.</strong> You'll be redirected to Stripe's secure checkout. Enter your card details. you'll be charged for your first month at founder pricing (50% off).
                 </li>
                 <li>
                   <strong>Done!</strong> After payment, your account is created automatically — your phone number is provisioned and your dashboard is ready.
@@ -68,7 +68,7 @@ function FaqPage() {
                 className="w-full"
               />
               <p className="bg-gray-50 px-4 py-2 text-xs text-gray-500 text-center">
-                The signup form — fill in your details, pick a plan, and start your free trial.
+                The signup form — fill in your details, pick a plan, and you're live.
               </p>
             </div>
 
@@ -132,8 +132,8 @@ function FaqPage() {
           <div className="space-y-4">
             {[
               {
-                q: "How long is the free trial?",
-                a: "14 days. You won't be charged until the trial ends. Cancel anytime before then and you won't pay anything.",
+                q: "How does billing work?",
+                a: "You're charged for your first month at checkout. Founder pricing (FOUNDER50) gives 50% off your first 3 months, limited to the first 100 customers; standard rates apply after. Cancel anytime.",
               },
               {
                 q: "What happens after I sign up?",
@@ -195,14 +195,14 @@ function FaqPage() {
         <div className="mx-auto max-w-3xl text-center">
           <h2 className="text-3xl font-bold text-white">Ready to get started?</h2>
           <p className="mt-3 text-lg text-indigo-100">
-            Try ReceptionAI free for 14 days. No credit card required until your trial ends.
+            Try ReceptionAI — founder pricing: 50% off your first 3 months, limited to the first 100 customers. Cancel anytime.
           </p>
           <div className="mt-8">
             <Link
               to="/signup"
               className="inline-block rounded-xl bg-white px-8 py-3 text-base font-semibold text-indigo-600 shadow-lg hover:bg-indigo-50 transition"
             >
-              Start Free Trial
+              Start Today
             </Link>
           </div>
         </div>
