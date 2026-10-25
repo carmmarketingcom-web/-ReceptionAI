@@ -20,7 +20,7 @@ const tiers = [
     cta: "Start Today",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02",
-    stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9",
+    stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM",
   },
   {
     name: "Growth",
@@ -37,24 +37,24 @@ const tiers = [
     cta: "Start Today",
     popular: true,
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
-    stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy",
+    stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
   },
   {
     name: "Scale",
     price: "$399",
-    description: "For high-volume businesses that need unlimited capacity and custom AI.",
+    description: "For high-volume, multi-location businesses: the complete reception desk — capacity and customization without a ceiling.",
     features: [
       "Unlimited phone lines (5+ add-on)",
       "10,000+ AI-minutes/month",
       "Custom AI response training",
       "All channels included",
       "Dedicated account manager",
-      "24/7 priority phone support",
+      "24/7 priority support — same-day human response",
     ],
     cta: "Start Today",
     popular: false,
     stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04",
-    stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki",
+    stripePriceId: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
   },
 ];
 
@@ -161,10 +161,39 @@ export default function PricingPage() {
               </div>
             ))}
           </div>
+          {/* Why Scale costs more */}
+          <div className="mt-12 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/70 p-8 sm:p-10">
+            <h3 className="text-center text-xl font-bold text-gray-900">
+              What changes at Scale — and why
+            </h3>
+            <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-gray-500">
+              Scale isn't a bigger minute allowance — it's a different operating level: capacity, customization, and service you can't run a high-volume business without.
+            </p>
+            <div className="mt-8 grid gap-6 sm:grid-cols-3">
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">Capacity</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  Unlimited phone lines for every location and department, and 10,000+ AI-minutes so peak season never hits a ceiling.
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">Customization</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  Your AI is trained on your services, pricing, and FAQs — callers hear your business, not a generic receptionist.
+                </p>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-wide text-indigo-700">Service</h4>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                  A dedicated account manager, and priority support with a same-day human response — when you can't afford to wait.
+                </p>
+              </div>
+            </div>
+          </div>
 
           {/* Annual billing note */}
           <p className="mt-8 text-center text-sm text-gray-500">
-            Simple monthly pricing. You're charged for your first month at checkout — no contracts, no auto-renewals, cancel anytime.
+            Simple monthly pricing. You're charged for your first month at checkout. FOUNDER50 — 50% off your first 3 months (first 100 customers only). Cancel anytime.
           </p>
         </div>
       </section>
@@ -214,7 +243,7 @@ export default function PricingPage() {
               },
               {
                 q: "How does billing work?",
-                a: "You're charged at checkout for your first month of your chosen plan. There's no auto-renewal — each month is a fresh payment whenever you choose to continue. Cancel anytime by simply not renewing.",
+                a: "You're charged at checkout for your first month. Founders get 50% off for the first 3 months (FOUNDER50 — limited to the first 100 customers); standard rates apply after. Cancel anytime.",
               },
             ].map((faq) => (
               <div key={faq.q} className="rounded-xl border border-gray-100 bg-white p-6">

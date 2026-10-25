@@ -1,6 +1,11 @@
 // Production server — AI Receptionist
 // Auto-load .env file (Bun v1.3 does not support process.loadEnvFile)
 try { const envContent = await (await import("fs")).promises.readFile(".env", "utf-8"); for (const line of envContent.split("\n")) { const idx = line.indexOf("="); if (idx > 0 && !line.startsWith("#")) { const key = line.slice(0, idx).trim(); const val = line.slice(idx + 1).trim(); if (key && !process.env[key]) process.env[key] = val; } } } catch {}
+// Security: fail fast if JWT_SECRET is missing/short (never sign with a weak/fallback secret)
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  console.error("[FATAL] JWT_SECRET is missing or shorter than 32 chars. Refusing to start: auth tokens must never use a weak/fallback secret.");
+  process.exit(1);
+}
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
 
@@ -236,15 +241,26 @@ async function cmd(cid: string, action: string, body: any = {}) {
   return ok;
 }
 // ── TTS voice selection ──────────────────────────────────────────────────────
-// ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise Polly.Joanna.
+// Two tiers: ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise per-language Polly neural voices.
 // Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
 const ELEVENLABS_API_KEY_REF = process.env.ELEVENLABS_API_KEY_REF || "";
-const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel"
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (English)
+const ELEVENLABS_VOICE_ID_ES = process.env.ELEVENLABS_VOICE_ID_ES || ELEVENLABS_VOICE_ID; // Spanish (falls back to English voice)
 function ttsVoiceParams(text: string, lang: string): any {
+  const l = lang === "es" ? "es" : "en";
   if (ELEVENLABS_API_KEY_REF) {
-    return { payload: text, voice: `ElevenLabs.Default.${ELEVENLABS_VOICE_ID}`, voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF } };
+    const voiceId = l === "es" ? ELEVENLABS_VOICE_ID_ES : ELEVENLABS_VOICE_ID;
+    return {
+      payload: text,
+      voice: `ElevenLabs.Default.${voiceId}`,
+      voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF },
+    };
   }
-  return { payload: text, voice: "Polly.Joanna", language: lang === "es" ? "es-US" : "en-US" };
+  return {
+    payload: text,
+    voice: l === "es" ? "Polly.Lupe-Neural" : "Polly.Joanna-Neural",
+    language: l === "es" ? "es-US" : "en-US",
+  };
 }
 
 async function promptAndWait(cid: string, text: string) {
@@ -1236,7 +1252,7 @@ async function requireOrgAuth(
   const t = authHeader.replace("Bearer ", "");
   if (!t) return json({ error: "Authentication required" }, 401);
   const { jwtVerify } = await import("jose");
-  const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+  const secKey = process.env.JWT_SECRET!;
   let payload: any;
   try {
     const r = await jwtVerify(t, new TextEncoder().encode(secKey));
@@ -1937,9 +1953,9 @@ for (let attempt = 1; ; attempt++) {
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="1" timeout="10" action="/api/voice/incoming/gather">
-    <Say voice="Polly.Joanna">Hello! Welcome to ${companyName}. Press 1 to book an appointment, press 2 for business hours, or press 0 to leave a message.</Say>
+    <Say voice="Polly.Joanna-Neural">Hello! Welcome to ${companyName}. Press 1 to book an appointment, press 2 for business hours, or press 0 to leave a message.</Say>
   </Gather>
-  <Say voice="Polly.Joanna">Sorry, we did not receive your selection. Goodbye!</Say>
+  <Say voice="Polly.Joanna-Neural">Sorry, we did not receive your selection. Goodbye!</Say>
 </Response>`;
 
             return new Response(twiml, {
@@ -2057,7 +2073,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(t, new TextEncoder().encode(secKey));
@@ -2165,7 +2181,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(t, new TextEncoder().encode(secKey));
@@ -2356,7 +2372,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
             catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
@@ -2541,9 +2557,9 @@ for (let attempt = 1; ; attempt++) {
             if (auth instanceof Response) return auth;
             const organizationId = auth.organizationId;
             const PLANS = [
-              { id: "starter", name: "Starter", priceMonthly: 99, priceAnnual: 79, includedPhoneLines: 1, includedAiMinutes: 500, includedSmsMessages: 200, stripePriceId: "price_1TtXMGDqebBmBAbi165hKXK9", stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02" },
-              { id: "growth", name: "Growth", priceMonthly: 199, priceAnnual: 159, includedPhoneLines: 2, includedAiMinutes: 2000, includedSmsMessages: 1000, stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy", stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03", popular: true },
-              { id: "scale", name: "Scale", priceMonthly: 399, priceAnnual: 319, includedPhoneLines: 5, includedAiMinutes: 10000, includedSmsMessages: 5000, stripePriceId: "price_1TtXMGDqebBmBAbidd4SJgki", stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04" },
+              { id: "starter", name: "Starter", priceMonthly: 99, priceAnnual: 79, includedPhoneLines: 1, includedAiMinutes: 500, includedSmsMessages: 200, stripePriceId: "price_1TxrHbP7NtNpgQde64Zp1tgM", stripePaymentLink: "https://buy.stripe.com/6oU5kD6rW2C52Fd1D3aVa02" },
+              { id: "growth", name: "Growth", priceMonthly: 199, priceAnnual: 159, includedPhoneLines: 2, includedAiMinutes: 2000, includedSmsMessages: 1000, stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn", stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03", popular: true },
+              { id: "scale", name: "Scale", priceMonthly: 399, priceAnnual: 319, includedPhoneLines: 5, includedAiMinutes: 10000, includedSmsMessages: 5000, stripePriceId: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z", stripePaymentLink: "https://buy.stripe.com/14AaEX03ygsVbbJchHaVa04" },
             ];
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) {
@@ -2631,7 +2647,7 @@ for (let attempt = 1; ; attempt++) {
             if (auth instanceof Response) return auth;
             const e = googleEnv();
             const { SignJWT } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             const state = await new SignJWT({
               organizationId: auth.organizationId, userId: auth.userId, role: auth.role,
               purpose: "google_calendar_connect", nonce: crypto.randomUUID(),
@@ -2654,7 +2670,7 @@ for (let attempt = 1; ; attempt++) {
             if (gerr) return redirectTo("?calendar=error&reason=" + encodeURIComponent(gerr));
             if (!code || !state) return redirectTo("?calendar=error&reason=missing_params");
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(state, new TextEncoder().encode(secKey));
@@ -2742,7 +2758,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
             catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
@@ -2811,17 +2827,17 @@ for (let attempt = 1; ; attempt++) {
               if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("plan")) {
                 return isEs
                   ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado). Prueba gratis de 14 dias."
-                  : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited). 14-day free trial.";
+                  : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited). Founders get 50% off the first 3 months.";
               }
               if (msg.includes("book") || msg.includes("appointment") || msg.includes("reserva") || msg.includes("cita")) {
                 return isEs
                   ? "Reserva una demo llamando al (727) 966-7556, o empieza tu prueba gratis de 14 dias en receptionai.store/signup."
-                  : "Book a demo by calling (727) 966-7556, or start a 14-day free trial at receptionai.store/signup.";
+                  : "Book a demo by calling (727) 966-7556, or sign up at receptionai.store/signup — founders get 50% off the first 3 months.";
               }
               if (msg.includes("demo") || msg.includes("try") || msg.includes("probar")) {
                 return isEs
                   ? "Prueba la demo llamando al (727) 966-7556, o registrate en receptionai.store/signup para una prueba gratis de 14 dias."
-                  : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup for a 14-day free trial.";
+                  : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup — founders get 50% off the first 3 months.";
               }
               if (msg.includes("feature") || msg.includes("what") || msg.includes("do") || msg.includes("funcion") || msg.includes("que hace")) {
                 return isEs
@@ -2831,7 +2847,7 @@ for (let attempt = 1; ; attempt++) {
               if (msg.includes("signup") || msg.includes("register") || msg.includes("start") || msg.includes("registr")) {
                 return isEs
                   ? "Registrate en receptionai.store/signup - prueba gratis de 14 dias, sin tarjeta."
-                  : "Sign up at receptionai.store/signup - 14-day free trial, no card needed.";
+                  : "Sign up at receptionai.store/signup - founders get 50% off their first 3 months.";
               }
               if (msg.includes("calendar") || msg.includes("schedule") || msg.includes("calendario") || msg.includes("agenda")) {
                 return isEs
@@ -2845,13 +2861,13 @@ for (let attempt = 1; ; attempt++) {
               }
               return isEs
                 ? "Atiendo llamadas 24/7, agendo citas y envio recordatorios. Planes desde $99/mes con prueba gratis de 14 dias. Que te gustaria saber?"
-                : "ReceptionAI answers calls 24/7, books appointments, and sends reminders. Plans start at $99/mo with a 14-day free trial. What would you like to know?";
+                : "ReceptionAI answers calls 24/7, books appointments, and sends reminders. Plans start at $99/mo; founders get 50% off the first 3 months. What would you like to know?";
             };
             if (apiKey) {
               try {
                 const facts = isEs
                   ? "Datos del producto (usa SOLO estos; no inventes precios ni funciones):\n- Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado).\n- Prueba gratis de 14 dias, sin tarjeta.\n- Calendario incorporado con horario preconfigurado (no requiere Google).\n- Habla ingles y espanol.\n- Atiende llamadas 24/7, agenda citas, envia recordatorios y manda un resumen por SMS al dueno tras cada llamada.\n- Las confirmaciones de citas se envian por SMS.\n- Demo en vivo: llama al (727) 966-7556."
-                  : "Product facts (use ONLY these; do not invent prices or features):\n- Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).\n- 14-day free trial, no credit card required.\n- Built-in calendar with business hours preset (no Google setup needed).\n- Speaks English and Spanish.\n- Answers calls 24/7, books appointments, sends reminders, and texts the owner a summary after every call.\n- Booking confirmations are sent by SMS.\n- Live demo: call (727) 966-7556.";
+                  : "Product facts (use ONLY these; do not invent prices or features):\n- Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).\n- Founder pricing: 50% off the first 3 months.\n- Built-in calendar with business hours preset (no Google setup needed).\n- Speaks English and Spanish.\n- Answers calls 24/7, books appointments, sends reminders, and texts the owner a summary after every call.\n- Booking confirmations are sent by SMS.\n- Live demo: call (727) 966-7556.";
                 const sysPrompt = (isEs
                   ? "Eres ReceptionAI, recepcionista IA de un producto SaaS. Responde usando SOLO los datos del producto. Responde en 1-3 frases cortas (max ~250 caracteres). No uses preambulos como 'Como recepcionista IA'. No inventes precios ni funciones."
                   : "You are ReceptionAI, an AI receptionist for a SaaS product. Answer using ONLY the product facts. Reply in 1-3 short sentences (max ~250 characters). No preamble like 'As an AI receptionist'. Do not invent prices or features.") + "\n\n" + facts;
@@ -3164,7 +3180,7 @@ for (let attempt = 1; ; attempt++) {
               // Mock mode: accept demo credentials
               if (email === "demo@receptionai.com" && password === "demo1234") {
                 const { SignJWT } = await import("jose");
-                const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+                const secret = process.env.JWT_SECRET!;
                 const token = await new SignJWT({
                   userId: "mock-user-1", organizationId: "mock-org-1", email, role: "owner",
                 }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("24h")
@@ -3202,7 +3218,7 @@ for (let attempt = 1; ; attempt++) {
             }
 
             const { SignJWT } = await import("jose");
-            const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secret = process.env.JWT_SECRET!;
             const token = await new SignJWT({
               userId: user.user_id, organizationId: user.organization_id,
               email: user.email, role: user.role,
@@ -3273,7 +3289,7 @@ for (let attempt = 1; ; attempt++) {
 
             // Create user
             const { SignJWT } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             const userResult = await sql`
               INSERT INTO users (id, organization_id, email, name, password_hash, role)
               VALUES (gen_random_uuid(), ${orgId}, ${email}, ${name}, ${passwordHash}, 'admin')
@@ -3324,9 +3340,9 @@ for (let attempt = 1; ; attempt++) {
             }
 
             const PRICE_IDS: Record<string, string> = {
-              starter: "price_1TtXMGDqebBmBAbi165hKXK9",
-              growth: "price_1TtXMGDqebBmBAbiqd7ybQzy",
-              scale: "price_1TtXMGDqebBmBAbidd4SJgki",
+              starter: "price_1TxrHbP7NtNpgQde64Zp1tgM",
+              growth: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
+              scale: "price_1TxrKSP7NtNpgQdeh8Jh1P2Z",
             };
             const priceId = PRICE_IDS[plan];
             if (!priceId) {
@@ -3346,7 +3362,7 @@ for (let attempt = 1; ; attempt++) {
 
             const params = new URLSearchParams({
               "customer_email": email,
-              "mode": "payment",
+              "mode": "subscription",
               "success_url": `${baseUrl}/signup/success?plan=${plan}&email=${encodeURIComponent(email)}`,
               "cancel_url": `${baseUrl}/signup`,
               "line_items[0][price]": priceId,
@@ -3358,6 +3374,8 @@ for (let attempt = 1; ; attempt++) {
               "metadata[password]": password,
               "metadata[useExistingNumber]": String(!!useExistingNumber),
               "metadata[existingPhoneNumber]": existingPhoneNumber,
+              "discounts[0][coupon]": "0JvBz6Xv",
+              "subscription_data[metadata][companyName]": companyName,
             });
 
             const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -3417,7 +3435,7 @@ for (let attempt = 1; ; attempt++) {
 
             const user = users[0] as any;
             const { SignJWT } = await import("jose");
-            const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secret = process.env.JWT_SECRET!;
             const resetToken = await new SignJWT({
               userId: user.id, email: user.email, purpose: "password-reset",
             }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("1h")
@@ -3471,7 +3489,7 @@ for (let attempt = 1; ; attempt++) {
 
             // Verify JWT
             const { jwtVerify } = await import("jose");
-            const secret = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secret = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const result = await jwtVerify(token, new TextEncoder().encode(secret));
@@ -3517,7 +3535,7 @@ for (let attempt = 1; ; attempt++) {
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
             const { jwtVerify } = await import("jose");
-            const secKey = process.env.JWT_SECRET || "receptionai-dev-secret-change-in-production-min-32";
+            const secKey = process.env.JWT_SECRET!;
             let payload: any;
             try {
               const r = await jwtVerify(t, new TextEncoder().encode(secKey));

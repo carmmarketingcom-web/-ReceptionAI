@@ -72,7 +72,7 @@ function SignupPage() {
           <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl shadow-gray-100/50" style={{ colorScheme: "light" }}>
             <div className="mb-8 text-center">
               <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
-              <p className="mt-2 text-sm text-gray-500">14-day free trial. Cancel anytime.</p>
+              <p className="mt-2 text-sm text-gray-500">Secure checkout. Cancel anytime.</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -129,8 +129,10 @@ function SignupPage() {
                     </button>
                   ))}
                 </div>
+                <p className="mt-2 text-center text-xs text-indigo-600 font-medium">
+                  🎉 <strong>FOUNDER50</strong> — 50% off for the first 3 months, first 100 customers only!
+                </p>
                               </div>
-
               {/* Password */}
               <div>
                 <label htmlFor="signupPassword" className="block text-sm font-medium text-gray-700">Password</label>
@@ -173,12 +175,12 @@ function SignupPage() {
                 disabled={loading || !acknowledgedTerms}
                 className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:opacity-50"
               >
-                {loading ? "Setting up your account..." : "Start Free Trial"}
+                {loading ? "Setting up your account..." : "Start Today"}
               </button>
             </form>
 
             <p className="mt-4 text-center text-xs text-gray-400">
-              Cancel anytime. You won't be charged until your trial ends.{" "}
+              Cancel anytime. You'll be charged for your first month at checkout.{" "}
               <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>{" "}
               ·{" "}
               <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>.

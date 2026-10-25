@@ -270,7 +270,7 @@ Quick start:
 2. Complete your setup (2 min)
 3. Start receiving calls
 
-Your 14-day free trial starts now. Cancel anytime.
+Your plan is live. Cancel anytime.
 
 Questions? Reply to this email.
 
