@@ -69,6 +69,7 @@ function HomePage() {
       <HeroSection />
       <LogoMarquee />
       <MissedCallCalculator />
+      <SeeItWorking />
       <HowItWorksSection />
       <BuiltForTrades />
       <FeaturesOverview />
@@ -270,6 +271,193 @@ function MissedCallCalculator() {
               <p className="mt-3 text-center text-xs text-indigo-100/55">Estimate only — your results will vary.</p>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── See it working — every product line below is verbatim product template ───
+   Sources (root serve.ts, the live Telnyx call path):
+     buildGreeting / buildShortPrompt ............ serve.ts:64-81 / 229-235
+     language-choice greeting .................... serve.ts:1620
+     slot offer (startVoiceBooking) .............. serve.ts:1040-1050
+     booked confirmation (voice) ................. serve.ts:1085-1086
+     slot speech format (formatSlotSpeech) ....... serve.ts:883-893
+     booking SMS confirmation .................... serve.ts:1013 (EN) / 1012 (ES)
+     reminder SMS (24h / 2h) ..................... serve.ts:905-912
+     abandoned-booking follow-up SMS ............. serve.ts:1944-1945
+     owner post-call summary (buildCallSummary) .. serve.ts:1257-1276
+   Values in {{braces}} are runtime interpolations — the sample caller, org,
+   service and times are illustrative; the wording around them is verbatim. */
+
+const APP_DEMO = {
+  org: "Sunset Air & Heat",
+  caller: "Maria",
+  service: "AC tune-up",
+  day: "Tuesday, November 4",
+  time: "10:00 AM",
+  phone: "(555) 010-2288",
+};
+
+const VOICE_STEPS = [
+  { key: "Answered", text: `Welcome! For English, press 1. Para español, presione 2.` },
+  { key: "Menu", text: `Hello, you've reached ${APP_DEMO.org}. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.` },
+  { key: "Availability", text: `Here are the next available times. Option 1: ${APP_DEMO.day} at ${APP_DEMO.time}. Option 2: ${APP_DEMO.day} at 2:00 PM. Press 1, 2, 3, or 4 to book, or 9 to speak with the team.` },
+  { key: "Booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll text you a confirmation and a reminder. Thank you! Goodbye!` },
+];
+
+const SMS_THREAD = [
+  {
+    label: "Booking confirmation",
+    body: `Hi ${APP_DEMO.caller}, your appointment for ${APP_DEMO.service} on Tue, Nov 4 at ${APP_DEMO.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${APP_DEMO.phone}.`,
+  },
+  {
+    label: "Reminder — 24 hours before",
+    body: `Hi ${APP_DEMO.caller}, reminder: you have an appointment at ${APP_DEMO.org} for ${APP_DEMO.service} tomorrow (Tue, Nov 4) at ${APP_DEMO.time}.`,
+  },
+  {
+    label: "Call ended with interest but no booking",
+    body: `Hi, this is ${APP_DEMO.org}. We noticed you called earlier and were interested in booking an appointment but we weren't able to complete it. Would you like us to reach out to schedule? Reply YES and we'll contact you shortly.`,
+  },
+];
+
+const SMS_THREAD_ES = `Hola ${APP_DEMO.caller}, su cita para ${APP_DEMO.service} el Tue, Nov 4 a las ${APP_DEMO.time} está confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${APP_DEMO.phone}.`;
+
+const OWNER_SUMMARY = [
+  "📞 ReceptionAI Call Summary",
+  `From: ${APP_DEMO.caller} (${APP_DEMO.phone})`,
+  "Duration: 1m 42s",
+  "Outcome: Appointment booked",
+  "DTMF: 1 → 1 → 2",
+  "Time: 11/1/2026, 7:02:14 PM CT",
+  "—",
+  "Check your dashboard: receptionai.store/dashboard",
+];
+
+function SeeItWorking() {
+  return (
+    <section id="see-it-working" aria-labelledby="see-it-working-heading" className="relative overflow-hidden bg-gray-950 py-20 sm:py-24">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:48px_48px]" />
+      <div className="pointer-events-none absolute -left-32 top-0 h-80 w-80 rounded-full bg-indigo-600/10 blur-[100px]" />
+      <div className="pointer-events-none absolute -right-32 bottom-0 h-80 w-80 rounded-full bg-purple-600/10 blur-[100px]" />
+
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal className="mx-auto max-w-3xl text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1.5 text-sm font-semibold text-indigo-300 backdrop-blur-sm">
+            See it working
+          </span>
+          <h2 id="see-it-working-heading" className="mt-6 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+            See it working — what your
+            <br className="hidden sm:block" />
+            <span className="text-indigo-400"> customers experience</span>
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-gray-400">
+            Real call scripts and real text messages. The wording below is what our receptionist
+            actually says on the phone and sends by SMS — sample names and times are placeholders.
+          </p>
+        </Reveal>
+
+        <div className="mt-12 grid gap-6 lg:grid-cols-3">
+          {/* ── Card 1: the call ── */}
+          <Reveal>
+            <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300">
+                  <Icon name="phone" className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">On the phone</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">A call lands at 7 PM on a Saturday</h3>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+                {["Inbound call", "Press 1 to book", "Slots offered", "Confirmed ✓", "SMS sent"].map((pill) => (
+                  <span key={pill} className="whitespace-nowrap rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-gray-300">{pill}</span>
+                ))}
+              </div>
+
+              <ol className="mt-5 space-y-3">
+                {VOICE_STEPS.map((step) => (
+                  <li key={step.key} className="border-l-2 border-indigo-500/40 pl-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{step.key}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-gray-300">&ldquo;{step.text}&rdquo;</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </Reveal>
+
+          {/* ── Card 2: the texts the customer gets ── */}
+          <Reveal delay={120}>
+            <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300">
+                  <Icon name="sms" className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">By text</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">What your customer&apos;s phone shows</h3>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {SMS_THREAD.map((sms) => (
+                  <div key={sms.label}>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{sms.label}</p>
+                    <p className="rounded-2xl rounded-tl-md bg-indigo-600/90 px-3.5 py-2.5 text-xs leading-relaxed text-white shadow-lg shadow-indigo-950/30">
+                      {sms.body}
+                    </p>
+                  </div>
+                ))}
+                <div>
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">Same messages in Spanish</p>
+                  <p className="rounded-2xl rounded-tl-md bg-indigo-600/60 px-3.5 py-2.5 text-xs leading-relaxed text-white/90 shadow-lg shadow-indigo-950/30">
+                    {SMS_THREAD_ES}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Reveal>
+
+          {/* ── Card 3: the text the owner gets ── */}
+          <Reveal delay={240}>
+            <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-300">
+                  <Icon name="check" className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">To your phone</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">The summary after every call</h3>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-gray-200">
+                {["Caller", "Duration", "Outcome", "DTMF"].map((chip, i) => (
+                  <span key={chip} className="flex items-center gap-1.5">
+                    <span className="rounded-full border border-indigo-400/30 bg-indigo-500/15 px-2.5 py-1 text-indigo-200">{chip}</span>
+                    {i < 3 && <span aria-hidden className="text-gray-600">·</span>}
+                  </span>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-2xl rounded-tl-md border border-white/10 bg-gray-900/80 px-3.5 py-3 font-mono text-[11px] leading-relaxed text-gray-300 whitespace-pre-line">
+                {OWNER_SUMMARY.join("\n")}
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-gray-500">
+                Texted to the owner's phone number on file — no dashboard needed to know what happened.
+              </p>
+
+              <div className="mt-auto" />
+              <Link to="/pricing" className="mt-5 inline-flex items-center gap-1.5 self-start text-xs font-semibold text-indigo-300 transition hover:text-indigo-200">
+                See what each plan includes
+                <span aria-hidden>→</span>
+              </Link>
+            </div>
+          </Reveal>
         </div>
       </div>
     </section>
