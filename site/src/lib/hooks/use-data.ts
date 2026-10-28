@@ -102,6 +102,41 @@ export function useConversations(limit = 20, offset = 0) {
   );
 }
 
+// ─── Missed Calls ─────────────────────────────────────────────────────────
+// Real rows only: /api/missed-calls reads the missed_calls table for the signed-in
+// organization. There is deliberately NO mock/demo fallback here — an empty list is the
+// honest answer when nothing has been recorded. Voicemail audio/transcription is not
+// captured yet, so those fields render as "Not available" instead of invented text.
+
+export interface MissedCallItem {
+  id: string;
+  callerNumber: string | null;
+  callerName: string | null;
+  ringDurationSeconds: number | null;
+  callbackRequested: boolean;
+  callbackStatus: string;
+  voicemailUrl: string | null;
+  voicemailTranscription: string | null;
+  createdAt: string | null;
+}
+
+interface MissedCallsResponse {
+  missedCalls: MissedCallItem[];
+  total: number;
+  limit: number;
+}
+
+export function useMissedCalls(limit = 100) {
+  return useApiData<MissedCallsResponse>(`/api/missed-calls?limit=${limit}`);
+}
+
+export function updateMissedCallCallback(id: string, callbackStatus: string) {
+  return api.patch<{ id: string; callbackStatus: string }>("/api/missed-calls", {
+    id,
+    callbackStatus,
+  });
+}
+
 // ─── Appointments ─────────────────────────────────────────────────────────
 
 export interface AppointmentItem {
