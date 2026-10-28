@@ -58,17 +58,20 @@ export async function POST({ request }: { request: Request }) {
 
     const orgPhone = phoneRow[0].phone_number;
 
-    // Get owner phone to call
+    // Get owner phone to call — organizations.phone. The users table has NO phone
+    // column, so the previous query always threw and this endpoint silently rang
+    // the org's own number instead of the owner's phone.
     const ownerRow = await db`
-      SELECT phone FROM users
-      WHERE organization_id = ${organizationId}
-        AND role = 'owner'
-      ORDER BY created_at ASC
+      SELECT phone FROM organizations
+      WHERE id = ${organizationId}
       LIMIT 1
     `;
+    // E.164 for Telnyx; the stored value is whatever the owner typed.
+    const ownerDigits = ownerRow[0]?.phone ? String(ownerRow[0].phone).replace(/\D/g, "") : "";
+    const ownerPhone = ownerDigits ? (ownerDigits.length === 10 ? `+1${ownerDigits}` : `+${ownerDigits}`) : null;
 
     // Use owner phone, fallback to org phone (self-call — AI will answer itself)
-    const toNumber = ownerRow[0]?.phone || orgPhone;
+    const toNumber = ownerPhone || orgPhone;
 
     // Get the app's public webhook URL base
     const baseUrl =
