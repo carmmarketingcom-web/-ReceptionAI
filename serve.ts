@@ -2577,6 +2577,131 @@ for (let attempt = 1; ; attempt++) {
             return json({ error: "Failed to update missed call" }, 500);
           }
         }
+        // ── Team (real user accounts; there is no invented member list) ──
+        // GET /api/users — list team members for the authenticated org.
+        // Keep in sync with src/routes/api/users.ts and the other serve.ts tree.
+        if (pathname === "/api/users" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const rows = await sql`
+              SELECT id, name, email, role, avatar_url, is_active, last_login_at, created_at
+              FROM users
+              WHERE organization_id = ${organizationId}
+              ORDER BY created_at DESC
+            `;
+            const users = (rows as any[]).map((r: any) => ({
+              id: r.id,
+              name: r.name || null,
+              email: r.email || null,
+              role: r.role || null,
+              avatarUrl: r.avatar_url || null,
+              isActive: r.is_active === "1" || r.is_active === true,
+              lastLoginAt: r.last_login_at ? new Date(r.last_login_at).toISOString() : null,
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+            }));
+            return json({ users, total: users.length });
+          } catch (err) {
+            console.error("[Users API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch team members" }, 500);
+          }
+        }
+        // ── Recordings (the table exists, nothing writes it yet — empty is the honest answer) ──
+        // GET /api/recordings — list call recordings for the authenticated org.
+        // Keep in sync with src/routes/api/recordings.ts and the other serve.ts tree.
+        if (pathname === "/api/recordings" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const url = new URL(req.url);
+            const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 1), 500);
+            const rows = await sql`
+              SELECT r.id, r.conversation_id, r.recording_url, r.duration_seconds,
+                     r.transcription_text, r.transcription_status, r.created_at,
+                     c.first_name AS contact_first_name, c.last_name AS contact_last_name,
+                     c.phone AS contact_phone
+              FROM recordings r
+              LEFT JOIN conversations cv ON cv.id = r.conversation_id
+              LEFT JOIN contacts c ON c.id = cv.contact_id
+              WHERE r.organization_id = ${organizationId}
+              ORDER BY r.created_at DESC
+              LIMIT ${limit}
+            `;
+            const recordings = (rows as any[]).map((r: any) => {
+              const name = [r.contact_first_name, r.contact_last_name].filter(Boolean).join(" ").trim();
+              return {
+                id: r.id,
+                conversationId: r.conversation_id || null,
+                callerName: name || null,
+                callerNumber: r.contact_phone || null,
+                recordingUrl: r.recording_url || null,
+                durationSeconds:
+                  r.duration_seconds === null || r.duration_seconds === undefined
+                    ? null
+                    : Number(r.duration_seconds),
+                transcriptionText: r.transcription_text || null,
+                transcriptionStatus: r.transcription_status || null,
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+              };
+            });
+            return json({ recordings, total: recordings.length, limit });
+          } catch (err) {
+            console.error("[Recordings API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch recordings" }, 500);
+          }
+        }
+        // ── Follow-up campaigns (the engine is not built yet — no invented stats) ──
+        // GET /api/follow-up-campaigns — list campaigns for the authenticated org.
+        // Keep in sync with src/routes/api/follow-up-campaigns.ts and the other serve.ts tree.
+        if (pathname === "/api/follow-up-campaigns" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const rows = await sql`
+              SELECT id, name, description, trigger_event, delay_minutes, max_attempts,
+                     interval_minutes, channels, language, is_active, created_at
+              FROM follow_up_campaigns
+              WHERE organization_id = ${organizationId}
+              ORDER BY created_at DESC
+            `;
+            const campaigns = (rows as any[]).map((r: any) => ({
+              id: r.id,
+              name: r.name || null,
+              description: r.description || null,
+              triggerEvent: r.trigger_event || null,
+              delayMinutes:
+                r.delay_minutes === null || r.delay_minutes === undefined ? null : Number(r.delay_minutes),
+              maxAttempts:
+                r.max_attempts === null || r.max_attempts === undefined ? null : Number(r.max_attempts),
+              intervalMinutes:
+                r.interval_minutes === null || r.interval_minutes === undefined
+                  ? null
+                  : Number(r.interval_minutes),
+              channels: Array.isArray(r.channels)
+                ? r.channels.filter((c: unknown) => typeof c === "string")
+                : [],
+              language: r.language || null,
+              isActive: r.is_active === true,
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+            }));
+            return json({ campaigns, total: campaigns.length });
+          } catch (err) {
+            console.error("[Follow-Up Campaigns API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch campaigns" }, 500);
+          }
+        }
         if (pathname === "/api/conversations" && req.method === "POST") {
           try {
             const authHeader = req.headers.get("Authorization") || "";

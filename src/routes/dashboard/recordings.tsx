@@ -1,84 +1,149 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { useRecordings, type RecordingItem } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/recordings")({
   component: RecordingsPage,
 });
 
-const recordings = [
-  { id: "REC-001", caller: "Maria Garcia", duration: "3m 42s", date: "Today, 2:43 PM", aiSummary: "Booked AC repair appointment for tomorrow 2pm", recordingUrl: "https://example.com/rec-001.mp3" },
-  { id: "REC-002", caller: "Sarah Johnson", duration: "5m 20s", date: "Today, 1:10 PM", aiSummary: "Transferred to technician - complex electrical issue", recordingUrl: "" },
-  { id: "REC-003", caller: "James Wilson", duration: "2m 55s", date: "Today, 11:30 AM", aiSummary: "Booked electrical inspection for Monday", recordingUrl: "https://example.com/rec-003.mp3" },
-  { id: "REC-004", caller: "Carlos Mendez", duration: "0m 30s", date: "Today, 10:15 AM", aiSummary: "Missed - voicemail left (Spanish)", recordingUrl: "https://example.com/rec-004.mp3" },
-  { id: "REC-005", caller: "David Brown", duration: "4m 15s", date: "Yesterday, 4:20 PM", aiSummary: "Inquired about emergency HVAC service", recordingUrl: "" },
-];
+function formatDuration(seconds: number | null): string {
+  if (seconds === null || Number.isNaN(seconds)) return "Duration not recorded";
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function formatWhen(iso: string | null): string {
+  if (!iso) return "Time not recorded";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Time not recorded";
+  return d.toLocaleString();
+}
 
 function RecordingsPage() {
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const { data, loading, error, refetch } = useRecordings();
+
+  const recordings: RecordingItem[] = data?.recordings ?? [];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Call Recordings</h1>
-        <p className="mt-1 text-sm text-gray-500">Review and download recordings of AI-handled calls. Voicemails are recorded automatically.</p>
+        <p className="mt-1 text-sm text-gray-500">
+          Recordings of AI-handled calls. Audio capture for voicemail is still being built, so
+          expect this list to be empty for now.
+        </p>
       </div>
 
-      <div className="space-y-3">
-        {recordings.map((rec) => (
-          <div key={rec.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-gray-300">
-            <div className="flex items-start justify-between">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-50 text-sm font-semibold text-indigo-600">
-                  {rec.recordingUrl ? "🎧" : "📞"}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{rec.caller}</p>
-                  <p className="text-xs text-gray-500">{rec.date} · {rec.duration}</p>
-                  <p className="mt-2 text-sm text-gray-600">{rec.aiSummary}</p>
+      {/* Loading / error / list — nothing is invented: no rows, no audio, no summaries */}
+      {loading ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center shadow-sm">
+          <p className="text-sm text-gray-500">Loading recordings…</p>
+        </div>
+      ) : error ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-6 text-center shadow-sm"
+        >
+          <p className="text-sm font-semibold text-red-700">Couldn't load recordings</p>
+          <p className="mt-1 text-sm text-red-600">{error}</p>
+          <p className="mt-1 text-xs text-red-500">
+            This is a loading problem, not an empty list — nothing here says whether recordings
+            exist.
+          </p>
+          <button
+            onClick={refetch}
+            className="mt-3 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+          >
+            Try again
+          </button>
+        </div>
+      ) : recordings.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center shadow-sm">
+          <p className="text-sm font-semibold text-gray-700">
+            No recordings yet — voicemail recording isn't captured yet
+          </p>
+          <p className="mt-1 text-sm text-gray-500">
+            Call audio and transcripts aren't being stored yet, so there is nothing to play or
+            read here. Calls themselves are still recorded as conversations, and calls that ended
+            before the caller engaged appear on the Missed Calls page with their ring time and
+            callback status.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {recordings.map((rec) => (
+            <div
+              key={rec.id}
+              className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-gray-300"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-50 text-sm font-semibold text-indigo-600">
+                    {rec.recordingUrl ? "🎧" : "📞"}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {rec.callerName && rec.callerName.trim() ? rec.callerName : "Unknown Caller"}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {rec.callerNumber || "Number not recorded"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-400">
+                      {formatWhen(rec.createdAt)} · {formatDuration(rec.durationSeconds)}
+                    </p>
 
-                  {/* Audio player for recordings with URLs */}
-                  {playingId === rec.id && rec.recordingUrl && (
-                    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                      <audio controls autoPlay className="w-full" style={{ height: "32px" }}>
-                        <source src={rec.recordingUrl} type="audio/mpeg" />
-                        Your browser does not support the audio element.
-                      </audio>
-                    </div>
-                  )}
-
-                  <div className="mt-2 flex items-center gap-2">
-                    {rec.recordingUrl ? (
-                      <button
-                        onClick={() => setPlayingId(playingId === rec.id ? null : rec.id)}
-                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-                      >
-                        {playingId === rec.id ? "⏹ Stop" : "▶ Play Recording"}
-                      </button>
+                    {rec.transcriptionText ? (
+                      <p className="mt-2 text-sm text-gray-600 italic">
+                        “{rec.transcriptionText}”
+                      </p>
                     ) : (
-                      <button className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-400 cursor-not-allowed" disabled>
-                        No recording
-                      </button>
+                      <p className="mt-2 text-sm text-gray-500">
+                        No transcript stored for this recording.
+                      </p>
                     )}
-                    {rec.recordingUrl && (
-                      <a
-                        href={rec.recordingUrl}
-                        download
-                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                      >
-                        Download
-                      </a>
+
+                    {/* Audio player only when there is a real URL */}
+                    {playingId === rec.id && rec.recordingUrl && (
+                      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                        <audio controls autoPlay className="w-full" style={{ height: "32px" }}>
+                          <source src={rec.recordingUrl} type="audio/mpeg" />
+                          Your browser does not support the audio element.
+                        </audio>
+                      </div>
                     )}
-                    <button className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
-                      View Transcript
-                    </button>
+
+                    <div className="mt-2 flex items-center gap-2">
+                      {rec.recordingUrl ? (
+                        <>
+                          <button
+                            onClick={() => setPlayingId(playingId === rec.id ? null : rec.id)}
+                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                          >
+                            {playingId === rec.id ? "⏹ Stop" : "▶ Play Recording"}
+                          </button>
+                          <a
+                            href={rec.recordingUrl}
+                            download
+                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                          >
+                            Download
+                          </a>
+                        </>
+                      ) : (
+                        <span className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-400">
+                          No audio stored
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
+                <span className="text-xs text-gray-400">{rec.id.slice(0, 8)}</span>
               </div>
-              <span className="text-xs text-gray-400">{rec.id}</span>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
