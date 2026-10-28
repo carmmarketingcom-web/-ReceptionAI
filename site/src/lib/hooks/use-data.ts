@@ -27,9 +27,14 @@ function useApiData<T>(
 
   const refetch = useCallback(() => setTrigger((t) => t + 1), []);
 
+  // Compute the URL outside the effect so the dependency array below can
+  // reference it — declaring it inside the effect body left `[url, trigger]`
+  // referring to an out-of-scope variable, throwing `ReferenceError: url is
+  // not defined` on every hook render (strict-mode ES module).
+  const url = typeof path === "function" ? path() : path;
+
   useEffect(() => {
     let cancelled = false;
-    const url = typeof path === "function" ? path() : path;
 
     if (!url) {
       setLoading(false);
@@ -100,6 +105,41 @@ export function useConversations(limit = 20, offset = 0) {
   return useApiData<ConversationsResponse>(
     `/api/conversations?limit=${limit}&offset=${offset}`
   );
+}
+
+// ─── Missed Calls ─────────────────────────────────────────────────────────
+// Real rows only: /api/missed-calls reads the missed_calls table for the signed-in
+// organization. There is deliberately NO mock/demo fallback here — an empty list is the
+// honest answer when nothing has been recorded. Voicemail audio/transcription is not
+// captured yet, so those fields render as "Not available" instead of invented text.
+
+export interface MissedCallItem {
+  id: string;
+  callerNumber: string | null;
+  callerName: string | null;
+  ringDurationSeconds: number | null;
+  callbackRequested: boolean;
+  callbackStatus: string;
+  voicemailUrl: string | null;
+  voicemailTranscription: string | null;
+  createdAt: string | null;
+}
+
+interface MissedCallsResponse {
+  missedCalls: MissedCallItem[];
+  total: number;
+  limit: number;
+}
+
+export function useMissedCalls(limit = 100) {
+  return useApiData<MissedCallsResponse>(`/api/missed-calls?limit=${limit}`);
+}
+
+export function updateMissedCallCallback(id: string, callbackStatus: string) {
+  return api.patch<{ id: string; callbackStatus: string }>("/api/missed-calls", {
+    id,
+    callbackStatus,
+  });
 }
 
 // ─── Appointments ─────────────────────────────────────────────────────────

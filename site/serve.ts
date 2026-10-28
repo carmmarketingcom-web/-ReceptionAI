@@ -2238,6 +2238,107 @@ for (let attempt = 1; ; attempt++) {
           }
         }
 
+        // ── Missed calls (real rows written by the turn pipeline when a call ends unengaged) ──
+        // GET /api/missed-calls — list for the authenticated org.
+        // Keep in sync with the root serve.ts tree and src/routes/api/missed-calls.ts.
+        if (pathname === "/api/missed-calls" && req.method === "GET") {
+          try {
+            const authHeader = req.headers.get("Authorization") || "";
+            const t = authHeader.replace("Bearer ", "");
+            if (!t) {
+              return new Response(JSON.stringify({ error: "Authentication required" }),
+                { status: 401, headers: { "Content-Type": "application/json" } });
+            }
+            const { jwtVerify } = await import("jose");
+            const secKey = process.env.JWT_SECRET!;
+            let payload: any;
+            try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
+            catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
+            const organizationId = payload.organizationId as string;
+            if (!organizationId) {
+              return new Response(JSON.stringify({ error: "No organization" }), { status: 400, headers: { "Content-Type": "application/json" } });
+            }
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return new Response(JSON.stringify({ error: "DB not configured" }), { status: 500, headers: { "Content-Type": "application/json" } });
+            const sql = neon(dbUrl);
+            const url = new URL(req.url);
+            const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 1), 500);
+            const rows = await sql`
+              SELECT id, caller_number, caller_name, ring_duration_seconds, callback_requested,
+                     callback_status, voicemail_url, voicemail_transcription, created_at
+              FROM missed_calls
+              WHERE organization_id = ${organizationId}
+              ORDER BY created_at DESC
+              LIMIT ${limit}
+            `;
+            const missedCalls = (rows as any[]).map((r: any) => ({
+              id: r.id,
+              callerNumber: r.caller_number || null,
+              callerName: r.caller_name || null,
+              ringDurationSeconds:
+                r.ring_duration_seconds === null || r.ring_duration_seconds === undefined
+                  ? null
+                  : Number(r.ring_duration_seconds),
+              callbackRequested: r.callback_requested === true,
+              callbackStatus: r.callback_status || "pending",
+              voicemailUrl: r.voicemail_url || null,
+              voicemailTranscription: r.voicemail_transcription || null,
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+            }));
+            return new Response(JSON.stringify({ missedCalls, total: missedCalls.length, limit }),
+              { status: 200, headers: { "Content-Type": "application/json" } });
+          } catch (err) {
+            console.error("[Missed Calls API]", String(err).slice(0, 200));
+            return new Response(JSON.stringify({ error: "Failed to fetch missed calls" }),
+              { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
+        // PATCH /api/missed-calls — set callback status for one row (org-scoped).
+        if (pathname === "/api/missed-calls" && req.method === "PATCH") {
+          try {
+            const authHeader = req.headers.get("Authorization") || "";
+            const t = authHeader.replace("Bearer ", "");
+            if (!t) {
+              return new Response(JSON.stringify({ error: "Authentication required" }),
+                { status: 401, headers: { "Content-Type": "application/json" } });
+            }
+            const { jwtVerify } = await import("jose");
+            const secKey = process.env.JWT_SECRET!;
+            let payload: any;
+            try { const r = await jwtVerify(t, new TextEncoder().encode(secKey)); payload = r.payload; }
+            catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: { "Content-Type": "application/json" } }); }
+            const organizationId = payload.organizationId as string;
+            if (!organizationId) {
+              return new Response(JSON.stringify({ error: "No organization" }), { status: 400, headers: { "Content-Type": "application/json" } });
+            }
+            const body: any = await req.json().catch(() => null);
+            const id = typeof body?.id === "string" ? body.id : "";
+            const callbackStatus = body?.callbackStatus;
+            const allowed = ["pending", "contacted", "resolved", "declined"];
+            if (!id || !allowed.includes(callbackStatus)) {
+              return new Response(JSON.stringify({ error: "id and callbackStatus are required" }),
+                { status: 400, headers: { "Content-Type": "application/json" } });
+            }
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return new Response(JSON.stringify({ error: "DB not configured" }), { status: 500, headers: { "Content-Type": "application/json" } });
+            const sql = neon(dbUrl);
+            const updated: any = await sql`
+              UPDATE missed_calls SET callback_status = ${callbackStatus}::callback_status
+              WHERE id = ${id} AND organization_id = ${organizationId}
+              RETURNING id, callback_status
+            `;
+            if (!updated.length) {
+              return new Response(JSON.stringify({ error: "Missed call not found" }),
+                { status: 404, headers: { "Content-Type": "application/json" } });
+            }
+            return new Response(JSON.stringify({ id: updated[0].id, callbackStatus: updated[0].callback_status }),
+              { status: 200, headers: { "Content-Type": "application/json" } });
+          } catch (err) {
+            console.error("[Missed Calls API]", String(err).slice(0, 200));
+            return new Response(JSON.stringify({ error: "Failed to update missed call" }),
+              { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
         if (pathname === "/api/conversations" && req.method === "POST") {
           try {
             const authHeader = req.headers.get("Authorization") || "";

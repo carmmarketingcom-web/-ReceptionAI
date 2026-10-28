@@ -2509,6 +2509,74 @@ for (let attempt = 1; ; attempt++) {
             return json({ error: "Failed to fetch conversations" }, 500);
           }
         }
+        // ── Missed calls (real rows written by the turn pipeline when a call ends unengaged) ──
+        // GET /api/missed-calls — list for the authenticated org.
+        // Keep in sync with src/routes/api/missed-calls.ts and the other serve.ts tree.
+        if (pathname === "/api/missed-calls" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const url = new URL(req.url);
+            const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 1), 500);
+            const rows = await sql`
+              SELECT id, caller_number, caller_name, ring_duration_seconds, callback_requested,
+                     callback_status, voicemail_url, voicemail_transcription, created_at
+              FROM missed_calls
+              WHERE organization_id = ${organizationId}
+              ORDER BY created_at DESC
+              LIMIT ${limit}
+            `;
+            const missedCalls = (rows as any[]).map((r: any) => ({
+              id: r.id,
+              callerNumber: r.caller_number || null,
+              callerName: r.caller_name || null,
+              ringDurationSeconds:
+                r.ring_duration_seconds === null || r.ring_duration_seconds === undefined
+                  ? null
+                  : Number(r.ring_duration_seconds),
+              callbackRequested: r.callback_requested === true,
+              callbackStatus: r.callback_status || "pending",
+              voicemailUrl: r.voicemail_url || null,
+              voicemailTranscription: r.voicemail_transcription || null,
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+            }));
+            return json({ missedCalls, total: missedCalls.length, limit });
+          } catch (err) {
+            console.error("[Missed Calls API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch missed calls" }, 500);
+          }
+        }
+        // PATCH /api/missed-calls — set callback status for one row (org-scoped).
+        if (pathname === "/api/missed-calls" && req.method === "PATCH") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const body: any = await req.json().catch(() => null);
+            const id = typeof body?.id === "string" ? body.id : "";
+            const callbackStatus = body?.callbackStatus;
+            const allowed = ["pending", "contacted", "resolved", "declined"];
+            if (!id || !allowed.includes(callbackStatus)) {
+              return json({ error: "id and callbackStatus are required" }, 400);
+            }
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const updated: any = await sql`
+              UPDATE missed_calls SET callback_status = ${callbackStatus}::callback_status
+              WHERE id = ${id} AND organization_id = ${auth.organizationId}
+              RETURNING id, callback_status
+            `;
+            if (!updated.length) return json({ error: "Missed call not found" }, 404);
+            return json({ id: updated[0].id, callbackStatus: updated[0].callback_status });
+          } catch (err) {
+            console.error("[Missed Calls API]", String(err).slice(0, 200));
+            return json({ error: "Failed to update missed call" }, 500);
+          }
+        }
         if (pathname === "/api/conversations" && req.method === "POST") {
           try {
             const authHeader = req.headers.get("Authorization") || "";
