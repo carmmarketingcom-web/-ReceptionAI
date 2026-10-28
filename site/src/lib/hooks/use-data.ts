@@ -27,9 +27,14 @@ function useApiData<T>(
 
   const refetch = useCallback(() => setTrigger((t) => t + 1), []);
 
+  // Compute the URL outside the effect so the dependency array below can
+  // reference it — declaring it inside the effect body left `[url, trigger]`
+  // referring to an out-of-scope variable, throwing `ReferenceError: url is
+  // not defined` on every hook render (strict-mode ES module).
+  const url = typeof path === "function" ? path() : path;
+
   useEffect(() => {
     let cancelled = false;
-    const url = typeof path === "function" ? path() : path;
 
     if (!url) {
       setLoading(false);
