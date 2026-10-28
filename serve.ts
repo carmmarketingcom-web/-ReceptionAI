@@ -273,7 +273,9 @@ async function promptAndWait(cid: string, text: string) {
   });
 }
 
-async function speakOnly(cid: string, text: string, lang: string = "en") {
+// NOTE: `lang` is intentionally required — omitting it silently sent Spanish text to the English
+// voice (the original bilingual-prompt bug). Callers must pass the language of the text.
+async function speakOnly(cid: string, text: string, lang: string) {
   return cmd(cid, "speak", ttsVoiceParams(text, lang));
 }
 
@@ -1617,7 +1619,14 @@ for (let attempt = 1; ; attempt++) {
 
               await cmd(cid, "answer");
               setTimeout(async () => {
-                await speakOnly(cid, `Welcome! For English, press 1. Para español, presione 2.`);
+                // Bilingual opening prompt — each language segment gets its OWN voice.
+                // Previously one mixed-language string was sent with the default (English) voice,
+                // so "Para español, presione 2." was read by Polly.Joanna-Neural with an English accent.
+                // Telnyx call-control `speak` audio is queued in order (see SpeakRequest.stop: playback
+                // is only interrupted/cleared when an explicit `stop` is sent), so two sequential
+                // speak commands are safe and play back-to-back.
+                await speakOnly(cid, "Welcome! For English, press 1.", "en");
+                await speakOnly(cid, "Para español, presione 2.", "es");
               }, 600);
             }
 
