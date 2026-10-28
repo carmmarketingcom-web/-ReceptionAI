@@ -17,7 +17,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "AI-powered virtual receptionist that answers calls, books appointments, and handles messages 24/7. Built-in calendar — no Google account needed. Try it free.",
+          "AI-powered virtual receptionist that answers calls, books appointments, and handles messages 24/7. Built-in calendar — no Google account needed. Try the live demo.",
       },
       { name: "og:title", content: "ReceptionAI — AI Receptionist for Small Businesses" },
       {
