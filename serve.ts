@@ -3185,33 +3185,39 @@ for (let attempt = 1; ; attempt++) {
               }), { status: 200, headers: { "Content-Type": "application/json" } });
             }
 
-            const fallback = () => {
-              if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("plan")) {
+            // Keyword fallback, used only when the model is unavailable.
+            // Whole-word matching only: substring matching answered the wrong question
+            // (e.g. "do" inside "window", "plan" inside "planning").
+            const fallback = (reason: string) => {
+              console.warn("[chat] fallback: " + reason);
+              const has = (...words: string[]) =>
+                words.some((w) => new RegExp(`\\b${w}\\b`, "i").test(msg));
+              if (has("price", "pricing", "cost", "costs", "precio", "precios", "costo", "plan", "plans", "planes")) {
                 return isEs
-                  ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado). Prueba gratis de 14 dias."
-                  : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited). Founders get 50% off the first 3 months.";
+                  ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado)."
+                  : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).";
               }
-              if (msg.includes("book") || msg.includes("appointment") || msg.includes("reserva") || msg.includes("cita")) {
+              if (has("book", "booking", "appointment", "appointments", "reserva", "reservar", "cita", "citas")) {
                 return isEs
-                  ? "Reserva una demo llamando al (727) 966-7556, o empieza tu prueba gratis de 14 dias en receptionai.store/signup."
-                  : "Book a demo by calling (727) 966-7556, or sign up at receptionai.store/signup — founders get 50% off the first 3 months.";
+                  ? "Reserva una demo llamando al (727) 966-7556, o registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
+                  : "Book a demo by calling (727) 966-7556, or sign up at receptionai.store/signup. Plans start at $99/month.";
               }
-              if (msg.includes("demo") || msg.includes("try") || msg.includes("probar")) {
+              if (has("demo", "try", "probar", "prueba")) {
                 return isEs
-                  ? "Prueba la demo llamando al (727) 966-7556, o registrate en receptionai.store/signup para una prueba gratis de 14 dias."
-                  : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup — founders get 50% off the first 3 months.";
+                  ? "Prueba la demo llamando al (727) 966-7556, o registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
+                  : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup. Plans start at $99/month.";
               }
-              if (msg.includes("feature") || msg.includes("what") || msg.includes("do") || msg.includes("funcion") || msg.includes("que hace")) {
+              if (has("feature", "features", "funcion", "funciones", "que hace")) {
                 return isEs
-                  ? "Atiendo llamadas 24/7 en ingles y espanol, agendo citas, envio recordatorios y confirmaciones por SMS, y mando un resumen por SMS al dueno. Incluye calendario con horario preconfigurado (sin Google)."
-                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments, sends SMS reminders and confirmations, and texts the owner a summary after every call. Includes a built-in calendar with business hours preset - no Google setup.";
+                  ? "Atiendo llamadas 24/7 en ingles y espanol, agendo citas y envio confirmaciones y recordatorios por SMS, y te mando un resumen tras cada llamada."
+                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments, and texts you a summary after every call.";
               }
-              if (msg.includes("signup") || msg.includes("register") || msg.includes("start") || msg.includes("registr")) {
+              if (has("signup", "register", "start", "registrate", "registrarme", "registro", "empezar")) {
                 return isEs
-                  ? "Registrate en receptionai.store/signup - prueba gratis de 14 dias, sin tarjeta."
-                  : "Sign up at receptionai.store/signup - founders get 50% off their first 3 months.";
+                  ? "Registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
+                  : "Sign up at receptionai.store/signup. Plans start at $99/month.";
               }
-              if (msg.includes("calendar") || msg.includes("schedule") || msg.includes("calendario") || msg.includes("agenda")) {
+              if (has("calendar", "schedule", "calendario", "agenda", "agendar")) {
                 return isEs
                   ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o SMS y reciben confirmacion por SMS."
                   : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or SMS and get SMS confirmations.";
@@ -3221,14 +3227,37 @@ for (let attempt = 1; ; attempt++) {
                   ? "Hola! Como puedo ayudarte? Puedo contarte sobre planes, funciones o como reservar una demo."
                   : "Hi! How can I help? I can tell you about plans, features, or how to book a demo.";
               }
+              // No keyword matched: say so honestly instead of guessing.
               return isEs
-                ? "Atiendo llamadas 24/7, agendo citas y envio recordatorios. Planes desde $99/mes con prueba gratis de 14 dias. Que te gustaria saber?"
-                : "ReceptionAI answers calls 24/7, books appointments, and sends reminders. Plans start at $99/mo; founders get 50% off the first 3 months. What would you like to know?";
+                ? "No estoy segura de eso — puedo pedirle a alguien de nuestro equipo que te responda. ¿Quieres que pase tu número?"
+                : "I'm not sure about that — I can have someone from our team reply. Want me to pass along your number?";
             };
+            // Reply-length cap: cut at a real sentence end, never mid-sentence or mid-word.
+            const REPLY_MAX_CHARS = 300;
+            const REPLY_MIN_SENTENCE = 150;
+            const capReply = (raw: string): string => {
+              const text = raw.trim();
+              if (text.length <= REPLY_MAX_CHARS) return text;
+              const head = text.slice(0, REPLY_MAX_CHARS);
+              let sentenceEnd = -1;
+              for (let i = head.length - 1; i >= 0; i--) {
+                const ch = text[i];
+                if (ch === "." || ch === "!" || ch === "?" || ch === "…") {
+                  const next = text[i + 1];
+                  if (next === undefined || /\s/.test(next)) { sentenceEnd = i; break; }
+                }
+              }
+              if (sentenceEnd >= REPLY_MIN_SENTENCE - 1) return text.slice(0, sentenceEnd + 1).trim();
+              const space = text.lastIndexOf(" ", REPLY_MAX_CHARS - 1);
+              const cutAt = space > 0 ? space : REPLY_MAX_CHARS - 1;
+              return text.slice(0, cutAt).trim().replace(/[.,;:!?]+$/, "") + "…";
+            };
+            let failReason = apiKey ? "" : "no gemini api key";
             if (apiKey) {
+              const startedAt = Date.now();
               try {
                 const facts = isEs
-                  ? "Datos del producto (usa SOLO estos; no inventes precios ni funciones):\n- Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado).\n- Prueba gratis de 14 dias, sin tarjeta.\n- Calendario incorporado con horario preconfigurado (no requiere Google).\n- Habla ingles y espanol.\n- Atiende llamadas 24/7, agenda citas, envia recordatorios y manda un resumen por SMS al dueno tras cada llamada.\n- Las confirmaciones de citas se envian por SMS.\n- Demo en vivo: llama al (727) 966-7556."
+                  ? "Datos del producto (usa SOLO estos; no inventes precios ni funciones):\n- Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado).\n- Los planes empiezan en $99 al mes.\n- Calendario incorporado con horario preconfigurado (no requiere Google).\n- Habla ingles y espanol.\n- Atiende llamadas 24/7, agenda citas, envia recordatorios y manda un resumen por SMS al dueno tras cada llamada.\n- Las confirmaciones de citas se envian por SMS.\n- Demo en vivo: llama al (727) 966-7556."
                   : "Product facts (use ONLY these; do not invent prices or features):\n- Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).\n- Founder pricing: 50% off the first 3 months.\n- Built-in calendar with business hours preset (no Google setup needed).\n- Speaks English and Spanish.\n- Answers calls 24/7, books appointments, sends reminders, and texts the owner a summary after every call.\n- Booking confirmations are sent by SMS.\n- Live demo: call (727) 966-7556.";
                 const sysPrompt = (isEs
                   ? "Eres ReceptionAI, recepcionista IA de un producto SaaS. Responde usando SOLO los datos del producto. Responde en 1-3 frases cortas (max ~250 caracteres). No uses preambulos como 'Como recepcionista IA'. No inventes precios ni funciones."
@@ -3249,19 +3278,20 @@ for (let attempt = 1; ; attempt++) {
                   const data = await gRes.json() as any;
                   const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
                   if (raw) {
-                    let reply = raw;
-                    if (reply.length > 300) {
-                      const cut = reply.slice(0, 300);
-                      const last = Math.max(cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
-                      reply = last > 150 ? reply.slice(0, last + 1).trim() : cut + "...";
-                    }
-                    return new Response(JSON.stringify({ reply }),
+                    return new Response(JSON.stringify({ reply: capReply(raw) }),
                       { status: 200, headers: { "Content-Type": "application/json" } });
                   }
+                  failReason = "gemini returned an empty reply";
+                } else {
+                  failReason = "gemini status=" + gRes.status;
+                  console.error("[chat] gemini error: status=" + gRes.status + " ms=" + (Date.now() - startedAt));
                 }
-              } catch { /* fall through */ }
+              } catch {
+                failReason = "gemini network/abort";
+                console.error("[chat] gemini error: status=network/abort ms=" + (Date.now() - startedAt));
+              }
             }
-            return new Response(JSON.stringify({ reply: fallback() }),
+            return new Response(JSON.stringify({ reply: fallback(failReason || "no gemini reply") }),
               { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Chat API]", String(err).slice(0, 200));
