@@ -1275,23 +1275,37 @@ async function getTransferNumber(orgId: string): Promise<string | null> {
     const tn = (rows[0] as any)?.transfer_number;
     if (tn) return tn;
   } catch { /* column may not exist yet */ }
-  // 2) owner user phone (fallback)
+  // 2) owner notification phone — organizations.phone (fallback)
   return getOwnerPhone(orgId);
 }
 
-// ── Get owner phone from DB ─────────────────────────────────────────────
+// ── Get the owner's notification phone number ───────────────────────────
+// Reads organizations.phone — the number the org configured in Settings.
+// It deliberately does NOT read users.phone: the users table has NO phone
+// column, so the old `SELECT phone FROM users ... AND role = 'owner'` threw on
+// every single call, the catch below swallowed the error and returned null, and
+// every owner notification path silently no-oped (post-call summary SMS,
+// voicemail alert, low-rating alert, and the owner-transfer fallback number).
+// One organization row per tenant, and its phone is the owner's own number.
+// Returns E.164 (Telnyx requirement): what is stored is whatever the owner typed.
 async function getOwnerPhone(orgId: string): Promise<string | null> {
   try {
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) return null;
     const sql = neon(dbUrl);
     const rows = await sql`
-      SELECT phone FROM users
-      WHERE organization_id = ${orgId} AND role = 'owner'
+      SELECT phone FROM organizations
+      WHERE id = ${orgId}
       LIMIT 1
     `;
-    return rows[0]?.phone || null;
-  } catch { return null; }
+    const raw = (rows[0] as any)?.phone;
+    const digits = raw ? String(raw).replace(/\D/g, "") : "";
+    if (!digits) return null;
+    return digits.length === 10 ? `+1${digits}` : `+${digits}`;
+  } catch (err) {
+    console.warn("[OwnerPhone] lookup failed:", String(err).slice(0, 120));
+    return null;
+  }
 }
 
 // ── Send SMS via Telnyx ─────────────────────────────────────────────────
@@ -2365,12 +2379,11 @@ for (let attempt = 1; ; attempt++) {
             }
             const orgPhone = phoneRow[0].phone_number;
 
-            // Get owner phone to call
-            const ownerRow = await sql`
-              SELECT phone FROM users WHERE organization_id = ${organizationId} AND role = 'owner'
-              ORDER BY created_at ASC LIMIT 1
-            `;
-            const toNumber = ownerRow[0]?.phone || orgPhone;
+            // Get owner phone to call — organizations.phone, via the shared resolver.
+            // (The users table has no phone column, so the old query here always
+            // threw and the test call silently rang the org's own number instead.)
+            const ownerPhone = await getOwnerPhone(organizationId);
+            const toNumber = ownerPhone || orgPhone;
 
             const proto = req.headers.get("x-forwarded-proto") || "https";
             const host = req.headers.get("host") || "localhost:3000";
