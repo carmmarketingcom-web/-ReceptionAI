@@ -2,9 +2,9 @@
  * POST /api/chat
  *
  * Gemini-powered chat endpoint for the web chat widget.
- * Uses Gemini 3 Flash Preview with generous token budget, full conversation
- * history, and a detailed system prompt so the widget serves as a compelling
- * demo of what the full AI receptionist can do.
+ * Uses gemini-flash-latest (same model id as serve.ts) with full conversation
+ * history, a detailed system prompt, and the same 300-char sentence-boundary
+ * cap production applies, so dev/preview and production answer identically.
  *
  * Body: { message: string, history?: {role:"user"|"model", text:string}[], lang?: "en" | "es" }
  * Response: { reply: string }
@@ -28,9 +28,33 @@ const SYSTEM_PROMPT_ES = `Eres ReceptionAI, un recepcionista IA 24/7 para negoci
 
 Funciones: Responde llamadas/textos/chats 24/7 en ingles y espanol. Programa citas automaticamente. Envia confirmaciones y recordatorios. Calendario incorporado (sin Google OAuth). Resumenes SMS al dueno. Reconoce clientes recurrentes. Seguimiento de reservas abandonadas.
 
-Precios: Starter $99/mes, Growth $199/mes, Scale $399/mes. Prueba gratis 14 dias.
+Precios: Los planes empiezan en $99 al mes — Starter $99, Growth $199, Scale $399.
 
 Contacto: (727) 966-7556, hello@receptionai.store, registro en receptionai.store/signup.`;
+
+// Reply-length cap, identical to serve.ts: cut at a real sentence end when one
+// sits in the first 300 chars (preferring >=150 so the answer stays useful),
+// otherwise cut at a word boundary and mark it with an ellipsis. Never cuts
+// mid-word, and never appends "..." after a genuine sentence end.
+const REPLY_MAX_CHARS = 300;
+const REPLY_MIN_SENTENCE = 150;
+function capReply(raw: string): string {
+  const text = raw.trim();
+  if (text.length <= REPLY_MAX_CHARS) return text;
+  const head = text.slice(0, REPLY_MAX_CHARS);
+  let sentenceEnd = -1;
+  for (let i = head.length - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === "." || ch === "!" || ch === "?" || ch === "\u2026") {
+      const next = text[i + 1];
+      if (next === undefined || /\s/.test(next)) { sentenceEnd = i; break; }
+    }
+  }
+  if (sentenceEnd >= REPLY_MIN_SENTENCE - 1) return text.slice(0, sentenceEnd + 1).trim();
+  const space = text.lastIndexOf(" ", REPLY_MAX_CHARS - 1);
+  const cutAt = space > 0 ? space : REPLY_MAX_CHARS - 1;
+  return text.slice(0, cutAt).trim().replace(/[.,;:!?]+$/, "") + "\u2026";
+}
 
 // Smart keyword-based fallback when Gemini is unavailable
 function smartReply(message: string, lang: string): string {
@@ -39,7 +63,7 @@ function smartReply(message: string, lang: string): string {
 
   if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("cuanto")) {
     return isEs
-      ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas, 2000 min), Scale: $399/mes (ilimitado). Prueba gratis 14 dias. Quieres registrarte?"
+      ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas, 2000 min), Scale: $399/mes (ilimitado). Quieres registrarte?"
       : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines, 2000 min), Scale: $399/mo (unlimited). Founders get 50% off their first 3 months (limited to the first 100 customers). Want to sign up?";
   }
   if (msg.includes("demo") || msg.includes("try") || msg.includes("test") || msg.includes("probar")) {
@@ -73,7 +97,7 @@ function smartReply(message: string, lang: string): string {
 
   // Default response
   return isEs
-    ? "Soy el recepcionista IA de ReceptionAI — atiendo llamadas, programo citas y gestiono mensajes 24/7. Precios desde $99/mes con prueba gratis. Preguntame sobre funciones, precios o como empezar!"
+    ? "Soy el recepcionista IA de ReceptionAI — atiendo llamadas, programo citas y gestiono mensajes 24/7. Precios desde $99/mes. Preguntame sobre funciones, precios o como empezar!"
     : "I'm ReceptionAI — I handle calls, book appointments, and manage messages 24/7 for service businesses. Plans from $99/mo with founder pricing. Ask me about features, pricing, or how to get started!";
 }
 
@@ -98,7 +122,9 @@ export async function POST({ request }: { request: Request }) {
     const apiKey = process.env.GEMINI_API_KEY || "";
 
     // Attempt Gemini if key is set
+    let failReason = apiKey ? "" : "no gemini api key";
     if (apiKey) {
+      const startedAt = Date.now();
       try {
         const systemPrompt = lang === "es" ? SYSTEM_PROMPT_ES : SYSTEM_PROMPT_EN;
         const contents: { role: string; parts: { text: string }[] }[] = [];
@@ -129,7 +155,7 @@ export async function POST({ request }: { request: Request }) {
         if (res.ok) {
           const data = (await res.json()) as any;
           const rawReply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          const reply = rawReply.trim();
+          const reply = capReply(rawReply);
           if (reply) {
             logConversation(sessionId, message, reply, lang);
             return new Response(
@@ -137,13 +163,18 @@ export async function POST({ request }: { request: Request }) {
               { status: 200, headers: { "Content-Type": "application/json" } },
             );
           }
+          failReason = "gemini returned an empty reply";
+        } else {
+          failReason = "gemini status=" + res.status;
+          console.error("[chat] gemini error: status=" + res.status + " ms=" + (Date.now() - startedAt));
         }
       } catch {
-        // Gemini failed — fall through to keyword responder
+        failReason = "gemini network/abort";
+        console.error("[chat] gemini error: status=network/abort ms=" + (Date.now() - startedAt));
       }
     }
-
-    // Use smart keyword fallback
+    // Fallback keyword responder (only when the model did not answer)
+    if (failReason) console.warn("[chat] fallback: " + failReason);
     const reply = smartReply(message, lang);
     logConversation(sessionId, message, reply, lang);
     return new Response(
