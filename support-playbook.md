@@ -58,7 +58,7 @@ This is a working guide. Update as we learn what actually works.
 ## 7. Refund Request
 
 **Suggested response:**
-> I understand. Let me look at your account. If this is within the 14-day trial or there's been a genuine issue on our end, I'll process the refund. Can you give me a moment to review?
+> I understand. Let me look at your account. If there's been a genuine issue on our end, I'll process the refund. Can you give me a moment to review?
 
 Then flag for Carlos to handle the Stripe refund.
 

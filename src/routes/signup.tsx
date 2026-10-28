@@ -299,11 +299,6 @@ function SignupPage() {
                 {/* Risk-reversal + trust badges */}
                 <div className="flex items-center justify-center gap-4 text-xs text-gray-500">
                   <span className="flex items-center gap-1">
-                    <svg className="h-3.5 w-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    14 days free
-                  </span>
-                  <span className="text-gray-300">·</span>
-                  <span className="flex items-center gap-1">
                     <svg className="h-3.5 w-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     Cancel anytime
                   </span>
