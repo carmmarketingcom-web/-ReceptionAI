@@ -1364,6 +1364,51 @@ async function notifyOwnerOfSupportRequest(source: string, detail: string): Prom
   await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text);
 }
 
+// ── Web-chat callback request → owner SMS alert ───────────────────────────
+// A visitor who explicitly asks to be contacted AND leaves a phone number or an
+// email gets a REAL alert to the owner, on the same SUPPORT_ALERT_TO/FROM path as
+// the priority-support alerts (#24). Without a reachable address nothing is sent:
+// the chat reply only says the request was noted (see the chat guardrails), so the
+// bot can never claim a message to the owner went out if nothing did.
+const CALLBACK_ALERT_COOLDOWN_MS = 60_000;
+const lastCallbackAlertAt = new Map<string, number>(); // contact → epoch ms (in-memory, single instance)
+
+// Returns the phone/email to call back, or null when the message is not an
+// explicit contact request with a reachable address. EN + ES intent words.
+function detectCallbackContact(message: string): string | null {
+  const intent = /\b(callback|call ?back|call me|contact me|get in touch|reach me|text me|email me|message me|ll[aá]mame|llamarme|escr[ií]beme|escribirme|escribir|que me llamen|que me contacten|contactarme|m[aá]ndame)\b/i;
+  if (!intent.test(message)) return null;
+  const email = message.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  if (email) return email[0];
+  const phone = message.match(/\+?\d[\d\s().-]{5,}\d/);
+  if (phone) {
+    const digits = phone[0].replace(/\D/g, "");
+    // Normalize punctuation so "(305) 555-7788" alerts as "305 555-7788".
+    if (digits.length >= 7 && digits.length <= 15) return phone[0].replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+  }
+  return null;
+}
+
+// Fire-and-forget: deduped per contact, never throws, never surfaces an error
+// to the visitor. Missing env or a Telnyx failure only warn-logs.
+async function alertOwnerOfCallbackRequest(contact: string, message: string): Promise<void> {
+  try {
+    if (!SUPPORT_ALERT_TO || !SUPPORT_ALERT_FROM) {
+      console.warn("[Callback] SUPPORT_ALERT_TO/FROM not set — owner callback alert skipped");
+      return;
+    }
+    const now = Date.now();
+    const lastAt = lastCallbackAlertAt.get(contact) || 0;
+    if (now - lastAt < CALLBACK_ALERT_COOLDOWN_MS) return;
+    if (lastCallbackAlertAt.size > 500) lastCallbackAlertAt.clear(); // stay bounded
+    lastCallbackAlertAt.set(contact, now);
+    const snippet = message.replace(/\s+/g, " ").trim().slice(0, 100);
+    await notifyOwnerOfSupportRequest("web chat callback request", `${contact} | "${snippet}"`);
+  } catch (err) {
+    console.warn("[Callback] owner alert failed:", String(err).slice(0, 120));
+  }
+}
+
 // ── Build SMS summary from call state ───────────────────────────────────
 function buildCallSummary(cs: CallState, transcript?: string): string {
   const duration = Math.round((Date.now() - cs.startTime.getTime()) / 1000);
@@ -3175,6 +3220,10 @@ for (let attempt = 1; ; attempt++) {
             const apiKey = process.env.GEMINI_API_KEY || "";
             const msg = message.toLowerCase();
             const isEs = lang === "es";
+            // Explicit callback request with a phone/email → alert the owner for real.
+            // No contact address → nothing is sent and the guardrails keep the reply honest.
+            const callbackContact = detectCallbackContact(message);
+            if (callbackContact) void alertOwnerOfCallbackRequest(callbackContact, message);
             // Same-day priority support: text the owner when a visitor asks for a human.
             if (isSupportEscalation(message)) {
               void notifyOwnerOfSupportRequest("web chat", `Message: "${message.slice(0, 300)}\nLanguage: ${lang}`);
@@ -3192,6 +3241,19 @@ for (let attempt = 1; ; attempt++) {
               console.warn("[chat] fallback: " + reason);
               const has = (...words: string[]) =>
                 words.some((w) => new RegExp(`\\b${w}\\b`, "i").test(msg));
+              // Contract + cancellation live at the TOP of the matcher: "plan"/"planes"
+              // is a pricing keyword, so asking "does my plan require a contract?" would
+              // otherwise be answered with prices instead of the real answer.
+              if (has("contract", "contracts", "commitment", "binding", "long-term", "contrato", "contratos", "compromiso", "obligación", "a plazo")) {
+                return isEs
+                  ? "Sin contratos — todos los planes son mensuales y puedes cancelar cuando quieras."
+                  : "No contracts — every plan is month-to-month and you can cancel anytime.";
+              }
+              if (has("cancel", "cancellation", "cancelar", "cancela", "cancelo", "cancelas", "cancelan", "cancelación", "cancelacion", "darse de baja", "darme de baja", "dar de baja")) {
+                return isEs
+                  ? "Puedes cancelar cuando quieras desde tu panel (Facturación → cancelar) o escribiendo a hello@receptionai.store — sin cargos."
+                  : "Cancel anytime from your dashboard (Billing → cancel) or email hello@receptionai.store — no cancellation fees.";
+              }
               if (has("price", "pricing", "cost", "costs", "precio", "precios", "costo", "plan", "plans", "planes")) {
                 return isEs
                   ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado)."
@@ -3229,8 +3291,8 @@ for (let attempt = 1; ; attempt++) {
               }
               // No keyword matched: say so honestly instead of guessing.
               return isEs
-                ? "No estoy segura de eso — puedo pedirle a alguien de nuestro equipo que te responda. ¿Quieres que pase tu número?"
-                : "I'm not sure about that — I can have someone from our team reply. Want me to pass along your number?";
+                ? "No estoy segura de eso — lo dejaré anotado para nuestro equipo. También puedes escribir a hello@receptionai.store o llamar a nuestra demo en vivo al (727) 966-7556."
+                : "I'm not sure about that — I'll flag it for our team. You can also email hello@receptionai.store or call our live demo at (727) 966-7556.";
             };
             // Reply-length cap: cut at a real sentence end, never mid-sentence or mid-word.
             const REPLY_MAX_CHARS = 300;
@@ -3256,12 +3318,43 @@ for (let attempt = 1; ; attempt++) {
             if (apiKey) {
               const startedAt = Date.now();
               try {
+                // Product facts — EN and ES must carry THE SAME facts (full parity): every
+                // English fact has a fluent Spanish equivalent below. Never add a fact to one
+                // language only, and keep every line true today (future features are marked
+                // "coming soon").
+                const FACT_LINES_EN = [
+                  "- Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited lines, 10,000+ AI-min).",
+                  "- No long-term contracts: every plan is month-to-month. Cancel anytime before the next renewal — it takes effect at the end of the current paid month, with no cancellation fee.",
+                  "- How to cancel: from your account dashboard (Settings → Billing → cancel) or email hello@receptionai.store.",
+                  "- Billing: the first month is charged at checkout, then it renews monthly automatically. Founder pricing: 50% off the first 3 months for the first 100 customers.",
+                  "- Live today: answers calls 24/7 in English and Spanish; books appointments by phone and on the web; sends SMS confirmations and reminders; sends a post-call SMS summary to the owner after every call; recognizes returning callers.",
+                  "- Live today: catches voicemail and sends missed-call alerts; web chat; SMS messaging; “talk to the owner” call transfer (press 3); built-in calendar with preset business hours (no Google account needed).",
+                  "- Free live demo line: call (727) 966-7556.",
+                  "- Support: email hello@receptionai.store.",
+                  "- Coming soon (NOT live yet — say so honestly if asked): WhatsApp and Facebook messaging, a unified multi-channel inbox, an advanced analytics dashboard, per-member team schedules and routing, call-recording audio playback, custom call scripts, and sentiment-based smart handoff.",
+                  "- Scale plan: 24/7 priority support with same-day human response; web-chat requests for a human or support are passed to the team.",
+                ];
+                const FACT_LINES_ES = [
+                  "- Planes: Starter $99/mes (1 línea, 500 min IA), Growth $199/mes (2 líneas, 2000 min IA), Scale $399/mes (líneas ilimitadas, más de 10,000 min IA).",
+                  "- Sin contratos a largo plazo: todos los planes son mes a mes. Puedes cancelar cuando quieras antes de la próxima renovación — se hace efectivo al final del mes que ya pagaste, sin cargo por cancelación.",
+                  "- Cómo cancelar: desde el panel de tu cuenta (Configuración → Facturación → cancelar) o escribiendo a hello@receptionai.store.",
+                  "- Facturación: el primer mes se cobra al momento de la compra y después se renueva automáticamente cada mes. Precio de fundador: 50% de descuento los primeros 3 meses para los primeros 100 clientes.",
+                  "- Disponible hoy: contesta llamadas 24/7 en inglés y español; agenda citas por teléfono y en la web; envía confirmaciones y recordatorios por SMS; manda al dueño un resumen por SMS después de cada llamada; reconoce a los clientes que vuelven a llamar.",
+                  "- Disponible hoy: recibe mensajes de voz y avisa de llamadas perdidas; chat en la web; mensajería por SMS; transferencia “hablar con el dueño” (presione 3); calendario incorporado con el horario de atención ya configurado (sin cuenta de Google).",
+                  "- Línea de demostración gratuita: llama al (727) 966-7556.",
+                  "- Soporte: escribe a hello@receptionai.store.",
+                  "- Próximamente (TODAVÍA no disponible — dilo con honestidad si te preguntan): mensajería por WhatsApp y Facebook, bandeja de entrada unificada multicanal, panel de analíticas avanzadas, horarios y enrutamiento por miembro del equipo, reproducción del audio de las grabaciones de llamadas, guiones de llamada personalizados y traspaso inteligente según el sentimiento del cliente.",
+                  "- Plan Scale: soporte prioritario 24/7 con respuesta humana el mismo día; las solicitudes de una persona o de soporte por el chat de la web se pasan al equipo.",
+                ];
                 const facts = isEs
-                  ? "Datos del producto (usa SOLO estos; no inventes precios ni funciones):\n- Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado).\n- Los planes empiezan en $99 al mes.\n- Calendario incorporado con horario preconfigurado (no requiere Google).\n- Habla ingles y espanol.\n- Atiende llamadas 24/7, agenda citas, envia recordatorios y manda un resumen por SMS al dueno tras cada llamada.\n- Las confirmaciones de citas se envian por SMS.\n- Demo en vivo: llama al (727) 966-7556."
-                  : "Product facts (use ONLY these; do not invent prices or features):\n- Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).\n- Founder pricing: 50% off the first 3 months.\n- Built-in calendar with business hours preset (no Google setup needed).\n- Speaks English and Spanish.\n- Answers calls 24/7, books appointments, sends reminders, and texts the owner a summary after every call.\n- Booking confirmations are sent by SMS.\n- Live demo: call (727) 966-7556.";
+                  ? "Datos del producto (usa SOLO estos; no inventes precios ni funciones):\n" + FACT_LINES_ES.join("\n")
+                  : "Product facts (use ONLY these; do not invent prices or features):\n" + FACT_LINES_EN.join("\n");
+                const guardrail = isEs
+                  ? "Regla de honestidad: nunca afirmes que se envió o se enviará un texto, correo, llamada o mensaje a menos que el sistema realmente lo envíe. Si alguien deja un teléfono o correo para contacto, di que quedó anotado para nuestro equipo — no prometas detalles ni un horario. Nunca anuncies que le vas a enviar algo al dueño; si te piden que los contacten, confirma la nota y sigue adelante."
+                  : "Honesty rule: never claim that a text, email, call, or message has been or will be sent unless the system actually sends it. If a visitor leaves a phone number or email for contact, say it has been noted for the team — do not promise specifics or a time. Never announce that you are sending something to the owner; if a visitor asks to be contacted, confirm the note and move on.";
                 const sysPrompt = (isEs
                   ? "Eres ReceptionAI, recepcionista IA de un producto SaaS. Responde usando SOLO los datos del producto. Responde en 1-3 frases cortas (max ~250 caracteres). No uses preambulos como 'Como recepcionista IA'. No inventes precios ni funciones."
-                  : "You are ReceptionAI, an AI receptionist for a SaaS product. Answer using ONLY the product facts. Reply in 1-3 short sentences (max ~250 characters). No preamble like 'As an AI receptionist'. Do not invent prices or features.") + "\n\n" + facts;
+                  : "You are ReceptionAI, an AI receptionist for a SaaS product. Answer using ONLY the product facts. Reply in 1-3 short sentences (max ~250 characters). No preamble like 'As an AI receptionist'. Do not invent prices or features.") + "\n\n" + guardrail + "\n\n" + facts;
                 const ctrl = new AbortController();
                 const t = setTimeout(() => ctrl.abort(), 8000);
                 const gRes = await fetch(
