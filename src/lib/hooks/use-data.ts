@@ -142,6 +142,77 @@ export function updateMissedCallCallback(id: string, callbackStatus: string) {
   });
 }
 
+// ─── Team ─────────────────────────────────────────────────────────────────
+// Real accounts only: /api/users reads the users table for the signed-in
+// organization. There is deliberately NO mock/demo fallback here — an empty
+// list is the honest answer, never an invented teammate. The schema has no
+// presence/online field, so the page shows is_active plus last sign-in.
+export interface TeamMemberItem {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  avatarUrl: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string | null;
+}
+interface TeamResponse {
+  users: TeamMemberItem[];
+  total: number;
+}
+export function useTeamMembers() {
+  return useApiData<TeamResponse>("/api/users");
+}
+// ─── Recordings ───────────────────────────────────────────────────────────
+// Real rows only: /api/recordings reads the recordings table for the signed-in
+// organization. Nothing writes that table yet (voicemail audio capture is a
+// Phase-2 gap), so this is normally empty and the page says so — no invented
+// audio, caller names, or AI summaries.
+export interface RecordingItem {
+  id: string;
+  conversationId: string | null;
+  callerName: string | null;
+  callerNumber: string | null;
+  recordingUrl: string | null;
+  durationSeconds: number | null;
+  transcriptionText: string | null;
+  transcriptionStatus: string | null;
+  createdAt: string | null;
+}
+interface RecordingsResponse {
+  recordings: RecordingItem[];
+  total: number;
+  limit: number;
+}
+export function useRecordings(limit = 100) {
+  return useApiData<RecordingsResponse>(`/api/recordings?limit=${limit}`);
+}
+// ─── Follow-up campaigns ──────────────────────────────────────────────────
+// Real rows only: /api/follow-up-campaigns reads the follow_up_campaigns table.
+// The follow-up engine is not built yet, so the table has no writers and the
+// list is empty. No mock fallback: fake campaign stats (sent/opened/replied)
+// exist nowhere and must never be rendered.
+export interface FollowUpCampaignItem {
+  id: string;
+  name: string | null;
+  description: string | null;
+  triggerEvent: string | null;
+  delayMinutes: number | null;
+  maxAttempts: number | null;
+  intervalMinutes: number | null;
+  channels: string[];
+  language: string | null;
+  isActive: boolean;
+  createdAt: string | null;
+}
+interface FollowUpCampaignsResponse {
+  campaigns: FollowUpCampaignItem[];
+  total: number;
+}
+export function useFollowUpCampaigns() {
+  return useApiData<FollowUpCampaignsResponse>("/api/follow-up-campaigns");
+}
 // ─── Appointments ─────────────────────────────────────────────────────────
 
 export interface AppointmentItem {
