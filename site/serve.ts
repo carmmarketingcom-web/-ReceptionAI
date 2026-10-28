@@ -294,6 +294,66 @@ function buildShortPrompt(lang: string): string {
     : `Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.`;
 }
 
+// ── Demo-line English script (owner report 2026-10-28) ─────────────────────
+// The demo number is the product's shop window, so the English side is written the way a
+// calm human receptionist talks: one idea per utterance, the option list ONCE per prompt,
+// and every natural ending says plainly that this was a demo. Spanish lines are untouched.
+const DEMO_EN = {
+  greeting: [
+    "Thanks for calling ReceptionAI!",
+    "You've reached a live demo of our AI receptionist, the one that answers calls for real businesses, day and night.",
+    "If you'd like to see how the booking works, press 1.",
+    "For pricing, press 2.",
+    "And if you'd rather talk to a person, press 3 to reach our team.",
+    "So, how can I help you today?",
+  ],
+  book: [
+    "Perfect.",
+    "In a live account, this is where I'd check the calendar and hold a real appointment for you, then text you the confirmation.",
+    "You're on our demo line right now, so nothing gets booked today.",
+    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to put it to work for your business.",
+    "Thanks for calling!",
+  ],
+  pricing: [
+    "Happy to help with that.",
+    "Starter is $99 a month, Growth is $199, and Scale is $399.",
+    "Every plan is month to month, so there's no contract and you can cancel any time.",
+    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to compare the plans, or press 3 to talk to our team.",
+  ],
+  transfer: [
+    "Of course.",
+    "In a live account, I'd put you straight through to the team right now, and I'd text them your number if nobody picked up.",
+    "This is the demo line, so there's nobody on the other end today.",
+    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to have this answering your own calls.",
+    "Thanks for calling!",
+  ],
+  reschedule: [
+    "Of course.",
+    "In a live account, I'd look up the appointment under your number and move it for you in a few seconds.",
+    "On the demo line there's nothing to look up, but you can try the real thing with an account at receptionai.store.",
+  ],
+  hours: [
+    "In a live account, I'd read the calendar live and offer you the next open times, usually within seconds.",
+    "The demo line doesn't have a calendar behind it, so there's nothing real to offer you here.",
+    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to see it running for your business.",
+  ],
+  notHeard: [
+    "Sorry, I didn't catch that.",
+    "Press 1 to see how the booking works, press 2 for pricing, or press 3 to talk to a person.",
+  ],
+  nudge: "Take your time. Press 1 to see how the booking works, press 2 for pricing, or press 3 to talk to a person.",
+  closing: [
+    "No problem, I'll let you go.",
+    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to have it answering your own calls.",
+    "Thanks for calling, and have a great day!",
+  ],
+  voicemail: [
+    "Thanks, I've got your message.",
+    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to have this answering your own calls.",
+    "Goodbye!",
+  ],
+};
+
 async function cmd(cid: string, action: string, body: any = {}) {
   const res = await fetch(`${TELNYX}/calls/${cid}/actions/${action}`, { method: "POST", headers: th(), body: JSON.stringify(body) });
   const d = await res.json();
@@ -336,8 +396,33 @@ async function promptAndWait(cid: string, text: string) {
 
 // NOTE: `lang` is intentionally required — omitting it silently sent Spanish text to the English
 // voice (the original bilingual-prompt bug). Callers must pass the language of the text.
+// How many speak commands we queued and have not yet seen `call.speak.ended` for.
+const speakSegments = new Map<string, number>();
 async function speakOnly(cid: string, text: string, lang: string) {
-  return cmd(cid, "speak", ttsVoiceParams(text, lang));
+  speakSegments.set(cid, (speakSegments.get(cid) || 0) + 1);
+  const ok = await cmd(cid, "speak", ttsVoiceParams(text, lang));
+  if (!ok) {
+    // Never leave the counter stuck if Telnyx rejected the command — otherwise the call
+    // would wait forever for an event that will not arrive.
+    const left = Math.max(0, (speakSegments.get(cid) || 1) - 1);
+    if (left === 0) speakSegments.delete(cid); else speakSegments.set(cid, left);
+  }
+  return ok;
+}
+
+// Optional stop/queue control for one speak (Telnyx SpeakRequest.stop):
+// "current" stops the audio playing now, "all" also clears the rest of the queue.
+async function speakWithQueueControl(cid: string, text: string, lang: string, stop: "current" | "all") {
+  return cmd(cid, "speak", { ...ttsVoiceParams(text, lang), stop });
+}
+
+// Speak several short lines as separate utterances. This is how this pipeline gets natural
+// pauses: Telnyx drives its neural voices with plain text (`payload_type: "text"`, SSML is not
+// supported for them), so one long comma-spliced sentence ("press 1 to ..., press 2 to ...")
+// comes out as a single flat breath. Separate speaks queue in order and each one gets its own
+// sentence-final intonation — the same mechanism the owner ear-confirmed in #26.
+async function speakLines(cid: string, lines: string[], lang: string) {
+  for (const line of lines) if (line) await speakOnly(cid, line, lang);
 }
 
 // ── Telnyx outbound dial ──────────────────────────────────────────────────
@@ -465,7 +550,7 @@ async function startVoicemailRecording(cid: string, lang: string): Promise<void>
   // Use Telnyx record_start for real audio recording
   await speakOnly(cid, es
     ? "Por favor deje su mensaje después del tono."
-    : "Please leave your message after the tone.", lang);
+    : "Go ahead and leave your message after the tone, and I'll pass it along to the team.", lang);
   setTimeout(() => {
     cmd(cid, "record_start", {
       format: "mp3",
@@ -611,8 +696,55 @@ interface CallState {
   voicemail: boolean;
   callControlId: string;
   bookingSlots?: { date: string; time: string; endTime: string }[];
+  demoTurns?: number; // demo line: 0 = no turn taken yet, -1 = nudge already sent
 }
 const calls = new Map<string, CallState>(); // cid → CallState
+
+// ── Idempotency guards (demo-line regression, owner report 2026-10-28) ──────
+// Telnyx fires `call.speak.ended` once PER speak command. A multi-segment prompt therefore
+// armed one DTMF gather per segment (the bilingual greeting armed two at once) and a
+// multi-segment goodbye started the hangup timer from the first segment. A single press could
+// also be delivered more than once, which replayed the whole response — the "it repeats the
+// options after you press" the owner heard. All three are debounced/deduped here.
+const gatherArmTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const hangupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const lastDtmf = new Map<string, { digit: string; ts: number }>();
+const gatherActive = new Set<string>();
+function armGather(cid: string, opts: any, delayMs = 200): void {
+  // One listener at a time: a prompt made of several utterances must not stack up
+  // duplicate gathers (each active gather can deliver the same keypress again, which is
+  // what made the demo replay a response).
+  if (gatherActive.has(cid)) return;
+  gatherActive.add(cid);
+  const prev = gatherArmTimers.get(cid);
+  if (prev) clearTimeout(prev);
+  gatherArmTimers.set(cid, setTimeout(() => {
+    gatherArmTimers.delete(cid);
+    cmd(cid, "gather", opts).catch(() => {});
+  }, delayMs));
+}
+// Called once the last queued utterance has finished playing.
+function finishSpeaking(cid: string): void {
+  if (pendingHangups.has(cid) || hangupTimers.has(cid)) {
+    pendingHangups.delete(cid);
+    armHangup(cid, 1200);
+  } else {
+    armGather(cid, {
+      type: "dtmf",
+      minimum_digits: 1,
+      maximum_digits: 1,
+      timeout_millis: 8000,
+    });
+  }
+}
+function armHangup(cid: string, delayMs = 1500): void {
+  const prev = hangupTimers.get(cid);
+  if (prev) clearTimeout(prev);
+  hangupTimers.set(cid, setTimeout(() => {
+    hangupTimers.delete(cid);
+    cmd(cid, "hangup").catch(() => {});
+  }, delayMs));
+}
 const pendingHangups = new Set<string>();
 const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string }>(); // outbound cid → callback info
 const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean }>(); // outbound cid → active callback state
@@ -1545,9 +1677,14 @@ for (let attempt = 1; ; attempt++) {
                 await saveVoicemailRecording(callSid || cid, recordingUrl, duration, cs.orgId, cs.callerNumber);
                 await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
                 const es = (cs.language || "en") === "es";
-                await speakOnly(cid, es
-                  ? "Gracias. Recibimos su mensaje. Le contactaremos pronto. Adiós."
-                  : "Thank you. We received your message. We'll get back to you shortly. Goodbye.", cs.language || "en");
+                if (!es && !cs.orgId) {
+                  // Demo ending: say plainly what they just heard (owner directive).
+                  await speakLines(cid, DEMO_EN.voicemail, "en");
+                } else {
+                  await speakOnly(cid, es
+                    ? "Gracias. Recibimos su mensaje. Le contactaremos pronto. Adiós."
+                    : "Thank you. We received your message. We'll get back to you shortly. Goodbye.", cs.language || "en");
+                }
                 pendingHangups.add(cid);
               }
               return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
@@ -1573,17 +1710,17 @@ for (let attempt = 1; ; attempt++) {
                 // Dialing the owner — wait for the bridge; do not re-prompt.
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
-              if (pendingHangups.has(cid)) {
-                pendingHangups.delete(cid);
-                setTimeout(() => cmd(cid, "hangup"), 1500);
-              } else {
-                setTimeout(() => cmd(cid, "gather", {
-                  type: "dtmf",
-                  minimum_digits: 1,
-                  maximum_digits: 1,
-                  timeout_millis: 8000,
-                }), 300);
+              // `call.speak.ended` fires once PER speak command and the segments of a queued
+              // prompt finish seconds apart, so wait for the last one: only then hang up (or
+              // arm the single DTMF gather). Without this a multi-line goodbye was cut off
+              // part-way and every extra segment armed another gather.
+              const segsLeft = speakSegments.get(cid) || 0;
+              if (segsLeft > 1) {
+                speakSegments.set(cid, segsLeft - 1);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
+              speakSegments.delete(cid);
+              finishSpeaking(cid);
             }
 
             // ── DTMF pressed ───────────────────────────────────────
@@ -1610,6 +1747,20 @@ for (let attempt = 1; ; attempt++) {
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
 
+              // Idempotency: one press can be delivered more than once (duplicate armed
+              // gathers, provider retries). Repeating the whole response for the same digit
+              // within 700 ms is what made the demo feel like it replayed the options.
+              {
+                const now = Date.now();
+                const prevPress = lastDtmf.get(cid);
+                if (prevPress && prevPress.digit === digit && now - prevPress.ts < 700) {
+                  console.log(`[DTMF] duplicate ${digit} ignored (+${now - prevPress.ts}ms)`);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                lastDtmf.set(cid, { digit, ts: now });
+              }
+              gatherActive.delete(cid); // this press satisfied the active gather
+
               // Track DTMF in call state (cap at 50 to prevent memory issues from spam)
               const cs = calls.get(cid);
               if (cs) {
@@ -1624,10 +1775,17 @@ for (let attempt = 1; ; attempt++) {
                   cs.phase = "menu";
                   cs.answered = true; // caller interacted — mark as answered
                   const isDemo = !cs.orgId;
-                  const greeting = isDemo
-                    ? `Hello, this is a demo of ReceptionAI — an AI receptionist. Press 1 for appointments, 2 for pricing, or 3 for call transfers.`
-                    : buildGreeting(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
-                  await speakOnly(cid, greeting, "en");
+                  if (isDemo) {
+                    // First English line carries stop:"all" — Telnyx then drops the Spanish
+                    // leg still queued behind the language prompt ("stop current audio and
+                    // clear the queue"), so a caller who pressed 1 no longer hears
+                    // "Para español, presione 2" after choosing English.
+                    await speakWithQueueControl(cid, DEMO_EN.greeting[0], "en", "all");
+                    await speakLines(cid, DEMO_EN.greeting.slice(1), "en");
+                  } else {
+                    const greeting = buildGreeting(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
+                    await speakOnly(cid, greeting, "en");
+                  }
                 } else if (digit === "2") {
                   cs.language = "es";
                   cs.phase = "menu";
@@ -1662,9 +1820,12 @@ for (let attempt = 1; ; attempt++) {
                 if (cs) cs.appointmentIntent = true;
                 const isDemo = !cs?.orgId;
                 if (isDemo) {
-                  await speakOnly(cid, es
-                    ? "Esto es una demostración. En una cuenta real, revisaría el calendario y agendaría su cita. Visite nuestro sitio web para obtener su propio recepcionista IA."
-                    : "This is a demo. In a live account, I would check the calendar and book your appointment. Visit our website to get your own AI receptionist.", lang);
+                  if (es) {
+                    await speakOnly(cid, "Esto es una demostración. En una cuenta real, revisaría el calendario y agendaría su cita. Visite nuestro sitio web para obtener su propio recepcionista IA.", "es");
+                  } else {
+                    if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                    await speakLines(cid, DEMO_EN.book, "en");
+                  }
                 } else if (cs) {
                   // Real voice booking: fetch next available slots and offer them over DTMF
                   await startVoiceBooking(cid, cs);
@@ -1672,17 +1833,25 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "2") {
-                await speakOnly(cid, es
-                  ? "Planes de ReceptionAI: Starter a $99 por mes, Growth a $199, y Scale a $399. Visite nuestro sitio web para registrarse."
-                  : "ReceptionAI plans: Starter at $99 a month, Growth at $199, and Scale at $399. Visit our website to sign up.", lang);
+                if (es) {
+                  await speakOnly(cid, "Planes de ReceptionAI: Starter a $99 por mes, Growth a $199, y Scale a $399. Visite nuestro sitio web para registrarse.", "es");
+                } else if (!cs?.orgId) {
+                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                  await speakLines(cid, DEMO_EN.pricing, "en");
+                } else {
+                  await speakOnly(cid, "ReceptionAI plans: Starter at $99 a month, Growth at $199, and Scale at $399. Visit our website to sign up.", "en");
+                }
               }
 
               else if (digit === "3") {
                 const isDemo = !cs?.orgId;
                 if (isDemo) {
-                  await speakOnly(cid, es
-                    ? "En una cuenta real, esto lo transferiría. Gracias por probar la demostración. Adiós."
-                    : "In a live account, this would transfer you. Thanks for trying the demo. Goodbye.", lang);
+                  if (es) {
+                    await speakOnly(cid, "En una cuenta real, esto lo transferiría. Gracias por probar la demostración. Adiós.", "es");
+                  } else {
+                    if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                    await speakLines(cid, DEMO_EN.transfer, "en");
+                  }
                   pendingHangups.add(cid);
                 } else if (cs) {
                   await transferToOwner(cid, cs);
@@ -1690,6 +1859,12 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "4") {
+                // Demo line: no DB, so don't walk into the reschedule flow and read a menu.
+                if (!cs?.orgId && !es) {
+                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                  await speakLines(cid, DEMO_EN.reschedule, "en");
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
                 // Start rescheduling flow
                 if (cs) { cs.phase = "reschedule_lookup"; }
                 await speakOnly(cid, es
@@ -1702,9 +1877,14 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "5") {
-                await speakOnly(cid, es
-                  ? "Déjeme verificar la disponibilidad. Tenemos citas disponibles de lunes a viernes de 9 AM a 5 PM. Visite nuestro sitio web para ver horarios específicos o presione 1 para agendar."
-                  : "Let me check availability. We have appointments Monday through Friday 9 AM to 5 PM. Visit our website for specific times or press 1 to schedule.", lang);
+                if (!cs?.orgId && !es) {
+                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                  await speakLines(cid, DEMO_EN.hours, "en");
+                } else {
+                  await speakOnly(cid, es
+                    ? "Déjeme verificar la disponibilidad. Tenemos citas disponibles de lunes a viernes de 9 AM a 5 PM. Visite nuestro sitio web para ver horarios específicos o presione 1 para agendar."
+                    : "Let me check availability. We have appointments Monday through Friday 9 AM to 5 PM. Visit our website for specific times or press 1 to schedule.", lang);
+                }
               }
 
               else if (digit === "9") {
@@ -1721,15 +1901,36 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else {
-                await speakOnly(cid, es
-                  ? "Lo siento, no entendí. " + buildShortPrompt("es")
-                  : "Sorry, I didn't get that. " + buildShortPrompt("en"), lang);
+                if (!cs?.orgId && !es) {
+                  // Options once, in the same three-option wording the greeting used.
+                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                  await speakLines(cid, DEMO_EN.notHeard, "en");
+                } else {
+                  await speakOnly(cid, es
+                    ? "Lo siento, no entendí. " + buildShortPrompt("es")
+                    : "Sorry, I didn't get that. " + buildShortPrompt("en"), lang);
+                }
               }
             }
 
             // ── Gather ended (timeout, no DTMF) ─────────────────────
             else if (ev === "call.gather.ended") {
+              gatherActive.delete(cid);
               const cs = calls.get(cid);
+              // ── Demo line: never replay the whole option list (owner report 2026-10-28) ──
+              // After the caller has had a response, 8s of silence means they're done — close
+              // the call honestly instead of re-announcing the options. Only the very first
+              // silence gets one gentle nudge.
+              if (cs && !cs.orgId && (cs.language || "en") === "en" && !(cs.phase || "").startsWith("reschedule_")) {
+                if (!cs.demoTurns) {
+                  cs.demoTurns = -1;
+                  setTimeout(() => { speakOnly(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
+                } else {
+                  pendingHangups.add(cid);
+                  setTimeout(() => { speakLines(cid, DEMO_EN.closing, "en").catch(() => {}); }, 300);
+                }
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               // Handle reschedule/waitlist timeouts — return to menu
               if (cs?.phase?.startsWith("reschedule_") || cs?.phase === "waitlist" || cs?.phase === "booking_slots") {
                 cs.phase = "menu";
