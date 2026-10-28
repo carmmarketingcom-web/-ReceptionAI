@@ -205,12 +205,73 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
       `;
     }
 
+    // Resolve the dialed line so per-line analytics work (best effort — never blocks the call record)
+    let phoneNumberId: string | null = null;
+    try {
+      const pnRows = await sql`
+        SELECT id FROM phone_numbers
+        WHERE phone_number = ${cs.toNumber}
+          AND is_active = true
+        LIMIT 1
+      `;
+      phoneNumberId = (pnRows[0]?.id as string) || null;
+    } catch (err) {
+      console.warn("[DB] phone number lookup failed (analytics only):", String(err).slice(0, 100));
+    }
+
+    // Outcome wording is identical to buildCallSummary() and the hangup summary, so the
+    // owner's SMS text and the database row can never disagree. Phase 2 unifies them.
+    const outcome = cs.appointmentBooked ? "Appointment booked"
+      : cs.requestedCallback ? "Requested owner callback"
+      : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
+    // Status is derived from what actually happened, never hardcoded: a booking is a normal
+    // completion, an owner transfer and a voicemail are their own outcomes, and "missed" means
+    // the caller never engaged at all (no language choice, no DTMF) — the same heuristic the
+    // missed-call auto-callback uses.
+    const status = cs.appointmentBooked ? 'ended'
+      : cs.transferred ? 'transferred'
+      : cs.voicemail ? 'voicemail'
+      : !cs.answered && cs.dtmfHistory.length === 0 ? 'missed'
+      : 'ended';
+    const endedAt = new Date();
+    const metadata = JSON.stringify({
+      outcome,
+      appointmentBooked: cs.appointmentBooked,
+      appointmentIntent: cs.appointmentIntent,
+      requestedCallback: cs.requestedCallback,
+      transferred: cs.transferred,
+      answered: cs.answered,
+      dtmf: cs.dtmfHistory,
+      language: cs.language,
+    });
+
     // Create a conversation record for this call
     const conversationId = crypto.randomUUID();
     await sql`
-      INSERT INTO conversations (id, organization_id, contact_id, type, status, direction, started_at)
-      VALUES (${conversationId}, ${cs.orgId}, ${contactId}, 'call', 'ended', 'inbound', ${cs.startTime.toISOString()})
+      INSERT INTO conversations
+        (id, organization_id, contact_id, phone_number_id, type, status, direction,
+         twilio_call_sid, started_at, ended_at, escalated_to_human, escalated_at, metadata)
+      VALUES
+        (${conversationId}, ${cs.orgId}, ${contactId}, ${phoneNumberId}, 'call', ${status}::conversation_status, 'inbound',
+         ${cs.callControlId || null}, ${cs.startTime.toISOString()}, ${endedAt.toISOString()},
+         ${cs.transferred}, ${cs.transferred ? endedAt.toISOString() : null}, ${metadata}::jsonb)
     `;
+
+    // Missed calls get their own row (this table had no writer before). missed_calls has a
+    // single timestamp column (created_at), so the call start goes there and the elapsed
+    // time is kept in ring_duration_seconds.
+    if (status === 'missed') {
+      const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - cs.startTime.getTime()) / 1000));
+      await sql`
+        INSERT INTO missed_calls
+          (id, organization_id, phone_number_id, contact_id, caller_number, caller_name,
+           twilio_call_sid, ring_duration_seconds, callback_requested, created_at)
+        VALUES
+          (${crypto.randomUUID()}, ${cs.orgId}, ${phoneNumberId}, ${contactId}, ${cs.callerNumber},
+           ${cs.callerFirstName || null}, ${cs.callControlId || null}, ${durationSeconds},
+           ${cs.requestedCallback}, ${cs.startTime.toISOString()})
+      `;
+    }
 
     // If DTMF was pressed, record it as a message
     if (cs.dtmfHistory.length > 0) {
@@ -548,6 +609,8 @@ interface CallState {
   transferred: boolean;
   transferring: boolean;
   requestedCallback: boolean;
+  voicemail: boolean;
+  callControlId: string;
   bookingSlots?: { date: string; time: string; endTime: string }[];
 }
 const calls = new Map<string, CallState>(); // cid → CallState
@@ -685,16 +748,48 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
       if (cs.surveySent) return;
       cs.surveySent = true;
       if (rating >= 1 && rating <= 5) {
-        // Store rating (in DB via saveCallerHistory or a separate update)
+        // Store the rating on this caller's most recent conversation. The row for the call in
+        // progress does not exist yet (it is INSERTed at hangup), so target the previous
+        // conversation for THIS contact rather than the organization's latest one.
         if (cs.orgId) {
           try {
             const dbUrl = process.env.DATABASE_URL;
             if (dbUrl) {
               const sql = neon(dbUrl);
-              // Find the latest conversation and add the rating
-              await sql`UPDATE conversations SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('rating', ${rating}) WHERE organization_id = ${cs.orgId} ORDER BY created_at DESC LIMIT 1`;
+              let contactId: string | null = cs.callerContactId || null;
+              if (!contactId) {
+                const cRows = await sql`
+                  SELECT id FROM contacts
+                  WHERE phone = ${cs.callerNumber}
+                    AND organization_id = ${cs.orgId}
+                  ORDER BY created_at DESC
+                  LIMIT 1
+                `;
+                contactId = (cRows[0]?.id as string) || null;
+              }
+              if (contactId) {
+                // Postgres rejects ORDER BY/LIMIT on UPDATE — scope the subquery instead.
+                const rated = await sql`
+                  UPDATE conversations
+                  SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('rating', ${rating}::int),
+                      updated_at = NOW()
+                  WHERE id = (
+                    SELECT id FROM conversations
+                    WHERE organization_id = ${cs.orgId}
+                      AND contact_id = ${contactId}
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                  )
+                  RETURNING id
+                `;
+                if (!rated[0]) console.log("[Survey] No earlier conversation for this caller — rating not stored");
+              } else {
+                console.log("[Survey] Caller has no contact record yet — rating not stored");
+              }
             }
-          } catch {}
+          } catch (err) {
+            console.warn("[Survey] storing rating failed:", String(err).slice(0, 120));
+          }
         }
         if (rating <= 2 && cs.orgId) {
           // Notify owner for poor ratings
@@ -1615,6 +1710,8 @@ for (let attempt = 1; ; attempt++) {
                 transferred: false,
                 transferring: false,
                 requestedCallback: false,
+                voicemail: false,
+                callControlId: cid,
               });
 
               await cmd(cid, "answer");
@@ -1637,6 +1734,7 @@ for (let attempt = 1; ; attempt++) {
               const duration = parseInt(p.data?.payload?.duration || "0", 10);
               const cs = calls.get(cid);
               if (cs && recordingUrl && cs.orgId) {
+                cs.voicemail = true; // this call was a voicemail, not a normal completion
                 await saveVoicemailRecording(callSid || cid, recordingUrl, duration, cs.orgId, cs.callerNumber);
                 await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
                 const es = (cs.language || "en") === "es";
@@ -1806,6 +1904,7 @@ for (let attempt = 1; ; attempt++) {
                 // Voicemail recording
                 if (cs) {
                   cs.answered = true;
+                  cs.voicemail = true; // persisted as conversations.status = 'voicemail' at hangup
                   cs.phase = "menu";
                 }
                 await startVoicemailRecording(cid, lang);
