@@ -280,12 +280,15 @@ function DemoPage() {
               ))}
             </div>
           </div>
+          <p className="mt-3 text-center text-xs text-gray-400">
+            Example calendar — sample appointments shown for illustration, not real customer data.
+          </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">⏰</span>
               <h4 className="mt-2 font-semibold text-gray-900">Auto-Confirmations</h4>
-              <p className="mt-1 text-xs text-gray-500">SMS and email confirmations sent instantly after booking</p>
+              <p className="mt-1 text-xs text-gray-500">SMS confirmation sent instantly after booking</p>
             </div>
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">🔔</span>
@@ -300,60 +303,53 @@ function DemoPage() {
           </div>
         </div>
 
-        {/* Testimonials */}
+        {/* What you actually get — no customer quotes (we have none yet) */}
         <div className="mt-24">
           <div className="text-center">
-            <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">Testimonials</span>
-            <h2 className="mt-4 text-2xl font-bold text-gray-900 sm:text-3xl">Trusted by businesses like yours</h2>
+            <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">Live today</span>
+            <h2 className="mt-4 text-2xl font-bold text-gray-900 sm:text-3xl">What happens when you call</h2>
             <p className="mx-auto mt-3 max-w-xl text-gray-600">
-              See what other service business owners say about ReceptionAI.
+              ReceptionAI is new, so we're not going to quote customers we don't have yet. Call the number below and
+              check every one of these yourself.
             </p>
           </div>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
-                quote: "We were missing about 10 calls a day. Since we switched to ReceptionAI, we haven't missed a single one. It books appointments automatically and our customers love that someone answers instantly.",
-                name: "Mike Torres", business: "Torres HVAC & Plumbing", initials: "MT", color: "bg-red-100 text-red-600",
+                icon: "🗣️",
+                title: "A real conversation, in English or Spanish",
+                body: "Press 1 for English or 2 for Spanish before the menu. No phone tree — you can just say what you need.",
               },
               {
-                quote: "I was skeptical about AI answering my dental patients, but after the first week I was sold. The Spanish/English switching is huge for my practice — my bilingual patients feel much more comfortable.",
-                name: "Dr. Sofia Kim", business: "BrightSmile Dental", initials: "SK", color: "bg-blue-100 text-blue-600",
+                icon: "📅",
+                title: "Books on the call, from your real calendar",
+                body: "It reads live availability — your hours, your holidays, appointments already booked and a 15-minute buffer — books the slot, then texts the caller a confirmation.",
               },
               {
-                quote: "Setup took 15 minutes. The AI handles 90% of my inbound calls and I only get transferred the complex legal intakes. It's like hiring a receptionist for $99/mo.",
-                name: "James Carter", business: "Carter Law Group", initials: "JC", color: "bg-amber-100 text-amber-600",
+                icon: "🔔",
+                title: "Reminders that go out on their own",
+                body: "A text 24 hours before the appointment and again 2 hours before, in the caller's language.",
               },
               {
-                quote: "Best decision I've made for my business this year. My human receptionist went part-time, and ReceptionAI filled the gap flawlessly. Our booking rate went up 40%.",
-                name: "Lisa Rodriguez", business: "Elite Med Spa", initials: "LR", color: "bg-green-100 text-green-600",
+                icon: "🧑‍💼",
+                title: "Press 3 and the call rings your phone",
+                body: "Ask for a person and the call is bridged to you. If you can't pick up, the caller gets a text back so the conversation doesn't just end.",
               },
               {
-                quote: "I used to dread checking my voicemail after a weekend. Now every call is answered, every appointment booked. The SMS reminders alone cut our no-shows in half.",
-                name: "Dave Chen", business: "Chen Electric", initials: "DC", color: "bg-purple-100 text-purple-600",
+                icon: "📱",
+                title: "A summary text after every call",
+                body: "Caller, duration, outcome and what they wanted — sent to your phone, no dashboard login needed.",
               },
               {
-                quote: "We run 4 trucks and my office manager was overwhelmed. ReceptionAI handles scheduling, rescheduling, and follow-ups. My team actually leaves on time now.",
-                name: "Alex Morton", business: "Morton Home Services", initials: "AM", color: "bg-pink-100 text-pink-600",
+                icon: "🎙️",
+                title: "Voicemail you can actually play",
+                body: "Press 9 to leave a message: the recording is saved, playable in your dashboard, and you're alerted once.",
               },
-            ].map((t) => (
-              <div key={t.name} className="group rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition hover:shadow-md">
-                <div className="flex items-center gap-1 text-indigo-500">
-                  {[...Array(5)].map((_, i) => (
-                    <svg key={i} className="h-4 w-4 fill-current" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                  ))}
-                </div>
-                <p className="mt-3 text-sm leading-relaxed text-gray-600">"{t.quote}"</p>
-                <div className="mt-4 flex items-center gap-3 border-t border-gray-50 pt-4">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium ${t.color}`}>
-                    {t.initials}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{t.name}</p>
-                    <p className="text-xs text-gray-500">{t.business}</p>
-                  </div>
-                </div>
+            ].map((f) => (
+              <div key={f.title} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition hover:shadow-md">
+                <div className="text-2xl">{f.icon}</div>
+                <h3 className="mt-3 font-semibold text-gray-900">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">{f.body}</p>
               </div>
             ))}
           </div>
@@ -381,8 +377,8 @@ function DemoPage() {
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             {[
               { icon: "🤖", title: "AI Call Answering", desc: "24/7 inbound call handling with natural conversation" },
-              { icon: "📅", title: "Auto Scheduling", desc: "Calendar sync & automatic appointment booking" },
-              { icon: "💬", title: "Multi-Channel", desc: "Voice, SMS, web chat, WhatsApp & Facebook" },
+              { icon: "📅", title: "Auto Scheduling", desc: "Books appointments automatically on your built-in calendar" },
+              { icon: "💬", title: "Multi-Channel", desc: "Voice, SMS and web chat. WhatsApp and Facebook are in development." },
               { icon: "🌐", title: "Bilingual", desc: "English & Spanish — seamless switching" },
               { icon: "🔄", title: "Human Handoff", desc: "Smart escalation when needed" },
               { icon: "📊", title: "Analytics", desc: "Track calls, bookings, and missed opportunities" },

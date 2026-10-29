@@ -59,18 +59,31 @@ function LoginPage() {
                       </Link>
         </div>
         <div className="max-w-md">
-          <blockquote className="text-2xl font-semibold leading-snug">
-            "We went from missing 40% of our calls to answering every single one. Our bookings doubled in the first month."
-          </blockquote>
-          <div className="mt-6 flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-lg font-bold">
-              MJ
-            </div>
-            <div>
-              <p className="font-medium">Marcus Johnson</p>
-              <p className="text-sm text-indigo-200">Johnson's HVAC Services</p>
-            </div>
-          </div>
+          <h2 className="text-2xl font-semibold leading-snug">Everything your receptionist handled, in one place.</h2>
+          <ul className="mt-6 space-y-3 text-sm text-indigo-100">
+            {[
+              "Every call, text and web chat, with the transcript",
+              "Appointments on your live calendar",
+              "Voicemail recordings you can play",
+              "Missed calls, so you can call them back",
+              "Analytics for your own business",
+            ].map((item) => (
+              <li key={item} className="flex items-start gap-3">
+                <svg
+                  className="mt-0.5 h-4 w-4 shrink-0 text-white"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
         </div>
         <div className="flex items-center gap-6 text-sm text-indigo-200">
           <span>© 2026 ReceptionAI</span>
