@@ -4191,6 +4191,15 @@ for (let attempt = 1; ; attempt++) {
             const settingsRows = await sql`SELECT key, value FROM organization_settings WHERE organization_id = ${organizationId}`;
             const settings: Record<string, unknown> = {};
             for (const s of settingsRows as any[]) settings[s.key] = s.value;
+            // The business's own line(s) — the number the dashboard shows and the owner hands
+            // to customers. Org-scoped, never another org's number. An empty list is a real
+            // answer: the number is still being provisioned, and the UI says so rather than
+            // inventing one. (organizations.phone is the owner's personal mobile — never here.)
+            const numberRows = await sql`
+              SELECT phone_number, is_active FROM phone_numbers
+              WHERE organization_id = ${organizationId}
+              ORDER BY created_at ASC
+            `;
             return json({
               organization: org ? {
                 id: org.id, name: org.name, slug: org.slug, timezone: org.timezone,
@@ -4198,6 +4207,10 @@ for (let attempt = 1; ; attempt++) {
                 website: org.website, addressLine1: org.address_line1, city: org.city,
                 state: org.state, postalCode: org.postal_code, transferNumber: org.transfer_number,
               } : null,
+              phoneNumbers: (numberRows as any[]).map((p: any) => ({
+                phoneNumber: p.phone_number,
+                isActive: p.is_active === true || p.is_active === "1",
+              })),
               businessHours: (hours as any[]).map((h: any) => ({
                 dayOfWeek: h.day_of_week, openTime: h.open_time, closeTime: h.close_time, isClosed: h.is_closed,
               })),

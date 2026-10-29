@@ -1,6 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
 import { api } from "~/lib/api-client";
+import { useSettings, primaryPhoneNumber, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -43,8 +44,11 @@ function SetupPage() {
   // Step 3
   const [services, setServices] = useState("");
 
-  // Step 4
-  const phoneNumber = "(555) " + String(Math.floor(Math.random() * 900) + 100) + "-" + String(Math.floor(Math.random() * 9000) + 1000);
+  // Step 4 — the number we actually bought for this business, from `phone_numbers` (org-scoped).
+  // Never a generated placeholder: if there is no number yet the page says so honestly.
+  const { data: settingsData, loading: loadingSettings } = useSettings();
+  const rawPhoneNumber = primaryPhoneNumber(settingsData?.phoneNumbers);
+  const phoneNumber = formatPhoneNumber(rawPhoneNumber);
 
   const [saving, setSaving] = useState(false);
 
@@ -216,22 +220,45 @@ function SetupPage() {
           {step === 4 && (
             <div className="text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">📞</div>
-              <h2 className="mt-4 text-xl font-bold text-gray-900">Your AI receptionist is ready</h2>
-              <p className="mt-1 text-sm text-gray-500">Your number is live and answering calls right now.</p>
+              <h2 className="mt-4 text-xl font-bold text-gray-900">
+                {rawPhoneNumber ? "Your AI receptionist is ready" : "Almost there"}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                {rawPhoneNumber
+                  ? "Your number is live and answering calls right now."
+                  : loadingSettings
+                    ? "Checking your number…"
+                    : NO_PHONE_YET_MESSAGE}
+              </p>
 
-              <div className="mt-6 rounded-2xl border-2 border-green-100 bg-green-50/50 p-6">
-                <p className="text-xs font-medium text-green-700">Your number</p>
-                <p className="mt-1 text-3xl font-bold tracking-tight text-gray-900">{phoneNumber}</p>
-                <p className="mt-2 text-xs text-gray-500">Save this number. Your AI receptionist answers calls 24/7.</p>
-              </div>
+              {rawPhoneNumber ? (
+                <div className="mt-6 rounded-2xl border-2 border-green-100 bg-green-50/50 p-6">
+                  <p className="text-xs font-medium text-green-700">Your number</p>
+                  <p className="mt-1 text-3xl font-bold tracking-tight text-gray-900">{phoneNumber}</p>
+                  <p className="mt-2 text-xs text-gray-500">Save this number. Your AI receptionist answers calls 24/7.</p>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-2xl border-2 border-gray-100 bg-gray-50/50 p-6">
+                  <p className="text-xs font-medium text-gray-500">Your number</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {loadingSettings ? "Checking your number…" : NO_PHONE_YET_MESSAGE}
+                  </p>
+                </div>
+              )}
 
               <div className="mt-6 space-y-2">
-                <a
-                  href={`tel:${phoneNumber.replace(/\D/g, "")}`}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700"
-                >
-                  📞 Test your number
-                </a>
+                {rawPhoneNumber ? (
+                  <a
+                    href={`tel:${rawPhoneNumber.replace(/[^\d+]/g, "")}`}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700"
+                  >
+                    📞 Test your number
+                  </a>
+                ) : (
+                  <p className="text-xs text-gray-400">
+                    You can test the line from your dashboard as soon as it is live.
+                  </p>
+                )}
               </div>
             </div>
           )}

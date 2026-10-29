@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { useConversations, useAppointments, useSettings } from "~/lib/hooks/use-data";
+import { useConversations, useAppointments, useSettings, primaryPhoneNumber, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/")({
   component: DashboardOverview,
@@ -9,7 +9,7 @@ export const Route = createFileRoute("/dashboard/")({
 function DashboardOverview() {
   const { data: conversationsData, loading: loadingConv } = useConversations(50, 0);
   const { data: appointmentsData, loading: loadingAppt } = useAppointments({ limit: 50 });
-  const { data: settingsData } = useSettings();
+  const { data: settingsData, loading: loadingSettings } = useSettings();
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
 
   const loading = loadingConv || loadingAppt;
@@ -17,10 +17,10 @@ function DashboardOverview() {
   const appointments = appointmentsData?.appointments || [];
   const hasRealData = conversations.length > 0 || appointments.length > 0;
 
-  // Use real org phone from settings, fallback gracefully
-  const phoneNumber = settingsData?.phoneNumbers?.[0]?.phoneNumber
-    || settingsData?.organization?.phone
-    || "";
+  // The business's own line, straight from `phone_numbers` (org-scoped). organizations.phone is
+  // the owner's personal mobile — an internal alert/transfer destination, never shown publicly —
+  // so it is deliberately NOT a fallback here. No number yet is an honest state, not a fake one.
+  const phoneNumber = primaryPhoneNumber(settingsData?.phoneNumbers);
 
   // Check if business hours have been customized (not default Mon-Fri 9-5)
   const defaultHours = settingsData?.businessHours?.every((h: any) => {
@@ -74,7 +74,13 @@ function DashboardOverview() {
             <p className="mt-2 text-base text-gray-500">It answers calls, books appointments, and handles messages — 24 hours a day, in English and Spanish.</p>
             <div className="mt-6">
               <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Your business number</p>
-              <p className="mt-0.5 text-3xl font-bold tracking-tight text-gray-900">{phoneNumber || "Loading..."}</p>
+              {phoneNumber ? (
+                <p className="mt-0.5 text-3xl font-bold tracking-tight text-gray-900">{formatPhoneNumber(phoneNumber)}</p>
+              ) : (
+                <p className="mt-0.5 text-base font-medium text-gray-500">
+                  {loadingSettings ? "Checking your number…" : NO_PHONE_YET_MESSAGE}
+                </p>
+              )}
             </div>
             <div className="mt-7 flex flex-wrap gap-3">
               {isSetupComplete ? (

@@ -306,10 +306,39 @@ interface OrgSettings {
     locale: string;
     industry?: string;
   };
+  /**
+   * The business's own line(s), straight from `phone_numbers` (org-scoped). Empty means the
+   * number is still being provisioned — show the honest "we'll text you" state, never a made-up
+   * number. This is NOT organizations.phone (the owner's personal mobile, internal-only).
+   */
+  phoneNumbers?: PhoneNumberEntry[];
   businessHours: BusinessHoursDay[];
   transferNumber?: string | null;
   settings: Record<string, unknown>;
 }
+
+export interface PhoneNumberEntry {
+  phoneNumber: string;
+  isActive?: boolean;
+}
+
+/** The active line if there is one, else the first provisioned one, else "" (none yet). */
+export function primaryPhoneNumber(numbers?: PhoneNumberEntry[] | null): string {
+  if (!numbers?.length) return "";
+  return (numbers.find((n) => n.isActive) || numbers[0])?.phoneNumber || "";
+}
+
+/** +17279667556 → (727) 966-7556. Anything not a 10/11-digit US number passes through as stored. */
+export function formatPhoneNumber(raw?: string | null): string {
+  if (!raw) return "";
+  const digits = raw.replace(/\D/g, "");
+  const national = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  if (national.length !== 10) return raw;
+  return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+}
+
+/** Shown wherever a business has no number yet — no fake digits, no endless "Loading...". */
+export const NO_PHONE_YET_MESSAGE = "Your number is being set up — we'll text you when it's live.";
 
 export function useSettings() {
   const { data, loading, error, refetch } = useApiData<OrgSettings>("/api/settings");
