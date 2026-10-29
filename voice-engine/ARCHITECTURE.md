@@ -1179,7 +1179,7 @@ OPENAI_MODEL=gpt-4o
 # ─── ElevenLabs ──────────────────────────────────────────────────
 ELEVENLABS_API_KEY=xxxxxxxxxx
 ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM  # Rachel (English)
-ELEVENLABS_VOICE_ID_ES=xxxxxxxxxx          # Spanish voice ID
+# English only — Spanish always speaks through Polly.Lupe-Neural (es-US)
 
 # ─── Calendar (future) ──────────────────────────────────────────
 GOOGLE_CLIENT_ID=xxxxxxxxxx
