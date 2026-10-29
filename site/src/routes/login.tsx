@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { login } from "../lib/auth";
 
 export const Route = createFileRoute("/login")({
@@ -13,6 +13,14 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("login");
   const router = useRouter();
+
+  // Prefilled from /login?email=… — the post-payment fallback sends the customer here with
+  // their address already typed in, so they never have to retype it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prefill = new URLSearchParams(window.location.search).get("email");
+    if (prefill) setEmail(prefill);
+  }, []);
 
   const handleLogin = async () => {
     setError("");

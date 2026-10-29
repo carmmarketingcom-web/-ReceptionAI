@@ -1,5 +1,7 @@
 import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getToken } from "~/lib/auth";
+import { useSettings, useSubscription } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard")({
   component: DashboardLayout,
@@ -43,8 +45,38 @@ const navItems = [
 
 function DashboardLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Auth guard: the dashboard renders nothing until we know there is a session. Without a
+  // token there is no org to show, so send the visitor to the login page instead of
+  // rendering an empty shell that looks like somebody else's account.
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    if (!getToken()) {
+      window.location.replace("/login");
+      return;
+    }
+    setHasSession(true);
+  }, []);
+
+  // Real business identity for the header. The org name comes from /api/settings (the same
+  // org-scoped row the Settings page edits); the plan comes from /api/billing. If either is
+  // unknown we render nothing rather than inventing "Demo Business" / "Growth Plan".
+  const { data: settings } = useSettings();
+  const { data: billing } = useSubscription();
+  const orgName = (settings?.organization?.name || "").trim();
+  const planName = (billing?.subscription?.planName || "").trim();
+  const initials =
+    orgName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((word) => word[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "";
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+
+  if (!hasSession) return null;
 
   return (
     <div className="flex min-h-dvh bg-gray-50">
@@ -150,14 +182,18 @@ function DashboardLayout() {
             </button>
           </div>
 
-          {/* User avatar */}
+          {/* User avatar — the signed-in business, from its own org record */}
           <div className="flex items-center gap-3">
             <div className="hidden text-right md:block">
-              <p className="text-sm font-medium text-gray-900">Demo Business</p>
-              <p className="text-xs text-gray-500">Growth Plan</p>
+              {orgName && <p className="text-sm font-medium text-gray-900">{orgName}</p>}
+              {planName && <p className="text-xs text-gray-500">{planName}</p>}
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-600">
-              DB
+              {initials || (
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              )}
             </div>
           </div>
         </header>

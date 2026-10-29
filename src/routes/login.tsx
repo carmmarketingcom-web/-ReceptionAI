@@ -14,6 +14,14 @@ function LoginPage() {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
 
+  // Prefilled from /login?email=… — the post-payment fallback sends the customer here with
+  // their address already typed in, so they never have to retype it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prefill = new URLSearchParams(window.location.search).get("email");
+    if (prefill) setEmail(prefill);
+  }, []);
+
   // Native submit handler — React onSubmit doesn't fire on some mobile browsers
   useEffect(() => {
     const form = formRef.current;

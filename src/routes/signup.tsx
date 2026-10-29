@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import Header from "~/components/Header";
 import Footer from "~/components/Footer";
+import { stashPendingSignup } from "~/lib/auth";
 
 export const Route = createFileRoute("/signup")({
   component: SignupPage,
@@ -75,6 +76,10 @@ function SignupPage() {
 
       const { url } = (await res.json()) as { url: string };
       if (url) {
+        // Hand the credentials to the success page so it can sign the customer in when
+        // Stripe sends them back. Session-scoped, wiped the moment it is read, and never
+        // put in a URL (the password must not end up in history or server logs).
+        stashPendingSignup(email, password);
         window.location.href = url;
         return;
       }
