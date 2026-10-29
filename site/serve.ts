@@ -3665,7 +3665,7 @@ for (let attempt = 1; ; attempt++) {
               if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
                 return isEs
                   ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por SMS, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
-                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, SMS confirmations and reminders, voicemail, missed-call alerts, web chat, owner transfer, built-in calendar. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
+                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, SMS confirmations and reminders, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, and a real call-analytics dashboard. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
               }
               // Services: the same capabilities the model path is given as facts.
               if (has("services", "service", "servicios", "servicio", "features", "feature", "funciones", "funcion", "what do you do", "what do you offer", "que hace", "que hacen", "que ofrece", "que ofrecen", "ofrece", "ofrecen")) {
@@ -3750,7 +3750,7 @@ for (let attempt = 1; ; attempt++) {
                   "- Live today: catches voicemail and sends missed-call alerts; web chat; SMS messaging; “talk to the owner” call transfer (press 3); built-in calendar with preset business hours (no Google account needed).",
                   "- Free live demo line: call (727) 966-7556.",
                   "- Support: email hello@receptionai.store.",
-                  "- Coming soon (NOT live yet — say so honestly if asked): WhatsApp and Facebook messaging, a unified multi-channel inbox, an advanced analytics dashboard, per-member team schedules and routing, call-recording audio playback, custom call scripts, and sentiment-based smart handoff.",
+                  "- Coming soon (NOT live yet — say so honestly if asked): WhatsApp and Facebook messaging, a unified multi-channel inbox, per-member team schedules and routing, custom call scripts, and sentiment-based smart handoff.",
                   "- Scale plan: 24/7 priority support with same-day human response; web-chat requests for a human or support are passed to the team.",
                 ];
                 const FACT_LINES_ES = [
