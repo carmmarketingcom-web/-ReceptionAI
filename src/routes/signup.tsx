@@ -11,6 +11,7 @@ export const Route = createFileRoute("/signup")({
 function SignupPage() {
   const [fullName, setFullName] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [zipCode, setZipCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [plan, setPlan] = useState("starter");
@@ -47,6 +48,14 @@ function SignupPage() {
       return;
     }
 
+    // The ZIP decides the business's timezone (booking slots, reminders) and the area code its
+    // new number is bought in — so it is required, but it is the only extra thing we ask for.
+    const zip = zipCode.replace(/[^0-9]/g, "");
+    if (!/^\d{5}$/.test(zip)) {
+      setError("Please enter your 5-digit business ZIP code");
+      return;
+    }
+
     if (!acknowledgedTerms) {
       setError("Please acknowledge the terms to continue");
       return;
@@ -66,6 +75,7 @@ function SignupPage() {
           useExistingNumber: false,
           existingPhoneNumber: "",
           password,
+          postalCode: zip,
         }),
       });
 
@@ -174,6 +184,28 @@ function SignupPage() {
                   className="mt-1 block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
                 />
                 <p className="mt-1 text-xs text-gray-500">This is the name your callers will hear.</p>
+              </div>
+
+              {/* Business ZIP — sets the timezone for bookings and makes the new number local */}
+              <div>
+                <label htmlFor="signupZip" className="block text-sm font-semibold text-gray-700">
+                  Business ZIP code
+                </label>
+                <input
+                  id="signupZip"
+                  type="text"
+                  required
+                  inputMode="numeric"
+                  autoComplete="postal-code"
+                  maxLength={10}
+                  value={zipCode}
+                  onChange={(e) => { setZipCode(e.target.value); setError(""); }}
+                  placeholder="33701"
+                  className="mt-1 block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  So your new number is local and your appointments use your timezone.
+                </p>
               </div>
 
               {/* Email */}

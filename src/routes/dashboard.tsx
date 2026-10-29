@@ -76,6 +76,10 @@ function DashboardLayout() {
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
+  // Until the owner's mobile is set, press-3 transfer and every owner text have nowhere to go.
+  // The banner follows them across the dashboard and disappears the moment the number is saved.
+  const needsOwnerMobile = !!settings?.organization && !(settings.organization.phone || "").trim();
+
   if (!hasSession) return null;
 
   return (
@@ -200,6 +204,20 @@ function DashboardLayout() {
 
         {/* Main content */}
         <main className="flex-1 p-4 md:p-6 lg:p-8">
+          {needsOwnerMobile && (
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-amber-900">
+                <span className="font-semibold">Add your mobile number</span> — so missed-call alerts,
+                call summaries and "press 3" transfers actually reach you.
+              </p>
+              <Link
+                to="/setup"
+                className="inline-flex flex-shrink-0 items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700"
+              >
+                Add it now
+              </Link>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

@@ -305,6 +305,12 @@ interface OrgSettings {
     timezone: string;
     locale: string;
     industry?: string;
+    /**
+     * The owner's mobile (organizations.phone) — the destination for press-3 transfers and every
+     * owner alert. Owner-only: it is read to pre-fill the setup step and to know whether the
+     * "add your mobile" banner still applies, never rendered to callers or on the marketing site.
+     */
+    phone?: string | null;
   };
   /**
    * The business's own line(s), straight from `phone_numbers` (org-scoped). Empty means the

@@ -5177,9 +5177,11 @@ for (let attempt = 1; ; attempt++) {
             const body = await req.json() as {
               companyName?: string; email?: string; name?: string; plan?: string;
               useExistingNumber?: boolean; existingPhoneNumber?: string; password?: string;
+              postalCode?: string;
             };
             const { companyName = "", email = "", name = "", plan = "",
-                    useExistingNumber, existingPhoneNumber = "", password = "" } = body;
+                    useExistingNumber, existingPhoneNumber = "", password = "",
+                    postalCode = "" } = body;
 
             if (!companyName || !email || !name || !plan) {
               return new Response(JSON.stringify({ error: "Missing required fields: companyName, email, name, plan" }),
@@ -5221,6 +5223,12 @@ for (let attempt = 1; ; attempt++) {
               "metadata[password]": password,
               "metadata[useExistingNumber]": String(!!useExistingNumber),
               "metadata[existingPhoneNumber]": existingPhoneNumber,
+              // Where the business is: the webhook turns this into the org's timezone and the
+              // area code its number is bought in.
+              "metadata[postalCode]": postalCode,
+              // Stripe collects the owner's mobile here so the setup step can pre-fill it. It is
+              // never put in the checkout funnel as a second form — Stripe's own field does it.
+              "phone_number_collection[enabled]": "true",
               "discounts[0][coupon]": "0JvBz6Xv",
               "subscription_data[metadata][companyName]": companyName,
             });
