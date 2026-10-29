@@ -93,56 +93,98 @@ function smartReply(message: string, lang: string): string {
   const msg = message.toLowerCase();
   const isEs = lang === "es";
 
-  // Contract + cancellation first: "plan"/"planes" is a pricing keyword, so a
-  // contract question would otherwise be answered with prices.
-  if (msg.includes("contract") || msg.includes("contrato") || msg.includes("commitment") || msg.includes("binding") || msg.includes("compromiso") || msg.includes("a plazo")) {
+  // Accent-insensitive whole-word matching: "qué hacen" must match "que hacen" and
+  // "facturación" must match "facturacion". Substring matching answered the wrong
+  // question (e.g. "do" inside "window", "plan" inside "planning").
+  const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const nmsg = norm(msg);
+  const has = (...words: string[]) => words.some((w) => new RegExp(`\\b${norm(w)}\\b`, "i").test(nmsg));
+  // Branch ORDER matters: contract/cancellation sit above pricing ("plan"/"planes" is a
+  // pricing keyword), trial sits above demo ("prueba" is a demo keyword), and coming-soon
+  // sits above services ("funciones"/"features" is a services keyword). Every answer below
+  // uses ONLY facts the model path is given, and fits the 300-char reply cap.
+  if (has("contract", "contracts", "commitment", "binding", "long-term", "contrato", "contratos", "compromiso", "obligacion", "a plazo")) {
     return isEs
       ? "Sin contratos — todos los planes son mensuales y puedes cancelar cuando quieras."
       : "No contracts — every plan is month-to-month and you can cancel anytime.";
   }
-  if (msg.includes("cancel") || msg.includes("darse de baja")) {
+  if (has("cancel", "cancellation", "cancelar", "cancela", "cancelo", "cancelas", "cancelan", "cancelacion", "darse de baja", "darme de baja", "dar de baja")) {
     return isEs
       ? "Puedes cancelar cuando quieras desde tu panel (Facturación → cancelar) o escribiendo a hello@receptionai.store — sin cargos."
       : "Cancel anytime from your dashboard (Billing → cancel) or email hello@receptionai.store — no cancellation fees.";
   }
-  if (msg.includes("price") || msg.includes("pricing") || msg.includes("cost") || msg.includes("precio") || msg.includes("costo") || msg.includes("cuanto")) {
+  if (has("price", "prices", "pricing", "cost", "costs", "precio", "precios", "costo", "costos", "tarifa", "tarifas", "plan", "plans", "planes", "how much", "cuanto")) {
     return isEs
-      ? "Starter: $99/mes (1 linea, 500 min IA), Growth: $199/mes (2 lineas, 2000 min), Scale: $399/mes (ilimitado). Quieres registrarte?"
-      : "Starter: $99/mo (1 line, 500 AI-min), Growth: $199/mo (2 lines, 2000 min), Scale: $399/mo (unlimited). Founders get 50% off their first 3 months (limited to the first 100 customers). Want to sign up?";
+      ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado)."
+      : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).";
   }
-  if (msg.includes("demo") || msg.includes("try") || msg.includes("test") || msg.includes("probar")) {
+  // Trial sits ABOVE demo: "prueba" is also a demo keyword, and there is no free trial.
+  if (has("trial", "free trial", "free version", "free month", "prueba gratis", "prueba gratuita", "mes gratis", "version gratuita")) {
     return isEs
-      ? "Puedes probar ReceptionAI ahora mismo! Llama al (727) 966-7556 y habla con nuestro recepcionista IA. O registrate en receptionai.store/signup — los fundadores obtienen 50% de descuento los primeros 3 meses."
-      : "You can try ReceptionAI right now! Call (727) 966-7556 and talk to our AI receptionist. Or sign up at receptionai.store/signup — founders get 50% off their first 3 months.";
+      ? "No hay prueba gratis — los planes son suscripciones mensuales y el primer mes se cobra al momento de la compra. Puedes probar la demo en vivo llamando al (727) 966-7556."
+      : "There's no free trial — plans are monthly subscriptions and the first month is charged at checkout. You can try the live demo first: call (727) 966-7556.";
   }
-  if (msg.includes("feature") || msg.includes("do") || msg.includes("what") || msg.includes("que hace") || msg.includes("funcion")) {
+  if (has("billing", "billed", "bill", "invoice", "invoices", "charged", "charge", "charges", "facturacion", "factura", "facturas", "cobran", "cobro", "cobrar", "pago", "pagos")) {
     return isEs
-      ? "Responde llamadas/textos/chats 24/7 en ingles y espanol. Programa citas, envia recordatorios, calendario incorporado (sin Google OAuth). Resumenes SMS al dueno tras cada llamada."
-      : "Answers calls/texts/chats 24/7 in English & Spanish. Auto-schedules appointments, sends reminders, built-in calendar (no Google OAuth). Post-call SMS summaries to the owner.";
+      ? "El primer mes se cobra al momento de la compra y después se renueva automáticamente cada mes hasta que canceles. Precio de fundador: 50% de descuento los primeros 3 meses para los primeros 100 clientes."
+      : "The first month is charged at checkout, then it renews automatically each month until you cancel. Founder pricing: 50% off the first 3 months for the first 100 customers.";
   }
-  if (msg.includes("signup") || msg.includes("register") || msg.includes("start") || msg.includes("registr") || msg.includes("comenzar")) {
+  if (has("hours", "hour", "business hours", "open", "abierto", "abren", "horario", "horarios", "24/7", "24-7", "what time", "a que hora")) {
     return isEs
-      ? "Registrate en receptionai.store/signup. Elige un plan y comienza hoy — los fundadores ahorran 50% los primeros 3 meses."
-      : "Sign up at receptionai.store/signup. Pick a plan and get started — founders save 50% on their first 3 months.";
+      ? "La recepcionista IA contesta 24/7, sin horario de oficina: llamadas, chat web y textos de día y de noche en inglés y español. Las citas siguen el horario que configures en el calendario."
+      : "The AI receptionist answers 24/7 — there are no business hours. Calls, web chat and texts are handled day and night in English and Spanish, and bookings follow the hours you set.";
   }
-  if (msg.includes("contact") || msg.includes("phone") || msg.includes("email") || msg.includes("contacto") || msg.includes("telefono")) {
-    return "Call us at (727) 966-7556 or email hello@receptionai.store. We'd love to help!";
-  }
-  if (msg.includes("hi") || msg.includes("hello") || msg.includes("hey") || msg.includes("hola")) {
+  // Coming-soon sits ABOVE services: "funciones"/"features" is a services keyword.
+  if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
     return isEs
-      ? "Hola! Soy el recepcionista IA de ReceptionAI. Respondo llamadas y programo citas 24/7. Como puedo ayudarte? Quieres conocer nuestros precios o probar una demo?"
-      : "Hi there! I'm ReceptionAI — I answer calls and book appointments 24/7 for small businesses. How can I help? Want to hear about pricing or try a demo?";
+      ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por SMS, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
+      : "Live today: 24/7 calls in English and Spanish, booking by phone and web, SMS confirmations and reminders, voicemail, missed-call alerts, web chat, owner transfer, built-in calendar. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
   }
-  if (msg.includes("calendar") || msg.includes("schedule") || msg.includes("booking") || msg.includes("cita") || msg.includes("calendario")) {
+  // Services: the same capabilities the model path is given as facts.
+  if (has("services", "service", "servicios", "servicio", "features", "feature", "funciones", "funcion", "what do you do", "what do you offer", "que hace", "que hacen", "que ofrece", "que ofrecen", "ofrece", "ofrecen")) {
     return isEs
-      ? "Nuestro calendario incorporado no necesita Google OAuth. Configura tu horario y listo. Los clientes reservan por telefono, web chat o SMS. Con confirmaciones y recordatorios automaticos."
-      : "Our built-in calendar needs no Google OAuth. Set your business hours once and you're done. Customers book via phone, web chat, or SMS. Auto confirmations and reminders included.";
+      ? "ReceptionAI contesta llamadas 24/7 en inglés y español, agenda citas por teléfono y en la web, envía confirmaciones y recordatorios por SMS y te manda un resumen después de cada llamada. También recibe mensajes de voz, avisa de llamadas perdidas, tiene chat web y SMS y transfiere llamadas al dueño."
+      : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments by phone and web, sends SMS confirmations and reminders, and texts you a summary after every call. It also catches voicemail, alerts you to missed calls, runs web chat and SMS, and can transfer callers to you.";
   }
-
-  // Default response
+  if (has("book", "booking", "appointment", "appointments", "reserva", "reservas", "reservar", "cita", "citas")) {
+    return isEs
+      ? "Reserva una demo llamando al (727) 966-7556, o registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
+      : "Book a demo by calling (727) 966-7556, or sign up at receptionai.store/signup. Plans start at $99/month.";
+  }
+  if (has("demo", "try", "probar", "prueba", "test")) {
+    return isEs
+      ? "Prueba la demo llamando al (727) 966-7556, o registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
+      : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup. Plans start at $99/month.";
+  }
+  if (has("signup", "sign up", "register", "start", "registrate", "registrarme", "registro", "empezar")) {
+    return isEs
+      ? "Registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
+      : "Sign up at receptionai.store/signup. Plans start at $99/month.";
+  }
+  if (has("calendar", "schedule", "calendario", "agenda", "agendar")) {
+    return isEs
+      ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o SMS y reciben confirmacion por SMS."
+      : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or SMS and get SMS confirmations.";
+  }
+  if (has("support", "soporte", "talk to a person", "hablar con una persona", "hablar con alguien", "atencion al cliente", "customer service", "servicio al cliente", "help desk")) {
+    return isEs
+      ? "Para hablar con una persona, escribe a hello@receptionai.store o llama a nuestra demo en vivo al (727) 966-7556. El plan Scale incluye soporte prioritario 24/7 con respuesta humana el mismo día."
+      : "For a person, email hello@receptionai.store or call our live demo line at (727) 966-7556. The Scale plan includes 24/7 priority support with a same-day human response.";
+  }
+  if (has("callback", "call back", "call me", "contact me", "reach me", "llamame", "llamarme", "que me llamen", "contactenme", "que me contacten", "escribeme", "escribirme")) {
+    return isEs
+      ? "Deja tu teléfono o correo en este chat y lo anoto para nuestro equipo. Para hablar con una persona ahora, llama a nuestra demo en vivo al (727) 966-7556."
+      : "Leave your phone or email in this chat and I'll note it for our team. For a human right now, call our live demo line at (727) 966-7556.";
+  }
+  if (/\b(hi|hello|hey|hola|buenas|saludos)\b/.test(nmsg)) {
+    return isEs
+      ? "Hola! Como puedo ayudarte? Puedo contarte sobre planes, funciones o como reservar una demo."
+      : "Hi! How can I help? I can tell you about plans, features, or how to book a demo.";
+  }
+  // No keyword matched: say so honestly instead of guessing.
   return isEs
-    ? "Soy el recepcionista IA de ReceptionAI — atiendo llamadas, programo citas y gestiono mensajes 24/7. Precios desde $99/mes. Preguntame sobre funciones, precios o como empezar!"
-    : "I'm ReceptionAI — I handle calls, book appointments, and manage messages 24/7 for service businesses. Plans from $99/mo with founder pricing. Ask me about features, pricing, or how to get started!";
+    ? "No estoy segura de eso — lo dejaré anotado para nuestro equipo. También puedes escribir a hello@receptionai.store o llamar a nuestra demo en vivo al (727) 966-7556."
+    : "I'm not sure about that — I'll flag it for our team. You can also email hello@receptionai.store or call our live demo at (727) 966-7556.";
 }
 
 export async function POST({ request }: { request: Request }) {
