@@ -3665,7 +3665,7 @@ for (let attempt = 1; ; attempt++) {
               if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
                 return isEs
                   ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por SMS, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
-                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, SMS confirmations and reminders, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, and a real call-analytics dashboard. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
+                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, SMS confirmations and reminders, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, call analytics. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
               }
               // Services: the same capabilities the model path is given as facts.
               if (has("services", "service", "servicios", "servicio", "features", "feature", "funciones", "funcion", "what do you do", "what do you offer", "que hace", "que hacen", "que ofrece", "que ofrecen", "ofrece", "ofrecen")) {
