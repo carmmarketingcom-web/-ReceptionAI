@@ -185,6 +185,17 @@ function SignupPage() {
               ·{" "}
               <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>.
             </p>
+
+            {/* Honest caveat — plans are monthly, and not every listed feature is live yet */}
+            <p className="mt-3 text-center text-xs text-gray-500">
+              Plans are month-to-month, no contracts. Some Growth and Scale features — WhatsApp +
+              Facebook messaging, advanced analytics, per-member routing — are still in
+              development.{" "}
+              <a href="/features" className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-700">
+                See the Features page
+              </a>
+              .
+            </p>
           </div>
         </div>
       </main>

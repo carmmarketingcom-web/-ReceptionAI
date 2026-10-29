@@ -540,9 +540,9 @@ function FeaturesOverview() {
     { icon: "phone", title: "24/7 Call Answering", desc: "Never miss a business opportunity. AI answers every call instantly, day or night, weekends and holidays included." },
     { icon: "globe", title: "Bilingual (English & Spanish)", desc: "Serve your customers in the language they're most comfortable with. Seamless switching between English and Spanish." },
     { icon: "calendar", title: "Smart Appointment Scheduling", desc: "AI reads your calendar and books appointments automatically. Sends confirmations, reminders, and follow-ups." },
-    { icon: "chat", title: "Omnichannel Inbox", desc: "Calls, texts, web chat, WhatsApp, Facebook — all conversations in one place. Never lose track of a lead." },
-    { icon: "refresh", title: "Human Handoff When Needed", desc: "Smart escalation to your team. When the AI detects a complex issue, it transfers the call or chat seamlessly." },
-    { icon: "chart", title: "Analytics & Insights", desc: "See how many calls you're missing, booking rates, peak hours, and customer satisfaction — all in one dashboard." },
+    { icon: "chat", title: "Calls, Texts & Web Chat", desc: "Calls, texts and web chat handled in one place. The unified inbox for WhatsApp and Facebook messages is in development." },
+    { icon: "refresh", title: "Human Handoff When Needed", desc: "Callers press 3 to reach you on a live call, and web-chat requests for a person text your phone. Sentiment-based escalation is coming." },
+    { icon: "chart", title: "Call Outcomes & Missed Calls", desc: "See call activity, missed calls and real outcomes in your dashboard. The advanced analytics dashboard is in progress." },
   ];
 
   return (
@@ -566,6 +566,17 @@ function FeaturesOverview() {
               </div>
             </Reveal>
           ))}
+        </div>
+        <div className="mt-10 text-center">
+          <Link
+            to="/features"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 transition hover:text-indigo-700"
+          >
+            See the honest status of every feature — Live, Partial, or Coming Soon
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </Link>
         </div>
       </div>
     </section>

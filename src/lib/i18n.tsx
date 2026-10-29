@@ -240,6 +240,19 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "Simple monthly pricing. You're charged for your first month at checkout and billed monthly after that. Cancel anytime.",
     es: "Precios mensuales simples. Se te cobra el primer mes al finalizar la compra y se te factura mensualmente después. Cancela cuando quieras.",
   },
+  /* Honest caveats — own the gap between the plan bullets and what is built today */
+  "pricing.caveat1": {
+    en: "Good to know: WhatsApp + Facebook messaging and the unified inbox are in development — you'll get them the moment they launch.",
+    es: "Ten en cuenta: la mensajería de WhatsApp + Facebook y la bandeja de entrada unificada están en desarrollo — las tendrás en cuanto se lancen.",
+  },
+  "pricing.caveat2": {
+    en: "Growth includes analytics and team tools in their current form; advanced analytics and per-member routing are still in progress.",
+    es: "Growth incluye analíticas y herramientas de equipo en su forma actual; las analíticas avanzadas y el enrutamiento por miembro del equipo siguen en desarrollo.",
+  },
+  "pricing.caveatLink": {
+    en: "See the status of every feature",
+    es: "Consulta el estado de cada función",
+  },
 
   "pricing.starter.name": { en: "Starter", es: "Starter" },
   "pricing.starter.price": { en: "$99", es: "$99" },

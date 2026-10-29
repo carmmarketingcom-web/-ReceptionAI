@@ -194,6 +194,21 @@ export default function PricingPage() {
           <p className="mt-8 text-center text-sm text-gray-500">
             {t("pricing.billingNote")}
           </p>
+
+          {/* Honest caveats — plans list features that are still being built */}
+          <div className="mx-auto mt-4 max-w-3xl space-y-2 text-center">
+            <p className="text-xs leading-relaxed text-gray-500">{t("pricing.caveat1")}</p>
+            <p className="text-xs leading-relaxed text-gray-500">
+              {t("pricing.caveat2")}{" "}
+              <Link
+                to="/features"
+                className="font-medium text-indigo-600 underline decoration-indigo-200 underline-offset-2 transition hover:text-indigo-700 hover:decoration-indigo-400"
+              >
+                {t("pricing.caveatLink")}
+              </Link>
+              .
+            </p>
+          </div>
         </div>
       </section>
 
