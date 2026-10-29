@@ -8,6 +8,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 }
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
 const HOST = "0.0.0.0";
@@ -245,17 +246,47 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
       language: cs.language,
     });
 
-    // Create a conversation record for this call
-    const conversationId = crypto.randomUUID();
-    await sql`
-      INSERT INTO conversations
-        (id, organization_id, contact_id, phone_number_id, type, status, direction,
-         twilio_call_sid, started_at, ended_at, escalated_to_human, escalated_at, metadata)
-      VALUES
-        (${conversationId}, ${cs.orgId}, ${contactId}, ${phoneNumberId}, 'call', ${status}::conversation_status, 'inbound',
-         ${cs.callControlId || null}, ${cs.startTime.toISOString()}, ${endedAt.toISOString()},
-         ${cs.transferred}, ${cs.transferred ? endedAt.toISOString() : null}, ${metadata}::jsonb)
-    `;
+    // The conversation row already exists — it was created when the call was ANSWERED
+    // (ensureCallConversation). Finish it in place so one call stays one conversation row and
+    // any recording written mid-call keeps a valid parent. The INSERT is only the fallback for
+    // a call whose create-at-answer write never landed (server restart mid-call, or a call that
+    // started before this deploy).
+    await cs.convReady?.catch(() => {});
+    let conversationId: string | null = cs.conversationId || null;
+    if (!conversationId) {
+      const existing = await sql`
+        SELECT id FROM conversations
+        WHERE organization_id = ${cs.orgId} AND twilio_call_sid = ${cs.callControlId || null}
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      conversationId = (existing[0]?.id as string) || null;
+    }
+    if (conversationId) {
+      await sql`
+        UPDATE conversations SET
+          contact_id = ${contactId},
+          phone_number_id = ${phoneNumberId},
+          status = ${status}::conversation_status,
+          ended_at = ${endedAt.toISOString()},
+          escalated_to_human = ${cs.transferred},
+          escalated_at = ${cs.transferred ? endedAt.toISOString() : null},
+          metadata = ${metadata}::jsonb,
+          updated_at = NOW()
+        WHERE id = ${conversationId}
+      `;
+    } else {
+      conversationId = crypto.randomUUID();
+      await sql`
+        INSERT INTO conversations
+          (id, organization_id, contact_id, phone_number_id, type, status, direction,
+           twilio_call_sid, started_at, ended_at, escalated_to_human, escalated_at, metadata)
+        VALUES
+          (${conversationId}, ${cs.orgId}, ${contactId}, ${phoneNumberId}, 'call', ${status}::conversation_status, 'inbound',
+           ${cs.callControlId || null}, ${cs.startTime.toISOString()}, ${endedAt.toISOString()},
+           ${cs.transferred}, ${cs.transferred ? endedAt.toISOString() : null}, ${metadata}::jsonb)
+      `;
+    }
+    cs.conversationId = conversationId;
 
     // Missed calls get their own row (this table had no writer before). missed_calls has a
     // single timestamp column (created_at), so the call start goes there and the elapsed
@@ -683,6 +714,72 @@ async function notifyFirstWaitlistEntry(orgId: string, date: string, fromNumber:
   }
 }
 
+// ── Conversation lifecycle: create at ANSWER, not at hangup ──────────────────
+// The conversation row used to be INSERTed at hangup only. A voicemail recording arrives
+// MID-call, so there was no parent row yet: the recordings INSERT violated its
+// conversation_id FK, the error was swallowed, and the audio was lost while the owner still
+// got the alert SMS (dashboard honestly said "Not available"). Now the row exists from the
+// moment the call is answered (status 'active'), mid-call writes can reference it, and the
+// hangup path UPDATEs the same row instead of inserting a second one (one call = one row).
+// Demo line (727) 966-7556 is public and must never create rows: orgId is null there, so this
+// returns immediately and the demo path is untouched.
+async function ensureCallConversation(cs: CallState): Promise<void> {
+  if (cs.conversationId) return;
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl || !cs.orgId) return;
+  try {
+    const sql = neon(dbUrl);
+    // Resolve the dialed line so per-line analytics work (best effort — never blocks the row)
+    let phoneNumberId: string | null = null;
+    try {
+      const pnRows = await sql`
+        SELECT id FROM phone_numbers
+        WHERE phone_number = ${cs.toNumber}
+          AND is_active = true
+        LIMIT 1
+      `;
+      phoneNumberId = (pnRows[0]?.id as string) || null;
+    } catch (err) {
+      console.warn("[DB] phone number lookup failed (analytics only):", String(err).slice(0, 100));
+    }
+    const conversationId = crypto.randomUUID();
+    await sql`
+      INSERT INTO conversations
+        (id, organization_id, contact_id, phone_number_id, type, status, direction,
+         twilio_call_sid, started_at)
+      VALUES
+        (${conversationId}, ${cs.orgId}, ${cs.callerContactId || null}, ${phoneNumberId},
+         'call', 'active'::conversation_status, 'inbound', ${cs.callControlId || null},
+         ${cs.startTime.toISOString()})
+    `;
+    cs.conversationId = conversationId;
+    console.log(`[DB] Conversation created at answer: ${conversationId.slice(0, 8)} (${cs.callerNumber})`);
+  } catch (err) {
+    // Never fatal: the hangup path falls back to its own INSERT so the call is still recorded.
+    console.error("[DB] create conversation at answer failed:", String(err).slice(0, 140));
+  }
+}
+// ── Recording playback links ────────────────────────────────────────────────
+// An <audio> element cannot send an Authorization header, so the dashboard plays a recording
+// through a link that carries its own short-lived signature: HMAC-SHA256 over id+expiry keyed
+// with JWT_SECRET. A link is only ever minted for rows in the caller's own org, so it cannot
+// be replayed against someone else's recording.
+const RECORDING_LINK_TTL_SECONDS = 6 * 60 * 60;
+function recordingAudioPath(recordingId: string): string {
+  const exp = Math.floor(Date.now() / 1000) + RECORDING_LINK_TTL_SECONDS;
+  const sig = createHmac("sha256", process.env.JWT_SECRET || "")
+    .update(`${recordingId}.${exp}`)
+    .digest("hex");
+  return `/api/recordings/audio?id=${encodeURIComponent(recordingId)}&exp=${exp}&sig=${sig}`;
+}
+function verifyRecordingAudioSig(recordingId: string, exp: number, sig: string): boolean {
+  const expected = createHmac("sha256", process.env.JWT_SECRET || "")
+    .update(`${recordingId}.${exp}`)
+    .digest("hex");
+  const a = Buffer.from(sig, "utf-8");
+  const b = Buffer.from(expected, "utf-8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 // ── Voicemail helpers ────────────────────────────────────────────────────────
 async function startVoicemailRecording(cid: string, lang: string): Promise<void> {
   const es = lang === "es";
@@ -704,21 +801,62 @@ function stopVoicemailRecording(cid: string): void {
   cmd(cid, "record_stop", {}).catch(() => {});
 }
 
-async function saveVoicemailRecording(callSid: string, recordingUrl: string, duration: number, orgId: string, callerNumber: string): Promise<void> {
+/**
+ * Persist a voicemail recording against the conversation created at answer.
+ * Returns true only when a row was actually written, so the caller can tell whether the owner
+ * alert may point at audio that exists.
+ *
+ * What is stored, honestly:
+ *  - twilio_recording_sid: the Telnyx recording id — the DURABLE handle. Webhook recording
+ *    URLs expire; /api/recordings/audio exchanges this id for a fresh URL on every play.
+ *  - recording_url: the URL Telnyx delivered, kept as a fallback (may expire).
+ *  - duration_seconds: only when Telnyx actually reported one, otherwise NULL and the UI says
+ *    "Duration not recorded".
+ * No transcript is written: transcription is not built, and inventing text would be a lie.
+ */
+async function saveVoicemailRecording(
+  cs: CallState,
+  recordingUrl: string,
+  durationSeconds: number | null,
+  recordingId: string | null
+): Promise<boolean> {
   try {
     const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl) return;
+    if (!dbUrl || !cs.orgId) return false;
     const sql = neon(dbUrl);
-    // Find or create conversation for this call
-    const conv = await sql`SELECT id FROM conversations WHERE organization_id = ${orgId} AND twilio_call_sid = ${callSid} ORDER BY created_at DESC LIMIT 1`;
-    const convId = conv[0]?.id || crypto.randomUUID();
+    // The row was created at answer — wait for that insert if it is still in flight.
+    await cs.convReady?.catch(() => {});
+    let conversationId = cs.conversationId || null;
+    if (!conversationId) {
+      const conv = await sql`
+        SELECT id FROM conversations
+        WHERE organization_id = ${cs.orgId} AND twilio_call_sid = ${cs.callControlId || null}
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      conversationId = (conv[0]?.id as string) || null;
+    }
+    if (!conversationId) {
+      // Without a parent row the FK rejects the insert — say so instead of losing audio silently.
+      console.error(`[Voicemail] no conversation row for ${cs.callerNumber} — recording NOT stored`);
+      return false;
+    }
     await sql`
-      INSERT INTO recordings (id, organization_id, conversation_id, recording_url, duration_seconds, storage_provider, created_at)
-      VALUES (gen_random_uuid(), ${orgId}, ${convId}, ${recordingUrl}, ${duration}, 'telnyx', NOW())
+      INSERT INTO recordings
+        (id, organization_id, conversation_id, recording_url, duration_seconds,
+         storage_provider, twilio_recording_sid, created_at)
+      VALUES
+        (gen_random_uuid(), ${cs.orgId}, ${conversationId}, ${recordingUrl || null},
+         ${durationSeconds}, 'telnyx', ${recordingId}, NOW())
     `;
-    console.log(`[Voicemail] Saved recording: ${recordingUrl.slice(0, 60)} (${duration}s)`);
+    cs.recordingStored = true;
+    console.log(
+      `[Voicemail] Stored recording ${recordingId || "(no id)"} on conv ${conversationId.slice(0, 8)} ` +
+      `(${durationSeconds === null ? "duration not reported" : durationSeconds + "s"})`
+    );
+    return true;
   } catch (err) {
-    console.error("[Voicemail] save recording failed:", String(err).slice(0, 100));
+    console.error("[Voicemail] save recording failed:", String(err).slice(0, 160));
+    return false;
   }
 }
 
@@ -834,6 +972,14 @@ interface CallState {
   requestedCallback: boolean;
   voicemail: boolean;
   callControlId: string;
+  // ── Persistence (create-at-answer, 2026-10-29) ────────────────────────────
+  // The conversations row is created when the call is ANSWERED, not at hangup, so anything
+  // that happens mid-call — above all a voicemail recording — has a real parent row to point
+  // at. convReady is that insert while it is still in flight; every dependent write awaits it.
+  conversationId?: string | null;
+  convReady?: Promise<void>;
+  voicemailAlerted?: boolean;   // owner already got the voicemail SMS (never text twice)
+  recordingStored?: boolean;    // a recordings row was actually written for this call
   bookingSlots?: { date: string; time: string; endTime: string }[];
   demoTurns?: number;     // demo line: how many answers the caller has heard
   demoNudged?: boolean;   // demo line: the single "take your time" nudge has played
@@ -1769,7 +1915,7 @@ for (let attempt = 1; ; attempt++) {
               }
 
               // Track call state (start with language selection phase)
-              calls.set(cid, {
+              const callState: CallState = {
                 callerNumber: fromNumber,
                 toNumber,
                 dtmfHistory: [],
@@ -1791,8 +1937,13 @@ for (let attempt = 1; ; attempt++) {
                 requestedCallback: false,
                 voicemail: false,
                 callControlId: cid,
-              });
-
+              };
+              // Create the conversation row NOW (at answer) instead of at hangup, so a voicemail
+              // recording that lands mid-call has a valid parent row. Deliberately not awaited:
+              // a slow database must never delay answering a real caller. Every writer that
+              // depends on the row awaits cs.convReady first.
+              callState.convReady = ensureCallConversation(callState);
+              calls.set(cid, callState);
               await cmd(cid, "answer");
               setTimeout(async () => {
                 // Bilingual opening prompt — each language segment gets its OWN voice.
@@ -1808,9 +1959,18 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Recording saved (voicemail completed) ──────────────
             else if (ev === "call.recording.saved" || ev === "call.recording.saved") {
-              const callSid = p.data?.payload?.call_session_id || p.data?.payload?.call_control_id || "";
-              const recordingUrl = p.data?.payload?.recording_url || p.data?.payload?.public_recording_url || "";
-              const duration = parseInt(p.data?.payload?.duration || "0", 10);
+              // Telnyx sends `recording_urls` (mp3/wav) on current payloads and `recording_url` /
+              // `public_recording_url` on older ones — accept all, prefer mp3.
+              const payloadUrls = p.data?.payload?.recording_urls || {};
+              const recordingUrl: string = payloadUrls.mp3 || payloadUrls.wav
+                || p.data?.payload?.recording_url || p.data?.payload?.public_recording_url || "";
+              // The durable handle: webhook recording URLs expire, a recording id does not.
+              const recordingId: string | null = p.data?.payload?.recording_id || null;
+              // Duration is stored only when Telnyx actually reported one.
+              const durationMs = parseInt(p.data?.payload?.duration_millis || "0", 10);
+              const durationSeconds: number | null = durationMs > 0
+                ? Math.round(durationMs / 1000)
+                : (parseInt(p.data?.payload?.duration || "0", 10) || null);
               const cs = calls.get(cid);
               // This guard used to require cs.orgId, which made the DEMO ending below
               // unreachable: a caller on the demo line (no organization) left a message, heard
@@ -1821,8 +1981,16 @@ for (let attempt = 1; ; attempt++) {
               if (cs && recordingUrl) {
                 cs.voicemail = true; // this call was a voicemail, not a normal completion
                 if (cs.orgId) {
-                  await saveVoicemailRecording(callSid || cid, recordingUrl, duration, cs.orgId, cs.callerNumber);
-                  await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
+                  const stored = await saveVoicemailRecording(cs, recordingUrl, durationSeconds, recordingId);
+                  // One alert per voicemail: pressing 9 already announced it, so only announce
+                  // here if nothing was sent yet (never text the owner twice for one message).
+                  if (!cs.voicemailAlerted) {
+                    cs.voicemailAlerted = true;
+                    await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
+                  }
+                  if (!stored) {
+                    console.warn(`[Voicemail] audio for ${cs.callerNumber} could not be stored — owner alerted, dashboard will show "Not available"`);
+                  }
                 }
                 const es = (cs.language || "en") === "es";
                 if (!es && !cs.orgId) {
@@ -2047,6 +2215,8 @@ for (let attempt = 1; ; attempt++) {
                 }
                 await startVoicemailRecording(cid, lang);
                 if (cs?.orgId && cs?.callerNumber && cs?.toNumber) {
+                  // Announce once, here: the recording.saved handler would otherwise text again.
+                  cs.voicemailAlerted = true;
                   notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, lang);
                 }
               }
@@ -2996,7 +3166,66 @@ for (let attempt = 1; ; attempt++) {
               { status: 500, headers: { "Content-Type": "application/json" } });
           }
         }
-        // ── Recordings (the table exists, nothing writes it yet — empty is the honest answer) ──
+        // ── Recording playback ────────────────────────────────────────────────
+        // GET /api/recordings/audio?id=…&exp=…&sig=… — turns a stored voicemail into a playable
+        // url. The webhook recording URL Telnyx sends expires, so the durable handle is the
+        // recording id (recordings.twilio_recording_sid): it is exchanged for a fresh download
+        // URL each time the owner presses play. If Telnyx cannot be asked, the URL delivered at
+        // call time is used as-is. Keep in sync with src/routes/api/recordings.ts and the other
+        // serve.ts tree.
+        if (pathname === "/api/recordings/audio" && req.method === "GET") {
+          try {
+            const url = new URL(req.url);
+            const recordingId = url.searchParams.get("id") || "";
+            const exp = parseInt(url.searchParams.get("exp") || "0", 10) || 0;
+            const sig = url.searchParams.get("sig") || "";
+            if (!recordingId || !exp || !sig) return json({ error: "id, exp and sig are required" }, 400);
+            if (Math.floor(Date.now() / 1000) > exp) {
+              return json({ error: "This recording link expired — reload the Recordings page." }, 410);
+            }
+            if (!verifyRecordingAudioSig(recordingId, exp, sig)) {
+              return json({ error: "Invalid recording link" }, 403);
+            }
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const rows = await sql`
+              SELECT id, recording_url, twilio_recording_sid
+              FROM recordings WHERE id = ${recordingId} LIMIT 1
+            `;
+            const rec = rows[0] as any;
+            if (!rec) return json({ error: "Recording not found" }, 404);
+            let target: string | null = null;
+            if (rec.twilio_recording_sid && process.env.TELNYX_API_KEY) {
+              try {
+                const res = await fetch(
+                  `${TELNYX}/recordings/${encodeURIComponent(rec.twilio_recording_sid)}`,
+                  { headers: th() }
+                );
+                if (res.ok) {
+                  const body = await res.json() as any;
+                  const urls = body?.data?.download_urls || {};
+                  target = urls.mp3 || urls.wav || null;
+                } else {
+                  console.warn(`[Recordings] Telnyx download-url lookup failed (${res.status})`);
+                }
+              } catch (err) {
+                console.warn("[Recordings] Telnyx download-url lookup error:", String(err).slice(0, 120));
+              }
+            }
+            if (!target) target = rec.recording_url || null;
+            if (!target) return json({ error: "No audio is stored for this recording." }, 404);
+            // Redirect rather than proxy: the browser streams straight from Telnyx.
+            return new Response(null, {
+              status: 302,
+              headers: { Location: target, "Cache-Control": "no-store" },
+            });
+          } catch (err) {
+            console.error("[Recordings audio]", String(err).slice(0, 200));
+            return json({ error: "Failed to resolve recording audio" }, 500);
+          }
+        }
+        // ── Recordings (voicemail audio is stored against the answer-time conversation) ──
         // GET /api/recordings — list call recordings for the authenticated org.
         // Keep in sync with the root serve.ts tree and src/routes/api/recordings.ts.
         if (pathname === "/api/recordings" && req.method === "GET") {
@@ -3024,6 +3253,7 @@ for (let attempt = 1; ; attempt++) {
             const rows = await sql`
               SELECT r.id, r.conversation_id, r.recording_url, r.duration_seconds,
                      r.transcription_text, r.transcription_status, r.created_at,
+                     r.twilio_recording_sid,
                      c.first_name AS contact_first_name, c.last_name AS contact_last_name,
                      c.phone AS contact_phone
               FROM recordings r
@@ -3040,7 +3270,10 @@ for (let attempt = 1; ; attempt++) {
                 conversationId: r.conversation_id || null,
                 callerName: name || null,
                 callerNumber: r.contact_phone || null,
-                recordingUrl: r.recording_url || null,
+                // Playable only when audio is really stored. The link is our own signed
+                // endpoint (see /api/recordings/audio): the raw Telnyx URL expires.
+                recordingUrl: r.twilio_recording_sid || r.recording_url ? recordingAudioPath(r.id) : null,
+                audioAvailable: !!(r.twilio_recording_sid || r.recording_url),
                 durationSeconds:
                   r.duration_seconds === null || r.duration_seconds === undefined
                     ? null

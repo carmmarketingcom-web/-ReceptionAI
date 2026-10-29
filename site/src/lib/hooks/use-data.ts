@@ -175,6 +175,7 @@ export interface RecordingItem {
   callerName: string | null;
   callerNumber: string | null;
   recordingUrl: string | null;
+  audioAvailable?: boolean;
   durationSeconds: number | null;
   transcriptionText: string | null;
   transcriptionStatus: string | null;
