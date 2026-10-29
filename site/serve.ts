@@ -354,33 +354,84 @@ const DEMO_EN = {
   ],
 };
 
+// One call-control POST. Never throws: a network error, an unparseable reply or a timeout is
+// reported as ok=false so the caller can fall back instead of leaving the call waiting on audio
+// that will never arrive. TTS commands (speak/gather carry a `voice`) get a timeout, which turns
+// a hung request into a retryable failure; hangup/bridge/dial are left untimed on purpose.
+const TTS_CMD_TIMEOUT_MS = 12000;
+async function sendAction(cid: string, action: string, body: any): Promise<boolean> {
+  const timed = !!body?.voice;
+  try {
+    const res = await fetch(`${TELNYX}/calls/${cid}/actions/${action}`, {
+      method: "POST", headers: th(), body: JSON.stringify(body),
+      ...(timed ? { signal: AbortSignal.timeout(TTS_CMD_TIMEOUT_MS) } : {}),
+    });
+    let d: any;
+    try { d = await res.json(); } catch { d = res.ok ? {} : { errors: [{ detail: `HTTP ${res.status}` }] }; }
+    const ok = !d.errors;
+    if (!ok) console.log(`${action} ERR:`, JSON.stringify(d.errors).slice(0, 150));
+    return ok;
+  } catch (e: any) {
+    console.log(`${action} ERR:`, String(e?.message || e).slice(0, 150));
+    return false;
+  }
+}
+// True when a call-control body asks Telnyx for an ElevenLabs voice (`ElevenLabs.Default.<id>`).
+function isElevenLabsVoice(body: any): boolean {
+  return typeof body?.voice === "string" && body.voice.startsWith("ElevenLabs.");
+}
+// The same command, spoken by the default Polly neural voice for that language instead.
+function pollyFallbackBody(body: any): any {
+  const next: any = { ...body };
+  delete next.voice_settings;
+  next.voice = POLLY_VOICE.en.voice;
+  next.language = POLLY_VOICE.en.language;
+  return next;
+}
 async function cmd(cid: string, action: string, body: any = {}) {
-  const res = await fetch(`${TELNYX}/calls/${cid}/actions/${action}`, { method: "POST", headers: th(), body: JSON.stringify(body) });
-  const d = await res.json();
-  const ok = !d.errors;
-  if (!ok) console.log(`${action} ERR:`, JSON.stringify(d.errors).slice(0, 150));
-  return ok;
+  if (await sendAction(cid, action, body)) return true;
+  // ── ElevenLabs safety fallback (centralised here so it covers EVERY voice command: speak,
+  // gather, speakWithQueueControl, promptAndWait and any future one) ───────────────────────
+  // The premium voice must never cost a caller the prompt: when Telnyx refuses an ElevenLabs
+  // command (bad/expired api_key_ref, freemium account, ElevenLabs-side error, timeout), the
+  // SAME command is retried once with the equivalent Polly voice. It is one logical command, so
+  // callers keep counting one segment (speakOnly's speakSegments reconciliation stays exact).
+  if (!isElevenLabsVoice(body)) return false;
+  console.log(
+    `TTS FALLBACK: ${action} with ${body.voice} failed → retrying with ${pollyFallbackBody(body).voice} ` +
+    `(call ${String(cid).slice(-8)})`
+  );
+  return sendAction(cid, action, pollyFallbackBody(body));
 }
 // ── TTS voice selection ──────────────────────────────────────────────────────
-// Two tiers: ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise per-language Polly neural voices.
+// Two tiers, ENGLISH ONLY for the premium tier:
+//   English — ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise Polly.Joanna-Neural.
+//   Spanish — ALWAYS Polly.Lupe-Neural / es-US. ElevenLabs is permanently English-only: the
+//             owner ear-confirmed the Spanish voice, so the ES branch ignores the ElevenLabs
+//             env entirely (ELEVENLABS_API_KEY_REF / ELEVENLABS_VOICE_ID are inert for "es").
+// Every English command is additionally guarded by the Polly fallback in cmd() below: if Telnyx
+// rejects the ElevenLabs voice the caller still hears the prompt in Polly.Joanna-Neural.
 // Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
 const ELEVENLABS_API_KEY_REF = process.env.ELEVENLABS_API_KEY_REF || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (English)
-const ELEVENLABS_VOICE_ID_ES = process.env.ELEVENLABS_VOICE_ID_ES || ELEVENLABS_VOICE_ID; // Spanish (falls back to English voice)
+// The default neural voice per language — also the fallback target when an ElevenLabs command fails.
+const POLLY_VOICE: Record<"en" | "es", { voice: string; language: string }> = {
+  en: { voice: "Polly.Joanna-Neural", language: "en-US" },
+  es: { voice: "Polly.Lupe-Neural", language: "es-US" },
+};
 function ttsVoiceParams(text: string, lang: string): any {
   const l = lang === "es" ? "es" : "en";
-  if (ELEVENLABS_API_KEY_REF) {
-    const voiceId = l === "es" ? ELEVENLABS_VOICE_ID_ES : ELEVENLABS_VOICE_ID;
+  if (l === "en" && ELEVENLABS_API_KEY_REF) {
     return {
       payload: text,
-      voice: `ElevenLabs.Default.${voiceId}`,
+      voice: `ElevenLabs.Default.${ELEVENLABS_VOICE_ID}`,
       voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF },
     };
   }
   return {
     payload: text,
-    voice: l === "es" ? "Polly.Lupe-Neural" : "Polly.Joanna-Neural",
-    language: l === "es" ? "es-US" : "en-US",
+    voice: POLLY_VOICE[l].voice,
+    language: POLLY_VOICE[l].language,
   };
 }
 
