@@ -696,7 +696,8 @@ interface CallState {
   voicemail: boolean;
   callControlId: string;
   bookingSlots?: { date: string; time: string; endTime: string }[];
-  demoTurns?: number; // demo line: 0 = no turn taken yet, -1 = nudge already sent
+  demoTurns?: number;     // demo line: how many answers the caller has heard
+  demoNudged?: boolean;   // demo line: the single "take your time" nudge has played
 }
 const calls = new Map<string, CallState>(); // cid → CallState
 
@@ -1917,13 +1918,29 @@ for (let attempt = 1; ; attempt++) {
             else if (ev === "call.gather.ended") {
               gatherActive.delete(cid);
               const cs = calls.get(cid);
+              // Telnyx fires `call.gather.ended` BOTH when the gather times out AND when it
+              // completes with digits — the payload then carries `digits` (status "valid").
+              // Only a gather that ended with NO digits means the caller stayed silent. Without
+              // this check every valid keypress ALSO ran the silence logic below, so each press
+              // got its correct answer followed by a second, contradicting prompt ("Take your
+              // time. Press 1 to ..." / "I didn't hear anything") — the owner's 2026-10-28
+              // "still duplicating the message" report. The press itself is answered exactly
+              // once by the `call.dtmf.received` branch above, which owns the response.
+              const gatheredDigits = String(p.data?.payload?.digits ?? "").trim();
+              if (gatheredDigits) {
+                console.log(`[Gather] ended with digits "${gatheredDigits}" — answered by dtmf.received, no silence prompt`);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               // ── Demo line: never replay the whole option list (owner report 2026-10-28) ──
               // After the caller has had a response, 8s of silence means they're done — close
               // the call honestly instead of re-announcing the options. Only the very first
               // silence gets one gentle nudge.
               if (cs && !cs.orgId && (cs.language || "en") === "en" && !(cs.phase || "").startsWith("reschedule_")) {
-                if (!cs.demoTurns) {
-                  cs.demoTurns = -1;
+                if (!cs.demoNudged) {
+                  // One gentle nudge, once. The old code parked a -1 in demoTurns, which the
+                  // next `demoTurns + 1` turned back into 0/falsy, so the nudge repeated after
+                  // every press and the closing ("I'll let you go") never arrived.
+                  cs.demoNudged = true;
                   setTimeout(() => { speakOnly(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
                 } else {
                   pendingHangups.add(cid);
