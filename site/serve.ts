@@ -75,23 +75,42 @@ async function getOrgByPhoneNumber(phoneNumber: string): Promise<{ name: string;
 // (1 appointments, 2 services, 3 team member, 4 reschedule, 5 availability, 9 voicemail), and
 // the owner-rejected phrase "we're busy helping other clients" appears nowhere.
 // Returns a list so the caller can speak it with real beats between ideas (see speakLines).
-// Spanish returns the exact same single string it always has — untouched.
+// Spanish used to return one run-on sentence; since 2026-10-29 it returns the same LIST shape
+// as English (see ES_GREETING_BODY) so each option gets its own utterance and its own beat.
+// The Spanish menu, one option per utterance (2026-10-29). Same options as English — including
+// leave a message (9) and talk to a real person (3, the owner-transfer path) — because Spanish
+// used to be a single run-on sentence and a caller could not tell what the menu actually offered.
+// Declared here, above buildGreetingLines, because OPTION_PAUSE must already be initialised (the
+// 2026-10-29 boot-crash lesson: a module-level initialiser reading a later const is a TDZ crash).
+const ES_GREETING_BODY: SpokenLine[] = [
+  `Le atiende nuestro recepcionista virtual, disponible las 24 horas, y podemos ayudarle ahora mismo.`,
+  `Elija una opción del menú para que le dirijamos a la persona correcta.`,
+  { pauseMs: OPTION_PAUSE },
+  `Presione 1 para citas.`,
+  `Presione 2 para servicios.`,
+  `Presione 3 para hablar con una persona.`,
+  `Presione 4 para reprogramar.`,
+  `Presione 5 para disponibilidad.`,
+  `O presione 9 para dejar un mensaje.`,
+];
 function buildGreetingLines(orgName: string, lang: string, callerContext?: CallerContext): SpokenLine[] {
   const es = lang === "es";
   if (callerContext) {
     if (callerContext.previousVisits > 0 && callerContext.firstName) {
-      if (callerContext.lastService) {
-        return [es
-          ? `¡Bienvenido de nuevo, ${callerContext.firstName}! Su última visita: ${callerContext.lastService}. Presione 1 para agendar, 2 para servicios, o 3 para hablar con alguien.`
-          : `Welcome back, ${callerContext.firstName}! Last visit: ${callerContext.lastService}. Press 1 to book, 2 for services, or 3 for a team member.`];
+      if (es) {
+        const opener = callerContext.lastService
+          ? `¡Bienvenido de nuevo, ${callerContext.firstName}! Su última visita fue por ${callerContext.lastService}.`
+          : `¡Bienvenido de nuevo, ${callerContext.firstName}!`;
+        return [opener, ...ES_GREETING_BODY];
       }
-      return [es
-        ? `¡Bienvenido de nuevo, ${callerContext.firstName}! Presione 1 para citas, 2 para servicios, o 3 para hablar con alguien.`
-        : `Welcome back, ${callerContext.firstName}! Press 1 for appointments, 2 for services, or 3 for a team member.`];
+      if (callerContext.lastService) {
+        return [`Welcome back, ${callerContext.firstName}! Last visit: ${callerContext.lastService}. Press 1 to book, 2 for services, or 3 for a team member.`];
+      }
+      return [`Welcome back, ${callerContext.firstName}! Press 1 for appointments, 2 for services, or 3 for a team member.`];
     }
   }
   if (es) {
-    return [`Hola, se ha comunicado con ${orgName}. Presione 1 para citas, 2 para servicios, 3 para hablar con alguien, 4 para reprogramar, 5 para disponibilidad, o 9 para dejar un mensaje.`];
+    return [`Hola, se ha comunicado con ${orgName}.`, ...ES_GREETING_BODY];
   }
   return [
     `Thanks for calling ${orgName}!`,
@@ -354,7 +373,7 @@ function buildShortPrompt(lang: string): string {
 // ── Demo-line English script (owner report 2026-10-28) ─────────────────────
 // The demo number is the product's shop window, so the English side is written the way a
 // calm human receptionist talks: one idea per utterance, the option list ONCE per prompt,
-// and every natural ending says plainly that this was a demo. Spanish lines are untouched.
+// and every natural ending says plainly that this was a demo. Spanish mirrors it (DEMO_ES).
 // The first line is issued on its own with stop:"all" (to clear the Spanish language prompt),
 // so it lives in a named constant rather than being index-0 of a mixed list.
 const DEMO_GREETING_OPENER = "Thanks for calling ReceptionAI!";
@@ -436,6 +455,99 @@ const DEMO_EN: Record<string, SpokenLine[]> = {
     "Goodbye!",
   ],
 };
+
+// ── Demo-line Spanish script (2026-10-29 — parity with DEMO_EN) ──────────────
+// The Spanish demo menu used to be ONE flat 40-word line offering three options, and a caller who
+// pressed 4 was answered in English. It now mirrors the English demo line: the four things a
+// caller can actually do here (see the booking demo, hear pricing, talk to a person, leave a
+// message), one idea per utterance, a real beat before the option list, and a demo disclosure in
+// Spanish on every ending. The DTMF mapping is identical to English.
+const DEMO_ES_OPENER = "Hola, y gracias por llamar a ReceptionAI.";
+const DEMO_ES: Record<string, SpokenLine[]> = {
+  greeting: [
+    DEMO_ES_OPENER,
+    "Se ha comunicado con nuestro recepcionista virtual, disponible las 24 horas, y podemos ayudarle ahora mismo.",
+    "Elija una opción del menú para que le dirijamos a la persona correcta.",
+    { pauseMs: OPTION_PAUSE },
+    "Presione 1 para ver cómo funciona el agendamiento.",
+    "Presione 2 para información de precios.",
+    "Presione 3 para hablar con una persona.",
+    "O presione 9 para dejar un mensaje.",
+  ],
+  book: [
+    "Perfecto.",
+    "En una cuenta real, aquí revisaría el calendario y le reservaría una cita de verdad.",
+    "Después le enviaría la confirmación por mensaje de texto.",
+    "Ahora mismo está en nuestra línea de demostración, así que hoy no se reserva nada.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para comenzar.",
+    "¡Gracias por llamar!",
+  ],
+  pricing: [
+    "Con gusto le ayudo con eso.",
+    "Starter cuesta 99 dólares al mes, Growth 199, y Scale 399.",
+    "Todos los planes son mes a mes, así que no hay contrato y puede cancelar cuando quiera.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para comparar los planes, o presione 3 para hablar con una persona.",
+  ],
+  transfer: [
+    "Claro que sí.",
+    "En una cuenta real, le comunicaría ahora mismo con una persona del equipo.",
+    "Y si nadie contestara, les enviaría su número por mensaje de texto.",
+    "Esta es la línea de demostración, así que hoy no hay nadie del otro lado.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para que esto conteste sus propias llamadas.",
+    "¡Gracias por llamar!",
+  ],
+  reschedule: [
+    "Claro que sí.",
+    "En una cuenta real, buscaría su cita con su número y la movería en unos segundos.",
+    "Está en la línea de demostración, así que hoy no hay nada que buscar.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para comenzar.",
+  ],
+  hours: [
+    "En una cuenta real, revisaría el calendario en vivo y le ofrecería los próximos horarios disponibles, normalmente en segundos.",
+    "La línea de demostración no tiene un calendario detrás, así que aquí no hay horarios reales que ofrecerle.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para verlo funcionando para su negocio.",
+  ],
+  notHeard: [
+    "Disculpe, no le entendí.",
+    { pauseMs: OPTION_PAUSE },
+    "Presione 1 para ver cómo funciona el agendamiento.",
+    "Presione 2 para información de precios.",
+    "Presione 3 para hablar con una persona.",
+    "O presione 9 para dejar un mensaje.",
+  ],
+  nudge: [
+    "Tómese su tiempo.",
+    { pauseMs: OPTION_PAUSE },
+    "Presione 1 para ver cómo funciona el agendamiento.",
+    "Presione 2 para información de precios.",
+    "Presione 3 para hablar con una persona.",
+    "O presione 9 para dejar un mensaje.",
+  ],
+  closing: [
+    "No hay problema, le dejo seguir.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para que esto conteste sus propias llamadas.",
+    "¡Gracias por llamar, y que tenga un buen día!",
+  ],
+  voicemail: [
+    "Gracias, recibí su mensaje.",
+    "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
+    "Visite receptionai.store para que esto conteste sus propias llamadas.",
+    "¡Adiós!",
+  ],
+};
+// Business-line Spanish pricing (a real account, not the demo line).
+const ES_PRICING_LINES: SpokenLine[] = [
+  "Con gusto le ayudo con eso.",
+  "Starter cuesta 99 dólares al mes, Growth 199, y Scale 399.",
+  "Todos los planes son mes a mes, así que no hay contrato y puede cancelar cuando quiera.",
+  "Visite receptionai.store para comparar los planes, o presione 3 para hablar con una persona.",
+];
 
 // One call-control POST. Never throws: a network error, an unparseable reply or a timeout is
 // reported as ok=false so the caller can fall back instead of leaving the call waiting on audio
@@ -579,45 +691,112 @@ function currentEnVoice(): EnVoice {
   for (const v of EN_VOICES) if (!EN_VOICE_DEAD.has(v.voice)) return v;
   return EN_VOICES[EN_VOICES.length - 1];
 }
-function enVoiceBody(text: string, v: EnVoice): any {
+type ChainVoice = { voice: string; language: string; ssml: boolean; note: string };
+function chainVoiceBody(text: string, v: ChainVoice): any {
   return v.ssml
     ? { payload_type: "ssml", payload: ssmlSlow(text), voice: v.voice, language: v.language }
     : { payload: text, voice: v.voice, language: v.language };
 }
-// Every spoken command goes through here. Spanish and the opt-in ElevenLabs path behave exactly
-// as before (cmd() owns their fallback); the English Polly path walks the chain above.
-async function voiceCmd(cid: string, action: string, text: string, lang: string, extra: any = {}): Promise<boolean> {
-  const l = lang === "es" ? "es" : "en";
-  if (l === "es" || (ELEVENLABS_ENABLED && ELEVENLABS_API_KEY_REF)) {
-    return cmd(cid, action, { ...ttsVoiceParams(text, l), ...extra });
-  }
-  for (const v of EN_VOICES) {
-    if (EN_VOICE_DEAD.has(v.voice)) continue;
-    let res = await sendActionEx(cid, action, { ...enVoiceBody(text, v), ...extra });
+function enVoiceBody(text: string, v: EnVoice): any {
+  return chainVoiceBody(text, v);
+}
+
+// ── Spanish voice chain: warmth first, never silence (2026-10-29) ────────────
+// Spanish was the weak leg: one fixed voice, plain text, and TTS_PACING.es = 0, so every prompt
+// was issued in one breath on an un-slowed voice. It now walks a chain exactly like English, so
+// the caller hears the warmest voice this account ACCEPTS and a refusal can never leave them in
+// silence. Candidates come from Telnyx's live voice catalogue
+// (developers.telnyx.com/docs/tts-stt/tts-available-voices), NOT from guesswork:
+//   · es-US female voices that exist: Lupe-Neural (neural), Lupe, Penelope (standard).
+//   · es-MX female neural: Mia-Neural.  es-ES: Lucia-Neural (Castilian accent — not for US callers).
+//   · There is NO "Penelope-Neural" and NO es-US Mia: Penelope is standard-engine only and Mia is
+//     es-MX. Probing a voice the catalogue does not list would just buy a rejected command on the
+//     first Spanish call of every process, so the chain only contains real voices.
+// Warmest first: Mia-Neural is the conversational, unhurried es-MX female; Lupe-Neural (the fixed
+// default this replaces) is the es-US safety net so a refused es-MX voice changes nothing for the
+// caller but the accent; plain Penelope is the standard-engine last resort.
+// TTS_ES_VOICE=<voice>[:<locale>] pins any voice without a deploy; the chain stays behind the pin.
+const ES_VOICE_CHAIN: ChainVoice[] = [
+  { voice: "Polly.Mia-Neural",  language: "es-MX", ssml: true,  note: "neural, warm conversational female (es-MX)" },
+  { voice: "Polly.Lupe-Neural", language: "es-US", ssml: true,  note: "neural, US-Spanish female — the previous fixed default" },
+  { voice: "Polly.Penelope",    language: "es-US", ssml: false, note: "standard engine, last resort" },
+];
+const ES_VOICE_PIN_RAW = String(process.env.TTS_ES_VOICE || "").trim();
+const ES_VOICE_PIN: ChainVoice | null = (() => {
+  if (!ES_VOICE_PIN_RAW) return null;
+  const [voice, locale] = ES_VOICE_PIN_RAW.split(":");
+  const known = ES_VOICE_CHAIN.find((c) => c.voice.toLowerCase() === voice.toLowerCase());
+  return {
+    voice,
+    language: (locale || known?.language || "es-US").trim(),
+    ssml: /-Neural$/i.test(voice),
+    note: "pinned by TTS_ES_VOICE",
+  };
+})();
+const ES_VOICES: ChainVoice[] = (() => {
+  const pin = ES_VOICE_PIN;
+  if (!pin) return ES_VOICE_CHAIN;
+  return [pin, ...ES_VOICE_CHAIN.filter((c) => c.voice.toLowerCase() !== pin.voice.toLowerCase())];
+})();
+const ES_VOICE_DEAD = new Set<string>();
+function currentEsVoice(): ChainVoice {
+  for (const v of ES_VOICES) if (!ES_VOICE_DEAD.has(v.voice)) return v;
+  return ES_VOICES[ES_VOICES.length - 1];
+}
+// Walk one language's chain: warmest first, and the first voice the account ACCEPTS is the one
+// the caller hears. A voice Telnyx explicitly refuses is retired for the life of the process so
+// no caller pays for the same rejection twice; a network failure is NOT retired (SendResult.http
+// tells the two apart). SSML refused by the account tier falls back to the same voice and the
+// same words as plain text, so a rate setting can never cost a caller the prompt.
+async function walkVoiceChain(
+  cid: string, action: string, text: string,
+  chain: ChainVoice[], dead: Set<string>, extra: any, label: string
+): Promise<boolean> {
+  for (const v of chain) {
+    if (dead.has(v.voice)) continue;
+    let res = await sendActionEx(cid, action, { ...chainVoiceBody(text, v), ...extra });
     if (!res.ok && v.ssml) {
       // SSML refused by the account tier → same voice, same words, plain text.
       console.warn(`[TTS] SSML refused — retrying ${v.voice} as plain text (call ${String(cid).slice(-8)})`);
-      res = await sendActionEx(cid, action, { ...enVoiceBody(text, { ...v, ssml: false }), ...extra });
+      res = await sendActionEx(cid, action, { ...chainVoiceBody(text, { ...v, ssml: false }), ...extra });
     }
     if (res.ok) return true;
     if (res.http) {
-      EN_VOICE_DEAD.add(v.voice);
-      if (EN_VOICE_DEAD.size > 50) EN_VOICE_DEAD.clear(); // bounded: never grow forever
-      console.warn(`[TTS] VOICE REJECTED: ${v.voice} (${v.note}) — provider said: ${res.error}. Stepping down the English voice chain.`);
+      dead.add(v.voice);
+      if (dead.size > 50) dead.clear(); // bounded: never grow forever
+      console.warn(`[TTS] VOICE REJECTED: ${v.voice} (${v.note}) — provider said: ${res.error}. Stepping down the ${label} voice chain.`);
     } else {
       console.warn(`[TTS] voice unreachable this time: ${v.voice} — ${res.error}. Trying the next voice, not retiring it.`);
     }
   }
-  console.error(`[TTS] every English voice was refused — this prompt has no audio (call ${String(cid).slice(-8)})`);
+  console.error(`[TTS] every ${label} voice was refused — this prompt has no audio (call ${String(cid).slice(-8)})`);
   return false;
+}
+// Every spoken command goes through here. The opt-in ElevenLabs path behaves exactly as before
+// (cmd() owns its fallback); English and Spanish each walk their own voice chain.
+async function voiceCmd(cid: string, action: string, text: string, lang: string, extra: any = {}): Promise<boolean> {
+  const l = lang === "es" ? "es" : "en";
+  if (l === "es") {
+    return walkVoiceChain(cid, action, text, ES_VOICES, ES_VOICE_DEAD, extra, "Spanish");
+  }
+  if (ELEVENLABS_ENABLED && ELEVENLABS_API_KEY_REF) {
+    return cmd(cid, action, { ...ttsVoiceParams(text, l), ...extra });
+  }
+  return walkVoiceChain(cid, action, text, EN_VOICES, EN_VOICE_DEAD, extra, "English");
 }
 // The one line to grep after a real call: exactly which English voice the caller is about to hear.
 function logVoiceForCall(cid: string) {
   const v = currentEnVoice();
+  const s = currentEsVoice();
   const premium = ELEVENLABS_ENABLED && ELEVENLABS_API_KEY_REF ? `, premium=ElevenLabs.Default.${ELEVENLABS_VOICE_ID}` : "";
   console.log(
     `[TTS] English voice = ${v.voice} (pacing=${TTS_PACING.en}ms${v.ssml ? `, ssml rate=${POLLY_RATE}` : ""}${premium}) ` +
-    `· Spanish voice = ${POLLY_VOICE.es.voice} · call ${String(cid).slice(-8)}`
+    `· Spanish voice = ${s.voice} · call ${String(cid).slice(-8)}`
+  );
+  // Same shape as the English line: exactly which Spanish voice a caller who presses 2 will hear.
+  console.log(
+    `[TTS] Spanish voice = ${s.voice} (lang=${s.language}, pacing=${TTS_PACING.es}ms${s.ssml ? `, ssml rate=${POLLY_RATE}` : ""}) ` +
+    `· call ${String(cid).slice(-8)}`
   );
 }
 // Calls where ElevenLabs already failed: skip the premium voice for the REST of that call
@@ -673,8 +852,8 @@ async function cmd(cid: string, action: string, body: any = {}) {
   return false;
 }
 // ── TTS voice selection ──────────────────────────────────────────────────────
-//   Spanish — ALWAYS Polly.Lupe-Neural / es-US, plain text, unpaced (owner ear-confirmed:
-//             Spanish literals, voice and timing are untouched by any English work).
+//   Spanish — the Spanish voice chain above (warmest first: Mia-Neural → Lupe-Neural → Penelope),
+//             slowed SSML with a plain-text retry, paced at TTS_PACING.es.
 //   English — the voice chain above (warmest first, one voice for the whole call).
 //   ElevenLabs (BYOK) — opt-in only, English only; see ELEVENLABS_ENABLED.
 // Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
@@ -691,17 +870,15 @@ const ELEVENLABS_SPEED = Number(process.env.ELEVENLABS_SPEED || "0.9");
 const ELEVENLABS_ENABLED = /^(1|true|yes)$/i.test(String(process.env.TTS_ENABLE_ELEVENLABS || ""));
 const POLLY_VOICE: Record<"en" | "es", { voice: string; language: string }> = {
   en: { voice: "Polly.Joanna-Neural", language: "en-US" },
+  // Historical Spanish default, kept as the documented es-US fallback voice. Spanish prompts no
+  // longer read this: they walk ES_VOICE_CHAIN (currentEsVoice), warmest first.
   es: { voice: "Polly.Lupe-Neural", language: "es-US" },
 };
 function ttsVoiceParams(text: string, lang: string): any {
   const l = lang === "es" ? "es" : "en";
-  // Spanish is untouched: same voice, same plain-text payload, same rate (owner ear-confirmed).
+  // Spanish: whichever voice in the Spanish chain this account accepts (warmest first).
   if (l === "es") {
-    return {
-      payload: text,
-      voice: POLLY_VOICE.es.voice,
-      language: POLLY_VOICE.es.language,
-    };
+    return chainVoiceBody(text, currentEsVoice());
   }
   // English premium tier — opt-in only. Kept intact so the integration can still be diagnosed by
   // flipping one env var; it is off the default path because Telnyx refuses it on real calls and
@@ -762,19 +939,24 @@ async function speakWithQueueControl(cid: string, text: string, lang: string, st
 // reached a live demo ... press 1 ... press 2 ... So, how can I help you today?" as one rushed
 // breath with no beat between the ideas. Telnyx neural voices take plain text (no SSML for
 // them), so the only honest pause lever is REAL SILENCE between queued speaks: hold the next
-// `speak` for a moment and the caller hears a human beat. Spanish keeps 0 — its literals,
-// timing and voice (Polly.Lupe-Neural) are untouched by this change.
+// `speak` for a moment and the caller hears a human beat. (This block was English-only at first;
+// Spanish was still issued in one breath. Since 2026-10-29 both languages are paced.)
 // Bounded on purpose: nothing is ever added AFTER the last utterance, so the DTMF gather still
 // arms the instant the audio ends (#34/#35 single-gather rule intact).
 // 2026-10-29 (second owner report — "still very fast and not friendly"): 220 ms was not enough
 // once the voice itself was slowed, so English now gets 320 ms between ideas and one longer beat
-// (OPTION_PAUSE) before the option list. Spanish stays 0 — its literals, timing and voice are
-// untouched.
-const TTS_PACING: Record<"en" | "es", number> = { en: 320, es: 0 };
+// (OPTION_PAUSE) before the option list. Spanish was 0 until 2026-10-29 — see below.
+// Spanish now gets the same treatment as English (2026-10-29). 300 ms — not the English 320 —
+// because Spanish is spoken faster per syllable and a Spanish speaker's natural inter-sentence
+// beat is slightly shorter; the point is that the caller hears a beat at all instead of one
+// 40-word breath. The longer beat before an option list is OPTION_PAUSE, shared by both languages.
+// Nothing is ever added AFTER the last utterance (the single gather is armed by the last
+// `call.speak.ended`), so keypresses are still never dropped.
+const TTS_PACING: Record<"en" | "es", number> = { en: 320, es: 300 };
 // A prompt is a list of things to say, in order. `{ pauseMs }` is a silent beat with no audio —
 // the only honest way to get one, since a neural voice reads a comma as a breath, not a pause.
 type SpokenLine = string | { pauseMs: number };
-// A real gap between two queued speaks ("es" resolves to 0 ms, i.e. exactly the old behaviour).
+// A real gap between two queued speaks, per language (en 320 ms, es 300 ms).
 async function paceGap(lang: string) {
   const ms = TTS_PACING[lang === "es" ? "es" : "en"];
   if (ms > 0) await new Promise((r) => setTimeout(r, ms));
@@ -784,8 +966,14 @@ async function paceGap(lang: string) {
 // "receptionai.store" are never cut). Spanish text is always returned as a single segment.
 function splitForPacing(text: string, lang: string): string[] {
   if (!text) return [];
-  if (lang === "es") return [text];
-  const parts = text.split(/(?<=[.!?])\s+(?=[A-Z"'])/).map((s) => s.trim()).filter(Boolean);
+  // Spanish used to be returned whole, so a two-sentence Spanish line was one utterance. It now
+  // splits like English, but a Spanish sentence can also START with ¿ or ¡ (and its capitals are
+  // accented), so those count as a boundary too. "$99.50" / "receptionai.store" / "9:00 a. m."
+  // never split: a boundary needs a space AND a following capital or opening mark.
+  const parts = (lang === "es"
+    ? text.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÜÑ¿¡"'])/)
+    : text.split(/(?<=[.!?])\s+(?=[A-Z"'])/)
+  ).map((s) => s.trim()).filter(Boolean);
   return parts.length > 1 ? parts : [text];
 }
 // Speak several short lines as separate utterances. This is how this pipeline gets natural
@@ -811,6 +999,21 @@ async function speakLines(cid: string, lines: SpokenLine[], lang: string) {
 // carry more than one idea, e.g. the demo silence nudge.
 async function speakPaced(cid: string, text: string, lang: string) {
   return speakLines(cid, [text], lang);
+}
+// The Spanish menu opener. The FIRST segment is issued on its own with stop:"all" so the English
+// prompt still queued behind the language question is dropped when the caller pressed 2 early —
+// exactly what the English demo opener does for the Spanish leg — then one real beat, then every
+// option as its own utterance. Nothing is issued after the last one, so the single DTMF gather
+// still arms the instant the audio ends.
+async function speakSpanishGreeting(cid: string, lines: SpokenLine[]) {
+  const [first, ...rest] = lines;
+  if (typeof first === "string" && first) {
+    await speakWithQueueControl(cid, first, "es", "all");
+    await paceGap("es");
+  } else if (first) {
+    await speakLines(cid, [first], "es");
+  }
+  if (rest.length) await speakLines(cid, rest, "es");
 }
 
 // ── Telnyx outbound dial ──────────────────────────────────────────────────
@@ -1265,7 +1468,13 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
       const phone = cs.dtmfHistory.slice(-11).join("");
       if (!cs.orgId) {
         cs.phase = "menu";
-        await speakOnly(cid, "I can't look up appointments in demo mode. " + buildShortPrompt("en"), "en");
+        // Never answer a Spanish caller in English (belt and braces: digit 4 on the demo line is
+        // now answered before it ever gets here).
+        if (es) {
+          await speakLines(cid, DEMO_ES.reschedule, "es");
+        } else {
+          await speakOnly(cid, "I can't look up appointments in demo mode. " + buildShortPrompt("en"), "en");
+        }
         return;
       }
       if (phone.length < 10) {
@@ -2213,9 +2422,11 @@ for (let attempt = 1; ; attempt++) {
                   }
                 }
                 const es = (cs.language || "en") === "es";
-                if (!es && !cs.orgId) {
-                  // Demo ending: say plainly what they just heard (owner directive).
-                  await speakLines(cid, DEMO_EN.voicemail, "en");
+                if (!cs.orgId) {
+                  // Demo ending: say plainly what they just heard (owner directive) — in the
+                  // caller's language. Spanish used to promise "we received your message, we'll
+                  // contact you shortly" on a demo line that stores nothing and calls nobody back.
+                  await speakLines(cid, es ? DEMO_ES.voicemail : DEMO_EN.voicemail, es ? "es" : "en");
                 } else {
                   await speakOnly(cid, es
                     ? "Gracias. Recibimos su mensaje. Le contactaremos pronto. Adiós."
@@ -2330,10 +2541,13 @@ for (let attempt = 1; ; attempt++) {
                   cs.phase = "menu";
                   cs.answered = true; // caller interacted — mark as answered
                   const isDemo = !cs.orgId;
+                  // Same shape as the English branch: the menu is a LIST, spoken one option per
+                  // utterance with real beats. The old code spoke one 40-word sentence (and for a
+                  // business line it spoke only element [0] of the greeting).
                   const greeting = isDemo
-                    ? `Hola y gracias por llamar. Se ha comunicado con ReceptionAI — un recepcionista virtual disponible 24/7 para contestar llamadas, agendar citas y gestionar mensajes. Presione 1 para agendar una cita, 2 para información de precios, o 3 si tiene alguna pregunta. ¿En qué puedo ayudarle?`
-                    : buildGreetingLines(cs.orgName || "ReceptionAI", "es", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined)[0];
-                  await speakOnly(cid, greeting, "es");
+                    ? DEMO_ES.greeting
+                    : buildGreetingLines(cs.orgName || "ReceptionAI", "es", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
+                  await speakSpanishGreeting(cid, greeting);
                 } else {
                   await speakOnly(cid, `Please press 1 for English, or 2 for Spanish.`, "en");
                 }
@@ -2360,7 +2574,7 @@ for (let attempt = 1; ; attempt++) {
                 const isDemo = !cs?.orgId;
                 if (isDemo) {
                   if (es) {
-                    await speakOnly(cid, "Esto es una demostración. En una cuenta real, revisaría el calendario y agendaría su cita. Visite nuestro sitio web para obtener su propio recepcionista IA.", "es");
+                    await speakLines(cid, DEMO_ES.book, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
                     await speakLines(cid, DEMO_EN.book, "en");
@@ -2373,7 +2587,7 @@ for (let attempt = 1; ; attempt++) {
 
               else if (digit === "2") {
                 if (es) {
-                  await speakOnly(cid, "Planes de ReceptionAI: Starter a $99 por mes, Growth a $199, y Scale a $399. Visite nuestro sitio web para registrarse.", "es");
+                  await speakLines(cid, !cs?.orgId ? DEMO_ES.pricing : ES_PRICING_LINES, "es");
                 } else if (!cs?.orgId) {
                   if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
                   await speakLines(cid, DEMO_EN.pricing, "en");
@@ -2386,7 +2600,7 @@ for (let attempt = 1; ; attempt++) {
                 const isDemo = !cs?.orgId;
                 if (isDemo) {
                   if (es) {
-                    await speakOnly(cid, "En una cuenta real, esto lo transferiría. Gracias por probar la demostración. Adiós.", "es");
+                    await speakLines(cid, DEMO_ES.transfer, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
                     await speakLines(cid, DEMO_EN.transfer, "en");
@@ -2399,9 +2613,17 @@ for (let attempt = 1; ; attempt++) {
 
               else if (digit === "4") {
                 // Demo line: no DB, so don't walk into the reschedule flow and read a menu.
-                if (!cs?.orgId && !es) {
-                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                  await speakLines(cid, DEMO_EN.reschedule, "en");
+                // Spanish used to FALL THROUGH here into the reschedule lookup, which then
+                // answered a Spanish caller with an English line ("I can't look up appointments
+                // in demo mode") — the long-standing "Spanish caller pressing 4 hears English"
+                // bug. Spanish now gets its own demo answer, exactly like English.
+                if (!cs?.orgId) {
+                  if (es) {
+                    await speakLines(cid, DEMO_ES.reschedule, "es");
+                  } else {
+                    if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                    await speakLines(cid, DEMO_EN.reschedule, "en");
+                  }
                   return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
                 }
                 // Start rescheduling flow
@@ -2416,9 +2638,13 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "5") {
-                if (!cs?.orgId && !es) {
-                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                  await speakLines(cid, DEMO_EN.hours, "en");
+                if (!cs?.orgId) {
+                  if (es) {
+                    await speakLines(cid, DEMO_ES.hours, "es");
+                  } else {
+                    if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                    await speakLines(cid, DEMO_EN.hours, "en");
+                  }
                 } else {
                   await speakOnly(cid, es
                     ? "Déjeme verificar la disponibilidad. Tenemos citas disponibles de lunes a viernes de 9 AM a 5 PM. Visite nuestro sitio web para ver horarios específicos o presione 1 para agendar."
@@ -2442,10 +2668,14 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else {
-                if (!cs?.orgId && !es) {
-                  // Options once, in the same three-option wording the greeting used.
-                  if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                  await speakLines(cid, DEMO_EN.notHeard, "en");
+                if (!cs?.orgId) {
+                  // Options once, in the same wording the greeting used — in the caller's language.
+                  if (es) {
+                    await speakLines(cid, DEMO_ES.notHeard, "es");
+                  } else {
+                    if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
+                    await speakLines(cid, DEMO_EN.notHeard, "en");
+                  }
                 } else {
                   await speakOnly(cid, es
                     ? "Lo siento, no entendí. " + buildShortPrompt("es")
@@ -2475,16 +2705,20 @@ for (let attempt = 1; ; attempt++) {
               // After the caller has had a response, 8s of silence means they're done — close
               // the call honestly instead of re-announcing the options. Only the very first
               // silence gets one gentle nudge.
-              if (cs && !cs.orgId && (cs.language || "en") === "en" && !(cs.phase || "").startsWith("reschedule_")) {
+              if (cs && !cs.orgId && !(cs.phase || "").startsWith("reschedule_")) {
+                // Both languages (Spanish used to fall through to "No escuché nada" + the whole
+                // option list after every silence, in the caller's language but never closing).
+                const dlang = (cs.language || "en") === "es" ? "es" : "en";
+                const script = dlang === "es" ? DEMO_ES : DEMO_EN;
                 if (!cs.demoNudged) {
                   // One gentle nudge, once. The old code parked a -1 in demoTurns, which the
                   // next `demoTurns + 1` turned back into 0/falsy, so the nudge repeated after
                   // every press and the closing ("I'll let you go") never arrived.
                   cs.demoNudged = true;
-                  setTimeout(() => { speakLines(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
+                  setTimeout(() => { speakLines(cid, script.nudge, dlang).catch(() => {}); }, 300);
                 } else {
                   pendingHangups.add(cid);
-                  setTimeout(() => { speakLines(cid, DEMO_EN.closing, "en").catch(() => {}); }, 300);
+                  setTimeout(() => { speakLines(cid, script.closing, dlang).catch(() => {}); }, 300);
                 }
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
@@ -2505,7 +2739,7 @@ for (let attempt = 1; ; attempt++) {
                 const es = lang === "es";
                 cs.gatherTimeouts = 0;
                 setTimeout(() => speakOnly(cid, es
-                  ? "Parece que tiene dificultades con el menú. Presione 1 para dejar un mensaje de voz, o espere para intentar de nuevo."
+                  ? "Parece que tiene dificultades con el menú. Presione 9 para dejar un mensaje de voz, o espere para intentar de nuevo."
                   : "It seems you're having trouble with the menu. Press 1 to leave a voicemail, or wait to try again.", lang), 300);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
