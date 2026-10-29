@@ -366,6 +366,7 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
           ended_at = ${endedAt.toISOString()},
           escalated_to_human = ${cs.transferred},
           escalated_at = ${cs.transferred ? endedAt.toISOString() : null},
+          is_demo = ${cs.isDemo === true},
           metadata = ${metadata}::jsonb,
           updated_at = NOW()
         WHERE id = ${conversationId}
@@ -375,11 +376,11 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
       await sql`
         INSERT INTO conversations
           (id, organization_id, contact_id, phone_number_id, type, status, direction,
-           twilio_call_sid, started_at, ended_at, escalated_to_human, escalated_at, metadata)
+           twilio_call_sid, started_at, ended_at, escalated_to_human, escalated_at, is_demo, metadata)
         VALUES
           (${conversationId}, ${cs.orgId}, ${contactId}, ${phoneNumberId}, 'call', ${status}::conversation_status, 'inbound',
            ${cs.callControlId || null}, ${cs.startTime.toISOString()}, ${endedAt.toISOString()},
-           ${cs.transferred}, ${cs.transferred ? endedAt.toISOString() : null}, ${metadata}::jsonb)
+           ${cs.transferred}, ${cs.transferred ? endedAt.toISOString() : null}, ${cs.isDemo === true}, ${metadata}::jsonb)
       `;
     }
     cs.conversationId = conversationId;
@@ -392,11 +393,11 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
       await sql`
         INSERT INTO missed_calls
           (id, organization_id, phone_number_id, contact_id, caller_number, caller_name,
-           twilio_call_sid, ring_duration_seconds, callback_requested, created_at)
+           twilio_call_sid, ring_duration_seconds, callback_requested, created_at, is_demo)
         VALUES
           (${crypto.randomUUID()}, ${cs.orgId}, ${phoneNumberId}, ${contactId}, ${cs.callerNumber},
            ${cs.callerFirstName || null}, ${cs.callControlId || null}, ${durationSeconds},
-           ${cs.requestedCallback}, ${cs.startTime.toISOString()})
+           ${cs.requestedCallback}, ${cs.startTime.toISOString()}, ${cs.isDemo === true})
       `;
     }
 
@@ -1218,11 +1219,11 @@ async function ensureCallConversation(cs: CallState): Promise<void> {
     await sql`
       INSERT INTO conversations
         (id, organization_id, contact_id, phone_number_id, type, status, direction,
-         twilio_call_sid, started_at)
+         twilio_call_sid, started_at, is_demo)
       VALUES
         (${conversationId}, ${cs.orgId}, ${cs.callerContactId || null}, ${phoneNumberId},
          'call', 'active'::conversation_status, 'inbound', ${cs.callControlId || null},
-         ${cs.startTime.toISOString()})
+         ${cs.startTime.toISOString()}, ${cs.isDemo === true})
     `;
     cs.conversationId = conversationId;
     console.log(`[DB] Conversation created at answer: ${conversationId.slice(0, 8)} (${cs.callerNumber})`);
@@ -1957,6 +1958,7 @@ async function scheduleRemindersInline(p: {
 async function createVoiceBooking(p: {
   orgId: string; name: string; phone: string; date: string; time: string; endTime: string;
   service: string; tz: string; lang: "en" | "es"; orgName: string; fromNumber: string;
+  isDemo?: boolean;
 }): Promise<{ success: boolean; appointmentId?: string; error?: string }> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) return { success: false, error: "DB not configured" };
@@ -1989,11 +1991,11 @@ async function createVoiceBooking(p: {
     const title = `${p.service} - ${p.name}`;
     const appt = await sql`
       INSERT INTO appointments
-        (id, organization_id, contact_id, title, start_time, end_time, timezone, service_type, status, created_at, updated_at)
+        (id, organization_id, contact_id, title, start_time, end_time, timezone, service_type, status, created_at, updated_at, is_demo)
       VALUES
         (gen_random_uuid(), ${p.orgId}, ${contactId}, ${title},
          ${startUtc.toISOString()}, ${endUtc.toISOString()}, ${p.tz},
-         ${p.service}, 'confirmed', NOW(), NOW())
+         ${p.service}, 'confirmed', NOW(), NOW(), ${p.isDemo === true})
       RETURNING id
     `;
     const apptId = appt[0]?.id;
@@ -2073,6 +2075,7 @@ async function handleBookingPhase(cid: string, digit: string, cs: CallState): Pr
       orgId: cs.orgId, name, phone: cs.callerNumber,
       date: slot.date, time: slot.time, endTime: slot.endTime,
       service: "General Service", tz, lang, orgName: cs.orgName || "our team", fromNumber: cs.toNumber,
+      isDemo: cs.isDemo === true,
     });
     if (result.success) {
       cs.appointmentBooked = true;
@@ -3139,6 +3142,7 @@ for (let attempt = 1; ; attempt++) {
               FROM appointments a
               LEFT JOIN contacts c ON a.contact_id = c.id
               WHERE a.organization_id = ${organizationId}
+                AND a.is_demo = false
                 AND DATE(a.start_time) >= ${startDate}::date
                 AND DATE(a.start_time) <= ${endDate}::date
                 AND a.status IN ('confirmed', 'scheduled', 'completed')
@@ -3169,6 +3173,7 @@ for (let attempt = 1; ; attempt++) {
             const upcomingRow = await sql`
               SELECT COUNT(*) as count FROM appointments
               WHERE organization_id = ${organizationId}
+                AND is_demo = false
                 AND start_time >= NOW()
                 AND status IN ('confirmed', 'scheduled')
             `;
@@ -3345,10 +3350,11 @@ for (let attempt = 1; ; attempt++) {
               FROM conversations c
               LEFT JOIN contacts co ON c.contact_id = co.id
               WHERE c.organization_id = ${organizationId}
+                AND c.is_demo = false
               ORDER BY c.started_at DESC
               LIMIT ${limit} OFFSET ${offset}
             `;
-            const totalRows = await sql`SELECT COUNT(*) as count FROM conversations WHERE organization_id = ${organizationId}`;
+            const totalRows = await sql`SELECT COUNT(*) as count FROM conversations WHERE organization_id = ${organizationId} AND is_demo = false`;
 
             return new Response(JSON.stringify({
               conversations: rows,
@@ -3391,6 +3397,7 @@ for (let attempt = 1; ; attempt++) {
                      callback_status, voicemail_url, voicemail_transcription, created_at
               FROM missed_calls
               WHERE organization_id = ${organizationId}
+                AND is_demo = false
               ORDER BY created_at DESC
               LIMIT ${limit}
             `;
@@ -3501,6 +3508,7 @@ for (let attempt = 1; ; attempt++) {
                 FROM conversations
                 WHERE organization_id = $2
                   AND type = 'call'
+                  AND is_demo = false
                   AND started_at >= $3::timestamptz
                   AND started_at < $4::timestamptz
               )
@@ -3553,6 +3561,7 @@ for (let attempt = 1; ; attempt++) {
               `SELECT type::text AS channel, count(*)::int AS count
                FROM conversations
                WHERE organization_id = $1 AND started_at >= $2::timestamptz AND started_at < $3::timestamptz
+                 AND is_demo = false
                GROUP BY type ORDER BY count(*) DESC, type`,
               [organizationId, from, to]
             );
@@ -3561,7 +3570,8 @@ for (let attempt = 1; ; attempt++) {
                       count(*) FILTER (WHERE callback_requested)::int AS callback_requested,
                       count(*) FILTER (WHERE callback_status IN ('contacted', 'resolved'))::int AS called_back
                FROM missed_calls
-               WHERE organization_id = $1 AND created_at >= $2::timestamptz AND created_at < $3::timestamptz`,
+               WHERE organization_id = $1 AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+                 AND is_demo = false`,
               [organizationId, from, to]
             );
             const appointmentRows: any[] = await sql.query(
@@ -3569,13 +3579,15 @@ for (let attempt = 1; ; attempt++) {
                       count(*) FILTER (WHERE conversation_id IS NOT NULL)::int AS from_calls
                FROM appointments
                WHERE organization_id = $1 AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+                 AND is_demo = false
                GROUP BY status ORDER BY count(*) DESC, status`,
               [organizationId, from, to]
             );
             const upcomingRows: any[] = await sql.query(
               `SELECT count(*)::int AS upcoming
                FROM appointments
-               WHERE organization_id = $1 AND status IN ('scheduled', 'confirmed') AND start_time >= now()`,
+               WHERE organization_id = $1 AND status IN ('scheduled', 'confirmed') AND start_time >= now()
+                 AND is_demo = false`,
               [organizationId]
             );
 
@@ -3787,6 +3799,7 @@ for (let attempt = 1; ; attempt++) {
               LEFT JOIN conversations cv ON cv.id = r.conversation_id
               LEFT JOIN contacts c ON c.id = cv.contact_id
               WHERE r.organization_id = ${organizationId}
+                AND COALESCE(cv.is_demo, false) = false
               ORDER BY r.created_at DESC
               LIMIT ${limit}
             `;

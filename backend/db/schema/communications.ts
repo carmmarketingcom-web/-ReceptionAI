@@ -156,6 +156,9 @@ export const conversations = pgTable(
     sourceUrl: text("source_url"),
     aiHandled: boolean("ai_handled").default(true),
     escalatedToHuman: boolean("escalated_to_human").default(false),
+    // True for calls to the public demo line. Written at call time from CallState.isDemo and
+    // filtered out of every owner-facing count — see migration 0005.
+    isDemo: boolean("is_demo").notNull().default(false),
     escalatedAt: timestamp("escalated_at", { withTimezone: true }),
     escalationReason: text("escalation_reason"),
     metadata: jsonb("metadata").default({}),
@@ -247,6 +250,9 @@ export const missedCalls = pgTable(
     callerName: varchar("caller_name", { length: 255 }),
     twilioCallSid: varchar("twilio_call_sid", { length: 100 }),
     ringDurationSeconds: integer("ring_duration_seconds"),
+    // True for a missed call on the public demo line (missed_calls has no conversation_id,
+    // so it carries the tag itself rather than joining).
+    isDemo: boolean("is_demo").notNull().default(false),
     voicemailUrl: text("voicemail_url"),
     voicemailTranscription: text("voicemail_transcription"),
     callbackRequested: boolean("callback_requested").default(false),

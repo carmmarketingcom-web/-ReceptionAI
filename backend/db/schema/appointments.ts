@@ -54,6 +54,8 @@ export const appointments = pgTable(
     status: appointmentStatusEnum("status").notNull().default("scheduled"),
     cancellationReason: text("cancellation_reason"),
     serviceType: varchar("service_type", { length: 255 }),
+    // True when the booking was taken on the public demo line — excluded from reporting.
+    isDemo: boolean("is_demo").notNull().default(false),
     staffAssignedId: uuid("staff_assigned_id").references(() => users.id, {
       onDelete: "set null",
     }),

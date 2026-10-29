@@ -46,7 +46,11 @@ export async function GET({ request }: { request: Request }) {
     }
 
     const db = getDb();
-    const conditions = [eq(appointments.organizationId, authResult.organizationId)];
+    const conditions = [
+      eq(appointments.organizationId, authResult.organizationId),
+      // Demo-line traffic is the owner's own test data — never real reporting.
+      eq(appointments.isDemo, false),
+    ];
 
     if (status) {
       conditions.push(eq(appointments.status, status as any));

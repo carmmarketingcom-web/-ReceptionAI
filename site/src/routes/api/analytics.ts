@@ -118,6 +118,7 @@ call_rows AS (
   FROM conversations
   WHERE organization_id = $2
     AND type = 'call'
+    AND is_demo = false
     AND started_at >= $3::timestamptz
     AND started_at < $4::timestamptz
 )
@@ -159,6 +160,7 @@ export const CHANNELS_SQL = `
 SELECT type::text AS channel, count(*)::int AS count
 FROM conversations
 WHERE organization_id = $1
+  AND is_demo = false
   AND started_at >= $2::timestamptz
   AND started_at < $3::timestamptz
 GROUP BY type
@@ -171,6 +173,7 @@ SELECT count(*)::int AS total,
        count(*) FILTER (WHERE callback_status IN ('contacted', 'resolved'))::int AS called_back
 FROM missed_calls
 WHERE organization_id = $1
+  AND is_demo = false
   AND created_at >= $2::timestamptz
   AND created_at < $3::timestamptz
 `;
@@ -181,6 +184,7 @@ SELECT status::text AS status,
        count(*) FILTER (WHERE conversation_id IS NOT NULL)::int AS from_calls
 FROM appointments
 WHERE organization_id = $1
+  AND is_demo = false
   AND created_at >= $2::timestamptz
   AND created_at < $3::timestamptz
 GROUP BY status
@@ -191,6 +195,7 @@ export const UPCOMING_SQL = `
 SELECT count(*)::int AS upcoming
 FROM appointments
 WHERE organization_id = $1
+  AND is_demo = false
   AND status IN ('scheduled', 'confirmed')
   AND start_time >= now()
 `;

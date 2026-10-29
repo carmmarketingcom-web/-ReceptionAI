@@ -94,7 +94,7 @@ export async function GET({ request }: { request: Request }) {
     const rows = await db
       .select()
       .from(missedCalls)
-      .where(eq(missedCalls.organizationId, authResult.organizationId))
+      .where(and(eq(missedCalls.organizationId, authResult.organizationId), eq(missedCalls.isDemo, false)))
       .orderBy(desc(missedCalls.createdAt))
       .limit(limit);
 

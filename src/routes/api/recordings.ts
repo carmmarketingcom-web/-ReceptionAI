@@ -19,7 +19,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { authenticate } from "../../lib/middleware";
 import { getDb, isMockMode } from "../../db/index";
 import { contacts, conversations, recordings } from "../../db/schema/index";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -129,7 +129,7 @@ export async function GET({ request }: { request: Request }) {
       .from(recordings)
       .leftJoin(conversations, eq(recordings.conversationId, conversations.id))
       .leftJoin(contacts, eq(conversations.contactId, contacts.id))
-      .where(eq(recordings.organizationId, authResult.organizationId))
+      .where(and(eq(recordings.organizationId, authResult.organizationId), eq(conversations.isDemo, false)))
       .orderBy(desc(recordings.createdAt))
       .limit(limit);
 
