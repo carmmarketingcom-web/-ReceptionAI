@@ -375,3 +375,32 @@ export function useDashboardStats() {
 
   return { stats, loading: false, conversations: conversationsData, appointments: appointmentsData };
 }
+
+// ─── Analytics ────────────────────────────────────────────────────────────
+// Real counts only: /api/analytics aggregates the rows the signed-in organization
+// actually has (calls, missed calls, appointments). There is deliberately NO
+// mock/demo fallback here — a zero is a real zero, and any metric the schema
+// cannot answer (satisfaction, per-staff performance, revenue attribution) is
+// simply absent from the response instead of being estimated.
+export interface AnalyticsResponse {
+  range: { days: number; from: string; to: string; timezone: string };
+  calls: { total: number; answered: number; missed: number; answerRate: number | null };
+  statuses: { status: string; count: number }[];
+  outcomes: { outcome: string; count: number }[];
+  callsByDay: { date: string; calls: number; answered: number; missed: number }[];
+  callsByHour: { hour: number; count: number }[];
+  channels: { channel: string; count: number }[];
+  languages: { language: string; count: number }[];
+  missedCalls: { total: number; callbackRequested: number; calledBack: number };
+  appointments: {
+    total: number;
+    byStatus: { status: string; count: number }[];
+    fromCalls: number;
+    upcoming: number;
+  };
+  hasData: boolean;
+}
+
+export function useAnalytics(days: 7 | 30 | 90 = 7) {
+  return useApiData<AnalyticsResponse>(`/api/analytics?days=${days}`);
+}
