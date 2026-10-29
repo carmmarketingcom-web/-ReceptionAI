@@ -40,6 +40,11 @@ const TELNYX = "https://api.telnyx.com/v2";
 const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID || "";
 function th() { return { Authorization: `Bearer ${process.env.TELNYX_API_KEY || ""}`, "Content-Type": "application/json" }; }
 
+// The longer beat between "here is the menu" and the first option. Declared up here because
+// DEMO_EN is a module-level initialiser that references it (a `const` declared further down
+// would be in its temporal dead zone and crash the process at boot — caught by the call sim).
+const OPTION_PAUSE = 500;
+
 // ── Database-driven org lookup by phone number ────────────────────────────
 async function getOrgByPhoneNumber(phoneNumber: string): Promise<{ name: string; orgId: string } | null> {
   const dbUrl = process.env.DATABASE_URL;
@@ -62,23 +67,44 @@ async function getOrgByPhoneNumber(phoneNumber: string): Promise<{ name: string;
   }
 }
 
-function buildGreeting(orgName: string, lang: string, callerContext?: CallerContext): string {
+// ── Greeting (owner-approved wording, 2026-10-29) ────────────────────────────
+// The English greeting is the owner's verbatim script: warm welcome, "24/7 virtual receptionist,
+// and we can help you right now", then the menu instruction, then ONE OPTION PER UTTERANCE. The
+// old line spliced five options into one comma run — with a neural voice that reads as a single
+// rushed breath, which is exactly the owner's complaint. The DTMF mapping is unchanged
+// (1 appointments, 2 services, 3 team member, 4 reschedule, 5 availability, 9 voicemail), and
+// the owner-rejected phrase "we're busy helping other clients" appears nowhere.
+// Returns a list so the caller can speak it with real beats between ideas (see speakLines).
+// Spanish returns the exact same single string it always has — untouched.
+function buildGreetingLines(orgName: string, lang: string, callerContext?: CallerContext): SpokenLine[] {
   const es = lang === "es";
   if (callerContext) {
     if (callerContext.previousVisits > 0 && callerContext.firstName) {
       if (callerContext.lastService) {
-        return es
+        return [es
           ? `¡Bienvenido de nuevo, ${callerContext.firstName}! Su última visita: ${callerContext.lastService}. Presione 1 para agendar, 2 para servicios, o 3 para hablar con alguien.`
-          : `Welcome back, ${callerContext.firstName}! Last visit: ${callerContext.lastService}. Press 1 to book, 2 for services, or 3 for a team member.`;
+          : `Welcome back, ${callerContext.firstName}! Last visit: ${callerContext.lastService}. Press 1 to book, 2 for services, or 3 for a team member.`];
       }
-      return es
+      return [es
         ? `¡Bienvenido de nuevo, ${callerContext.firstName}! Presione 1 para citas, 2 para servicios, o 3 para hablar con alguien.`
-        : `Welcome back, ${callerContext.firstName}! Press 1 for appointments, 2 for services, or 3 for a team member.`;
+        : `Welcome back, ${callerContext.firstName}! Press 1 for appointments, 2 for services, or 3 for a team member.`];
     }
   }
-  return es
-    ? `Hola, se ha comunicado con ${orgName}. Presione 1 para citas, 2 para servicios, 3 para hablar con alguien, 4 para reprogramar, 5 para disponibilidad, o 9 para dejar un mensaje.`
-    : `Hello, you've reached ${orgName}. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.`;
+  if (es) {
+    return [`Hola, se ha comunicado con ${orgName}. Presione 1 para citas, 2 para servicios, 3 para hablar con alguien, 4 para reprogramar, 5 para disponibilidad, o 9 para dejar un mensaje.`];
+  }
+  return [
+    `Thanks for calling ${orgName}!`,
+    `You've reached our 24/7 virtual receptionist, and we can help you right now.`,
+    `Please choose from the menu so we can get you to the right person faster.`,
+    { pauseMs: OPTION_PAUSE },
+    `Press 1 for appointments.`,
+    `Press 2 for services.`,
+    `Press 3 for a team member.`,
+    `Press 4 to reschedule.`,
+    `Press 5 for availability.`,
+    `Or press 9 to leave a message.`,
+  ];
 }
 
 interface CallerContext {
@@ -329,14 +355,21 @@ function buildShortPrompt(lang: string): string {
 // The demo number is the product's shop window, so the English side is written the way a
 // calm human receptionist talks: one idea per utterance, the option list ONCE per prompt,
 // and every natural ending says plainly that this was a demo. Spanish lines are untouched.
-const DEMO_EN = {
+// The first line is issued on its own with stop:"all" (to clear the Spanish language prompt),
+// so it lives in a named constant rather than being index-0 of a mixed list.
+const DEMO_GREETING_OPENER = "Thanks for calling ReceptionAI!";
+const DEMO_EN: Record<string, SpokenLine[]> = {
+  // Owner-approved demo greeting (2026-10-29): same warmth as the business line, same honesty,
+  // one option per utterance, and a real beat before the menu. Demo disclosure still plays on
+  // every ending (see book/pricing/transfer/closing/voicemail below).
   greeting: [
-    "Thanks for calling ReceptionAI!",
-    "You've reached a live demo of our AI receptionist — the same voice your own callers would hear, day and night.",
-    "If you'd like to see how the booking works, press 1.",
-    "For pricing, press 2.",
-    "And if you'd rather talk to a person, press 3 to reach our team.",
-    "So, how can I help you today?",
+    DEMO_GREETING_OPENER,
+    "You've reached our 24/7 virtual receptionist, and we can help you right now.",
+    "Please choose from the menu so we can get you to the right person faster.",
+    { pauseMs: OPTION_PAUSE },
+    "Press 1 to see how the booking works.",
+    "Press 2 for pricing.",
+    "Or press 3 to talk to a person.",
   ],
   book: [
     "Perfect.",
@@ -378,9 +411,18 @@ const DEMO_EN = {
   ],
   notHeard: [
     "Sorry, I didn't catch that.",
-    "Press 1 to see how the booking works, press 2 for pricing, or press 3 to talk to a person.",
+    { pauseMs: OPTION_PAUSE },
+    "Press 1 to see how the booking works.",
+    "Press 2 for pricing.",
+    "Or press 3 to talk to a person.",
   ],
-  nudge: "Take your time. Press 1 to see how the booking works, press 2 for pricing, or press 3 to talk to a person.",
+  nudge: [
+    "Take your time.",
+    { pauseMs: OPTION_PAUSE },
+    "Press 1 to see how the booking works.",
+    "Press 2 for pricing.",
+    "Or press 3 to talk to a person.",
+  ],
   closing: [
     "No problem, I'll let you go.",
     "That was a live example of how your own business will sound with ReceptionAI.",
@@ -399,9 +441,18 @@ const DEMO_EN = {
 // reported as ok=false so the caller can fall back instead of leaving the call waiting on audio
 // that will never arrive. TTS commands (speak/gather carry a `voice`) get a timeout, which turns
 // a hung request into a retryable failure; hangup/bridge/dial are left untimed on purpose.
+//
+// It returns the PROVIDER'S OWN error text, not just a boolean. The owner's real call on
+// 2026-10-29 (wltelxMg) logged "TTS RETRY / TTS FALLBACK" with no reason attached — that is how
+// the ElevenLabs voice stayed broken and invisible for a week. Every rejection is now logged at
+// WARN level with the HTTP status and Telnyx's error body. The key itself is never logged: the
+// Telnyx API key travels in the Authorization header, and `api_key_ref` is a reference (the
+// identifier of an integration secret), not a secret value.
 const TTS_CMD_TIMEOUT_MS = 12000;
-async function sendAction(cid: string, action: string, body: any): Promise<boolean> {
+type SendResult = { ok: boolean; error: string };
+async function sendActionEx(cid: string, action: string, body: any): Promise<SendResult> {
   const timed = !!body?.voice;
+  const label = `voice=${body?.voice || "-"}${body?.payload_type === "ssml" ? " ssml" : ""}`;
   try {
     const res = await fetch(`${TELNYX}/calls/${cid}/actions/${action}`, {
       method: "POST", headers: th(), body: JSON.stringify(body),
@@ -409,13 +460,20 @@ async function sendAction(cid: string, action: string, body: any): Promise<boole
     });
     let d: any;
     try { d = await res.json(); } catch { d = res.ok ? {} : { errors: [{ detail: `HTTP ${res.status}` }] }; }
-    const ok = !d.errors;
-    if (!ok) console.log(`${action} ERR:`, JSON.stringify(d.errors).slice(0, 150));
-    return ok;
+    if (d.errors) {
+      const detail = JSON.stringify(d.errors).slice(0, 400);
+      console.warn(`[TTS] ${action} rejected HTTP ${res.status} ${label} — ${detail}`);
+      return { ok: false, error: detail };
+    }
+    return { ok: true, error: "" };
   } catch (e: any) {
-    console.log(`${action} ERR:`, String(e?.message || e).slice(0, 150));
-    return false;
+    const detail = String(e?.message || e).slice(0, 200);
+    console.warn(`[TTS] ${action} failed ${label} — ${detail}`);
+    return { ok: false, error: detail };
   }
+}
+async function sendAction(cid: string, action: string, body: any): Promise<boolean> {
+  return (await sendActionEx(cid, action, body)).ok;
 }
 // True when a call-control body asks Telnyx for an ElevenLabs voice (`ElevenLabs.Default.<id>`).
 function isElevenLabsVoice(body: any): boolean {
@@ -431,41 +489,98 @@ function withoutSpeed(body: any): any {
   }
   return next;
 }
-// The same command, spoken by the default Polly neural voice for that language instead.
+// ── Slower, warmer delivery for the fallback voice ───────────────────────────
+// The owner heard Polly.Joanna-Neural at its DEFAULT rate on 2026-10-29 and said the English
+// side sounds "very fast and not friendly, in a rush". Polly has no rate knob in VoiceSettings
+// (voice_speed is Telnyx-Ultra-only), so the honest lever is SSML: Telnyx `speak` takes
+// payload_type "ssml" and Amazon Polly honours <prosody rate="..."> (confirmed in the Telnyx
+// OpenAPI spec, SpeakRequest.payload_type enum ["text","ssml"]). Note SpeakRequest.service_level
+// "basic" allows ONLY en-US + text, so SSML is never the only path: if a voice or account
+// rejects it, cmd() retries the same words as plain text so a caller is never left in silence.
+const POLLY_RATE = process.env.POLLY_RATE || "88%";
+function ssmlEscape(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function ssmlSlow(text: string): string {
+  return `<speak><prosody rate="${POLLY_RATE}">${ssmlEscape(text)}</prosody></speak>`;
+}
+// The same command, spoken slowly by the default Polly neural voice for that language instead.
 function pollyFallbackBody(body: any): any {
   const next: any = { ...body };
   delete next.voice_settings;
   next.voice = POLLY_VOICE.en.voice;
   next.language = POLLY_VOICE.en.language;
+  if (next.payload_type !== "ssml") {
+    next.payload_type = "ssml";
+    next.payload = ssmlSlow(String(next.payload || ""));
+  }
   return next;
 }
+// The same Polly command with the SSML stripped back to plain text (last resort: a voice or an
+// account tier that refuses payload_type "ssml" must still make a sound).
+function plainPollyBody(body: any): any {
+  const next: any = { ...body };
+  delete next.voice_settings;
+  next.voice = POLLY_VOICE.en.voice;
+  next.language = POLLY_VOICE.en.language;
+  delete next.payload_type;
+  next.payload = String(body?.payload || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ").trim();
+  return next;
+}
+// Calls where ElevenLabs already failed: skip the premium voice for the REST of that call
+// instead of paying two dead round-trips (and the silent beat they cost) on every prompt.
+const ELEVENLABS_DOWN = new Set<string>();
 async function cmd(cid: string, action: string, body: any = {}) {
-  if (await sendAction(cid, action, body)) return true;
+  const eleven = isElevenLabsVoice(body);
+  // Known-bad voice for this call → go straight to the slowed Polly path.
+  if (eleven && ELEVENLABS_DOWN.has(cid)) {
+    return (await sendActionEx(cid, action, pollyFallbackBody(body))).ok;
+  }
+  const first = await sendActionEx(cid, action, body);
+  if (first.ok) return true;
   // ── ElevenLabs safety fallback (centralised here so it covers EVERY voice command: speak,
   // gather, speakWithQueueControl, promptAndWait and any future one) ───────────────────────
   // The premium voice must never cost a caller the prompt: when Telnyx refuses an ElevenLabs
   // command (bad/expired api_key_ref, freemium account, ElevenLabs-side error, timeout), the
   // SAME command is retried once with the equivalent Polly voice. It is one logical command, so
   // callers keep counting one segment (speakOnly's speakSegments reconciliation stays exact).
-  if (!isElevenLabsVoice(body)) return false;
-  // Step 1: retry the SAME ElevenLabs command without the optional `speed` setting. Speech rate
-  // is a nicety; the premium voice is the product. If a live API ever rejects that field, the
-  // caller should still hear Rachel at her default rate rather than drop to Polly.
-  if (body?.voice_settings && "speed" in body.voice_settings) {
-    const stripped = withoutSpeed(body);
-    console.log(
-      `TTS RETRY: ${action} with ${body.voice} failed → retrying without speed ` +
-      `(call ${String(cid).slice(-8)})`
+  if (eleven) {
+    // Step 1: retry the SAME ElevenLabs command without the optional `speed` setting. Speech
+    // rate is a nicety; the premium voice is the product. If a live API ever rejects that field,
+    // the caller should still hear Rachel at her default rate rather than drop to Polly.
+    if (body?.voice_settings && "speed" in body.voice_settings) {
+      console.warn(
+        `[TTS] RETRY without speed: ${action} ${body.voice} (call ${String(cid).slice(-8)}) — ` +
+        `first attempt said: ${first.error}`
+      );
+      if ((await sendActionEx(cid, action, withoutSpeed(body))).ok) return true;
+    }
+    // Step 2: provider-level failure (bad/expired integration secret, ElevenLabs plan/outage).
+    // This is a WARNING, not a debug line: a silent downgrade is what hid this for a week. The
+    // call keeps working in the slowed Polly voice, and every prompt for the rest of this call
+    // skips ElevenLabs entirely.
+    ELEVENLABS_DOWN.add(cid);
+    if (ELEVENLABS_DOWN.size > 500) ELEVENLABS_DOWN.clear(); // bounded: never grow forever
+    console.warn(
+      `[TTS] FALLBACK: ${body.voice} is unavailable — call ${String(cid).slice(-8)} continues in ` +
+      `${pollyFallbackBody(body).voice} at ${POLLY_RATE} rate. Provider error: ${first.error}`
     );
-    if (await sendAction(cid, action, stripped)) return true;
+    const polly = pollyFallbackBody(body);
+    if ((await sendActionEx(cid, action, polly)).ok) return true;
+    // Step 3: SSML refused (service_level "basic" allows only en-US + text). Same words, plain
+    // text, still preceded by the pacing gaps — slower than before but never silence.
+    console.warn(`[TTS] SSML refused — retrying ${polly.voice} as plain text (call ${String(cid).slice(-8)})`);
+    return (await sendActionEx(cid, action, plainPollyBody(body))).ok;
   }
-  // Step 2: provider-level failure (bad/expired api_key_ref, freemium account, ElevenLabs
-  // outage). Speak the same prompt in the equivalent Polly voice instead.
-  console.log(
-    `TTS FALLBACK: ${action} with ${body.voice} failed → retrying with ${pollyFallbackBody(body).voice} ` +
-    `(call ${String(cid).slice(-8)})`
-  );
-  return sendAction(cid, action, pollyFallbackBody(body));
+  // Non-ElevenLabs SSML (the normal slowed Polly path) refused → same words as plain text.
+  if (body?.payload_type === "ssml") {
+    console.warn(`[TTS] SSML refused — retrying ${body.voice} as plain text (call ${String(cid).slice(-8)})`);
+    return (await sendActionEx(cid, action, plainPollyBody(body))).ok;
+  }
+  return false;
 }
 // ── TTS voice selection ──────────────────────────────────────────────────────
 // Two tiers, ENGLISH ONLY for the premium tier:
@@ -506,10 +621,21 @@ function ttsVoiceParams(text: string, lang: string): any {
       voice_settings: settings,
     };
   }
+  // Spanish is untouched: same voice, same plain-text payload, same rate (owner ear-confirmed).
+  if (l === "es") {
+    return {
+      payload: text,
+      voice: POLLY_VOICE.es.voice,
+      language: POLLY_VOICE.es.language,
+    };
+  }
+  // English Polly (the fallback voice, and the only voice when no ElevenLabs secret is set):
+  // slowed with SSML prosody so the caller never hears the default, rushed rate again.
   return {
-    payload: text,
-    voice: POLLY_VOICE[l].voice,
-    language: POLLY_VOICE[l].language,
+    payload_type: "ssml",
+    payload: ssmlSlow(text),
+    voice: POLLY_VOICE.en.voice,
+    language: POLLY_VOICE.en.language,
   };
 }
 
@@ -553,10 +679,16 @@ async function speakWithQueueControl(cid: string, text: string, lang: string, st
 // them), so the only honest pause lever is REAL SILENCE between queued speaks: hold the next
 // `speak` for a moment and the caller hears a human beat. Spanish keeps 0 — its literals,
 // timing and voice (Polly.Lupe-Neural) are untouched by this change.
-// Bounded on purpose: a prompt never gains more than ~1.3 s in total (6 gaps x 220 ms), and
-// nothing is ever added AFTER the last utterance, so the DTMF gather still arms the instant the
-// audio ends (#34/#35 single-gather rule intact).
-const TTS_PACING: Record<"en" | "es", number> = { en: 220, es: 0 };
+// Bounded on purpose: nothing is ever added AFTER the last utterance, so the DTMF gather still
+// arms the instant the audio ends (#34/#35 single-gather rule intact).
+// 2026-10-29 (second owner report — "still very fast and not friendly"): 220 ms was not enough
+// once the voice itself was slowed, so English now gets 320 ms between ideas and one longer beat
+// (OPTION_PAUSE) before the option list. Spanish stays 0 — its literals, timing and voice are
+// untouched.
+const TTS_PACING: Record<"en" | "es", number> = { en: 320, es: 0 };
+// A prompt is a list of things to say, in order. `{ pauseMs }` is a silent beat with no audio —
+// the only honest way to get one, since a neural voice reads a comma as a breath, not a pause.
+type SpokenLine = string | { pauseMs: number };
 // A real gap between two queued speaks ("es" resolves to 0 ms, i.e. exactly the old behaviour).
 async function paceGap(lang: string) {
   const ms = TTS_PACING[lang === "es" ? "es" : "en"];
@@ -577,10 +709,11 @@ function splitForPacing(text: string, lang: string): string[] {
 // comes out as a single flat breath. Separate speaks queue in order and each one gets its own
 // sentence-final intonation — the same mechanism the owner ear-confirmed in #26 — and the gap
 // above gives each idea room to land instead of running them together.
-async function speakLines(cid: string, lines: string[], lang: string) {
+async function speakLines(cid: string, lines: SpokenLine[], lang: string) {
   let spoken = 0;
   for (const raw of lines) {
     if (!raw) continue;
+    if (typeof raw === "object") { await new Promise((r) => setTimeout(r, raw.pauseMs)); continue; }
     for (const line of splitForPacing(raw, lang)) {
       if (!line) continue;
       if (spoken > 0) await paceGap(lang);
@@ -2348,14 +2481,14 @@ for (let attempt = 1; ; attempt++) {
                     // leg still queued behind the language prompt ("stop current audio and
                     // clear the queue"), so a caller who pressed 1 no longer hears
                     // "Para español, presione 2" after choosing English.
-                    await speakWithQueueControl(cid, DEMO_EN.greeting[0], "en", "all");
+                    await speakWithQueueControl(cid, DEMO_GREETING_OPENER, "en", "all");
                     // "Thanks for calling ReceptionAI!" is issued outside speakLines(), so give
                     // it the same beat before the next idea that the other segments get.
                     await paceGap("en");
                     await speakLines(cid, DEMO_EN.greeting.slice(1), "en");
                   } else {
-                    const greeting = buildGreeting(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
-                    await speakOnly(cid, greeting, "en");
+                    const greeting = buildGreetingLines(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
+                    await speakLines(cid, greeting, "en");
                   }
                 } else if (digit === "2") {
                   cs.language = "es";
@@ -2364,7 +2497,7 @@ for (let attempt = 1; ; attempt++) {
                   const isDemo = !cs.orgId;
                   const greeting = isDemo
                     ? `Hola y gracias por llamar. Se ha comunicado con ReceptionAI — un recepcionista virtual disponible 24/7 para contestar llamadas, agendar citas y gestionar mensajes. Presione 1 para agendar una cita, 2 para información de precios, o 3 si tiene alguna pregunta. ¿En qué puedo ayudarle?`
-                    : buildGreeting(cs.orgName || "ReceptionAI", "es", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
+                    : buildGreetingLines(cs.orgName || "ReceptionAI", "es", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined)[0];
                   await speakOnly(cid, greeting, "es");
                 } else {
                   await speakOnly(cid, `Please press 1 for English, or 2 for Spanish.`, "en");
@@ -2513,7 +2646,7 @@ for (let attempt = 1; ; attempt++) {
                   // next `demoTurns + 1` turned back into 0/falsy, so the nudge repeated after
                   // every press and the closing ("I'll let you go") never arrived.
                   cs.demoNudged = true;
-                  setTimeout(() => { speakPaced(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
+                  setTimeout(() => { speakLines(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
                 } else {
                   pendingHangups.add(cid);
                   setTimeout(() => { speakLines(cid, DEMO_EN.closing, "en").catch(() => {}); }, 300);
