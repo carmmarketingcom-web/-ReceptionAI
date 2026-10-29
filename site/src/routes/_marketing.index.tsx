@@ -620,13 +620,36 @@ function HowItWorks() {
   );
 }
 
-/* ─── Social Proof ─── */
+/* ─── What you actually get (honest band — we have no customers to quote yet) ─── */
 function SocialProof() {
-  const quotes = [
-    { text: "ReceptionAI handles all our after-hours calls. We've booked 40+ emergency jobs we would've missed.", author: "Mike R.", role: "HVAC Owner, Phoenix", icon: "phone" },
-    { text: "My front desk was drowning. Now the AI handles routine booking and my staff focuses on patients in the office.", author: "Dr. Sarah L.", role: "Dental Practice, Austin", icon: "calendar" },
-    { text: "The SMS summaries are genius. I know what happened on every call without logging into anything.", author: "James K.", role: "Plumbing Co., Denver", icon: "sms" },
+  const cards = [
+    {
+      icon: "phone",
+      title: "Answers every call, day or night",
+      body: "A real conversation, not a phone tree — in English or Spanish. Nights, weekends and holidays included. Callers choose English or Spanish before the menu.",
+    },
+    {
+      icon: "calendar",
+      title: "Books the appointment on the call",
+      body: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then texts the caller a confirmation and reminders 24 hours and 2 hours ahead.",
+    },
+    {
+      icon: "sms",
+      title: "Texts you a summary after every call",
+      body: "Who called, how long it ran, what the outcome was and what they asked for. It arrives on your phone, so you don't have to open the dashboard to know what happened.",
+    },
   ];
+  const exampleSummary = [
+    "📞 ReceptionAI Call Summary",
+    "From: (555) 010-0199",
+    "Duration: 2m 14s",
+    "Outcome: Appointment booked",
+    "DTMF: 1 → 3 → 1",
+    "AI Summary: Furnace making a loud noise — booked Tuesday at 10:15 AM.",
+    "Time: Tue, Oct 28, 9:41 AM CT",
+    "—",
+    "Check your dashboard: receptionai.store/dashboard",
+  ].join("\n");
 
   return (
     <section className="relative bg-gray-950 py-24 sm:py-32 overflow-hidden">
@@ -636,31 +659,56 @@ function SocialProof() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-4 py-1.5 text-sm font-semibold text-indigo-300 backdrop-blur-sm">
-            Trusted by service businesses
+            Live in the product today
           </span>
           <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-            Real results from
+            No borrowed reviews.
             <br />
-            <span className="text-indigo-400">real business owners</span>
+            <span className="text-indigo-400">This is what actually happens.</span>
           </h2>
+          <p className="mt-6 text-base leading-relaxed text-gray-400">
+            ReceptionAI is new, so there are no customer quotes on this page to show you. Instead, here is exactly
+            what the software does on a call — all of it built and running today.
+          </p>
         </Reveal>
 
         <div className="mt-14 grid gap-6 md:grid-cols-3">
-          {quotes.map((q, i) => (
-            <Reveal key={i} delay={i * 150}>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-sm transition-all hover:bg-white/[0.06] hover:border-white/20">
+          {cards.map((c, i) => (
+            <Reveal key={c.title} delay={i * 150}>
+              <div className="h-full rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-sm transition-all hover:bg-white/[0.06] hover:border-white/20">
                 <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
-                  <Icon name={q.icon} className="h-5 w-5" />
+                  <Icon name={c.icon} className="h-5 w-5" />
                 </div>
-                <p className="text-sm leading-relaxed text-gray-300">"{q.text}"</p>
-                <div className="mt-4 border-t border-white/5 pt-4">
-                  <p className="text-sm font-semibold text-white">{q.author}</p>
-                  <p className="text-xs text-gray-500">{q.role}</p>
-                </div>
+                <h3 className="text-lg font-bold text-white">{c.title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-gray-300">{c.body}</p>
               </div>
             </Reveal>
           ))}
         </div>
+
+        <Reveal className="mt-8">
+          <div className="grid gap-8 rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-sm lg:grid-cols-[1fr_minmax(0,400px)] lg:items-center lg:p-9">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-300">
+                Example
+              </span>
+              <h3 className="mt-4 text-2xl font-bold text-white">What lands on your phone after a call</h3>
+              <p className="mt-3 text-sm leading-relaxed text-gray-400">
+                The owner's summary text, in the format ReceptionAI sends it. The message shown here is a sample of
+                that format — it is not a real customer's call.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-[#141416] p-5 ring-1 ring-white/10">
+              <div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-500">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                SMS · to the business owner
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-gray-200">
+                {exampleSummary}
+              </pre>
+            </div>
+          </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -700,11 +748,11 @@ function HonestFaq() {
   const faqs = [
     {
       q: "Will my customers know it's AI?",
-      a: "They'll hear a professional, friendly voice that greets them by name. Most callers don't realize it's AI — they just know someone answered and helped them. If they ever ask, we're transparent: they're speaking with an automated receptionist that can connect them to a real person anytime.",
+      a: "They hear a warm, natural voice and a real conversation — not a phone tree. If they ever ask whether it's an AI, it says so plainly, and it can connect them to a real person at any point in the call.",
     },
     {
       q: "What about emergencies? Burst pipe. No heat.",
-      a: 'Press 3 at any time to transfer to you or your team. We suggest customizing your greeting: "If this is an emergency, press 3 now." Your customers always have a path to a human.',
+      a: "Press 3 at any time and the call is bridged straight to you or your team. If nobody picks up, the caller gets a text back — so an urgent call never just ends.",
     },
     {
       q: "What if it gets something wrong?",

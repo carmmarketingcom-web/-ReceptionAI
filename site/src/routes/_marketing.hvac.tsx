@@ -40,8 +40,8 @@ function HeroSection() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-600 sm:text-xl">
-          Your AI receptionist answers calls 24/7, books service appointments, and handles
-          emergencies. Built-in calendar. No integrations needed.
+          Your AI receptionist answers calls 24/7, books service appointments, and transfers
+          urgent callers straight to your phone. Built-in calendar. No integrations needed.
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -72,7 +72,7 @@ function PainPointsSection() {
     {
       icon: "🚨",
       title: "Missed calls = lost revenue",
-      desc: "Every missed HVAC call is a $200–500 service visit. In winter? Double that. Your AI answers every call — 24/7, holidays included.",
+      desc: "Every missed HVAC call is a service visit you did not get paid for — and in the middle of a cold snap that hurts most. Your AI answers every call, 24/7, holidays included.",
     },
     {
       icon: "📅",
@@ -82,7 +82,7 @@ function PainPointsSection() {
     {
       icon: "🇺🇸",
       title: "Bilingual, just like your customers",
-      desc: "English and Spanish. Seamless. No configuration needed. Your AI greets callers in the language they're comfortable with.",
+      desc: "English and Spanish, with nothing to configure. Callers press 1 for English or 2 for Spanish before they hear the menu.",
     },
   ];
 
@@ -112,7 +112,7 @@ function HowItWorksSection() {
     {
       step: "01",
       title: "Customer calls — AI answers",
-      desc: '"Hello, you\'ve reached [Your Business]. Press 1 to schedule service, press 2 for emergency."',
+      desc: '"Hello, you\'ve reached [Your Business]. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message."',
     },
     {
       step: "02",
@@ -162,11 +162,11 @@ function FaqSection() {
   const faqs = [
     {
       q: "What about emergency calls at 2 AM?",
-      a: "Press 2 routes emergency callers. They can also press 3 at any time to reach you directly. Your customers always have a path to a human when it's urgent.",
+      a: "The AI answers at 2 AM, takes the details and books the visit. If the caller wants you now, press 3 bridges the call straight to your phone — and if you can't pick up, they get a text back so the call doesn't just end.",
     },
     {
       q: "Will my customers know it's a robot?",
-      a: "They'll hear a professional voice that greets them by name. Most never realize — they just know someone answered and helped them. If they ask, we're transparent.",
+      a: "They hear a warm, natural voice and a real conversation — not a phone tree. If they ask whether they're talking to an AI, it says so, and it can hand them to a person.",
     },
     {
       q: "Does it work with ServiceTitan?",
