@@ -80,6 +80,55 @@ export function isAuthenticated(): boolean {
 }
 
 /**
+ * Pending signup credentials — the short bridge between paying and being signed in.
+ *
+ * The customer types an email + password on /signup, leaves the tab for Stripe Checkout,
+ * and comes back on /signup/success. Session storage carries those credentials across that
+ * redirect so the success page can sign them in automatically instead of dropping them onto
+ * an unauthenticated dashboard.
+ *
+ * Rules: session-scoped only (never localStorage), read-and-delete in one step, never put in
+ * a URL, never logged.
+ */
+export const PENDING_SIGNUP_KEY = "pendingSignup";
+
+export interface PendingSignup {
+  email: string;
+  password: string;
+}
+
+/** Stash the credentials the customer just typed, right before leaving for Stripe. */
+export function stashPendingSignup(email: string, password: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      PENDING_SIGNUP_KEY,
+      JSON.stringify({ email, password })
+    );
+  } catch {
+    // Private mode or storage disabled — the success page degrades to a login link.
+  }
+}
+
+/**
+ * Read AND remove the stashed credentials in one step.
+ * Returns null when there is nothing usable (already used, blocked storage, bad JSON).
+ */
+export function takePendingSignup(): PendingSignup | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_SIGNUP_KEY);
+    window.sessionStorage.removeItem(PENDING_SIGNUP_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingSignup>;
+    if (!parsed?.email || !parsed?.password) return null;
+    return { email: String(parsed.email), password: String(parsed.password) };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Login function — calls the API and stores the token.
  */
 export async function login(

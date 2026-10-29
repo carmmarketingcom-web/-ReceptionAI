@@ -28,13 +28,21 @@ export async function sendEmail(to: string, subject: string, body: string): Prom
         console.log(`[Email] Sent successfully via Resend to ${to}`);
         return true;
       }
+      // The provider's own error, not a generic one — callers log this and it is the only
+      // evidence that a customer was never contacted.
+      const detail = await res.text().catch(() => "");
+      console.error(`[Email] Resend rejected "${subject}" to ${to} (${res.status}): ${detail.slice(0, 300)}`);
+      return false;
     }
 
-    // In production without Resend, log for now
-    console.log(`[Email] Would send to ${to}: "${subject}"`);
-    return true;
+    // No provider configured: NOTHING was sent. Returning true here used to make callers
+    // report a successful send for an email that never left the process.
+    console.error(
+      `[Email] NOT SENT — no email provider configured (RESEND_API_KEY unset). "${subject}" to ${to} was not delivered.`
+    );
+    return false;
   } catch (err) {
-    console.warn("[Email] Send failed:", String(err).slice(0, 100));
+    console.error("[Email] Send failed:", String(err).slice(0, 200));
     return false;
   }
 }

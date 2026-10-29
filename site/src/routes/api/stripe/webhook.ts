@@ -55,6 +55,49 @@ function getSql() {
 }
 
 /**
+ * Alert the owner over SMS — the SAME mechanism as the support alerts in serve.ts
+ * (`SUPPORT_ALERT_TO` / `SUPPORT_ALERT_FROM`, sent through Telnyx). The destination is
+ * env-only: the owner's personal number is never written in source.
+ *
+ * Never throws and never rejects — a provisioning flow must not fail because an alert
+ * could not be delivered. A failure is logged loudly with the provider's own error so a
+ * charged customer with a broken setup can never be silent.
+ */
+async function sendOwnerAlert(text: string): Promise<void> {
+  const to = process.env.SUPPORT_ALERT_TO || "";
+  const from = process.env.SUPPORT_ALERT_FROM || "";
+  const apiKey = process.env.TELNYX_API_KEY || "";
+  if (!to || !from || !apiKey) {
+    console.error(
+      `[Stripe] OWNER ALERT NOT SENT (SUPPORT_ALERT_TO / SUPPORT_ALERT_FROM / TELNYX_API_KEY not all set): ${text}`
+    );
+    return;
+  }
+  try {
+    const res = await fetch("https://api.telnyx.com/v2/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to,
+        text,
+        ...(process.env.TELNYX_CONNECTION_ID ? { messaging_profile_id: process.env.TELNYX_CONNECTION_ID } : {}),
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error(
+        `[Stripe] OWNER ALERT SMS REJECTED (${res.status}): ${detail.slice(0, 200)} — alert was: ${text}`
+      );
+      return;
+    }
+    console.log(`[Stripe] Owner alert sent: ${text.replace(/\s+/g, " ").slice(0, 90)}`);
+  } catch (err) {
+    console.error(`[Stripe] OWNER ALERT SMS FAILED: ${String(err).slice(0, 200)} — alert was: ${text}`);
+  }
+}
+
+/**
  * POST /api/stripe/webhook
  */
 export async function POST({ request }: { request: Request }) {
@@ -192,7 +235,16 @@ async function handleCheckoutCompleted(session: any) {
       `;
       console.log(`[Stripe] Purchased number: ${purchased.phoneNumber} (telnyx: ${purchased.telnyxNumberId})`);
     } else {
-      console.warn("[Stripe] Failed to buy phone number — org created without number");
+      // A charged customer with no phone number is invisible unless we say so out loud.
+      console.error(`[Stripe] Failed to buy phone number — org ${orgId} created WITHOUT a number (${email})`);
+      await sendOwnerAlert(
+        `🚨 ReceptionAI: number purchase FAILED\n` +
+        `Business: ${companyName}\n` +
+        `Email: ${email}\n` +
+        `Stripe customer: ${stripeCustomerId || "unknown"}\n` +
+        `Plan: ${plan}\n` +
+        `They have been charged and have no phone number. Buy a number for org ${orgId} or refund.`
+      );
     }
   } else if (existingPhoneNumber) {
     // Store existing number as pending port
@@ -242,35 +294,61 @@ async function handleCheckoutCompleted(session: any) {
 
   console.log(`[Stripe] Onboarding complete for org ${orgId}`);
 
-  // h. Send welcome email
+  // h. Send the welcome email — and only claim what is actually true.
+  //
+  // "Live" is a fact we have to check, not a thing to promise: the receptionist can only
+  // answer if a phone_numbers row exists for this org. When the Telnyx purchase failed, or
+  // the customer's number is still being ported, the email says exactly that instead of
+  // telling a customer their line is answering calls.
   try {
-    // Get the phone number for the welcome email
-    const phoneRows = await sql`
-      SELECT phone_number FROM phone_numbers
-      WHERE organization_id = ${orgId} AND is_active = true
-      LIMIT 1
-    `;
-    const phoneNumber = phoneRows[0]?.phone_number || "Your number is being provisioned";
-    const pendingPort = !!(await sql`
-      SELECT 1 FROM phone_numbers WHERE organization_id = ${orgId} AND metadata->>'status' = 'pending_port' LIMIT 1
-    `).length;
+    const numberRows = (await sql`
+      SELECT phone_number, is_active, metadata FROM phone_numbers
+      WHERE organization_id = ${orgId}
+      ORDER BY created_at ASC
+      LIMIT 5
+    `) as Array<{ phone_number: string; is_active: boolean | string; metadata: any }>;
 
-    const phoneLine = pendingPort
-      ? `📞 Your phone number (${existingPhoneNumber}) is being ported — we'll notify you when it's live.`
-      : `📞 Your phone number: ${phoneNumber}`;
+    const activeRow = numberRows.find((r) => r.is_active === true || r.is_active === "1");
+    const phoneNumber = activeRow?.phone_number || "";
+    const isLive = !!phoneNumber;
+    const pendingPort = numberRows.some((r) => (r.metadata?.status || "") === "pending_port");
+
+    const phoneLine = isLive
+      ? `📞 Your phone number: ${phoneNumber}`
+      : pendingPort
+        ? `📞 Your phone number (${existingPhoneNumber}) is being ported — we'll email you the moment it's live.`
+        : `📞 Your phone number is being set up. We'll email it to you as soon as it's live — nothing for you to do.`;
+
+    const keepYourNumberSection = isLive
+      ? `Keep your old number:
+You can keep your old number by forwarding it to your new one — it takes about 5 minutes at your current phone provider and there's no downtime.
+
+Here's how (steps vary slightly by provider):
+• Call forwarding at your carrier: on your old phone, dial *72 followed by your new ReceptionAI number and press call. (If *72 doesn't work on your provider, contact them and ask for unconditional call forwarding to ${phoneNumber}.)
+• Or via your provider's web/app portal: find "Call forwarding" / "Forward all calls" and set it to ${phoneNumber}.
+
+Callers keep calling the number they already know, and the AI receptionist still answers 24/7. To turn it off later, dial *73.`
+      : `We'll send you the call-forwarding steps (*72 to turn it on, *73 to turn it off) together with your number, so you can keep the number your customers already know.`;
+
+    const statusLine = isLive
+      ? "Your AI receptionist is live and ready to answer calls!"
+      : "Your account is ready. Your AI receptionist starts answering as soon as your phone number is live — we'll email you the number the moment we have it.";
 
     const welcomeBody = `Hi ${name},
 
-Your AI receptionist is live and ready to answer calls!
+${statusLine}
 
 ${phoneLine}
+🔗 Finish your setup (2 min): https://receptionai.store/setup
 🔗 Dashboard: https://receptionai.store/login
 📖 Getting started: https://receptionai.store/getting-started
 
 Quick start:
 1. Log in at https://receptionai.store/login
-2. Complete your setup (2 min)
+2. Finish your setup at https://receptionai.store/setup — hours, services, and the mobile number we should transfer calls to
 3. Start receiving calls
+
+${keepYourNumberSection}
 
 Your plan is live. Cancel anytime.
 
@@ -278,10 +356,25 @@ Questions? Reply to this email.
 
 — Team ReceptionAI`;
 
-    sendEmail(email, "Welcome to ReceptionAI 🎉 — Your AI receptionist is live", welcomeBody);
-    console.log(`[Stripe] Welcome email sent to ${email}`);
+    const subject = isLive
+      ? "Welcome to ReceptionAI 🎉 — your AI receptionist is live"
+      : "Welcome to ReceptionAI — your account is ready (your number is on the way)";
+
+    // Awaited on purpose: fire-and-forget hid every delivery failure. If this returns
+    // false the customer has heard nothing from us, and that has to be in the logs.
+    const sent = await sendEmail(email, subject, welcomeBody);
+    if (sent) {
+      console.log(`[Stripe] Welcome email sent to ${email} (number ${isLive ? "live" : "pending"})`);
+    } else {
+      console.error(
+        `[Stripe] WELCOME EMAIL FAILED for ${email} (org ${orgId}) — the customer has received nothing; contact them manually`
+      );
+    }
   } catch (err) {
-    console.warn("[Stripe] Failed to send welcome email:", String(err).slice(0, 200));
+    console.error(
+      `[Stripe] Welcome email threw for ${email} (org ${orgId}):`,
+      String(err).slice(0, 300)
+    );
   }
 }
 

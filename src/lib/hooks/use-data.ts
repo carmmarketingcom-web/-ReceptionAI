@@ -350,6 +350,26 @@ export function useSettings() {
   return { data, loading, error, refetch, updateSettings };
 }
 
+/**
+ * The organization's own subscription, straight from `/api/billing` — the same org-scoped
+ * row the Billing page reads. Used by the dashboard header so it names the plan the customer
+ * actually bought instead of a hardcoded one. `null` subscription = show no plan at all.
+ */
+export interface SubscriptionSummary {
+  planId: string | null;
+  planName: string | null;
+  status: string;
+  priceMonthly: number | null;
+}
+
+export interface BillingResponse {
+  subscription: SubscriptionSummary | null;
+}
+
+export function useSubscription() {
+  return useApiData<BillingResponse>("/api/billing");
+}
+
 // ─── Dashboard Overview ───────────────────────────────────────────────────
 
 export interface DashboardStats {
