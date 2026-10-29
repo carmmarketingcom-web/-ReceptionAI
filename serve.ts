@@ -449,7 +449,10 @@ const DEMO_EN: Record<string, SpokenLine[]> = {
 // Telnyx API key travels in the Authorization header, and `api_key_ref` is a reference (the
 // identifier of an integration secret), not a secret value.
 const TTS_CMD_TIMEOUT_MS = 12000;
-type SendResult = { ok: boolean; error: string };
+// `http` separates "Telnyx answered and REFUSED this command" (a dead voice → step down the
+// chain for good) from "the request never completed" (network blip / timeout → try the same
+// voice again on the next prompt). Only an explicit refusal may retire a voice.
+type SendResult = { ok: boolean; error: string; http?: boolean };
 async function sendActionEx(cid: string, action: string, body: any): Promise<SendResult> {
   const timed = !!body?.voice;
   const label = `voice=${body?.voice || "-"}${body?.payload_type === "ssml" ? " ssml" : ""}`;
@@ -463,13 +466,13 @@ async function sendActionEx(cid: string, action: string, body: any): Promise<Sen
     if (d.errors) {
       const detail = JSON.stringify(d.errors).slice(0, 400);
       console.warn(`[TTS] ${action} rejected HTTP ${res.status} ${label} — ${detail}`);
-      return { ok: false, error: detail };
+      return { ok: false, error: detail, http: true };
     }
     return { ok: true, error: "" };
   } catch (e: any) {
     const detail = String(e?.message || e).slice(0, 200);
     console.warn(`[TTS] ${action} failed ${label} — ${detail}`);
-    return { ok: false, error: detail };
+    return { ok: false, error: detail, http: false };
   }
 }
 async function sendAction(cid: string, action: string, body: any): Promise<boolean> {
@@ -530,6 +533,93 @@ function plainPollyBody(body: any): any {
     .replace(/\s+/g, " ").trim();
   return next;
 }
+// ── English voice chain: warmth first, never silence ─────────────────────────
+// Owner report #2 (2026-10-29): the English line "still sounds rushed and unfriendly" and he
+// asked for a "sympathetic, harmonious" voice. Pacing alone could not fix that — the caller was
+// hearing Amazon Polly's Joanna, documented as "informative, professional", which is exactly the
+// businesslike tone he describes, because the ElevenLabs premium voice is refused by Telnyx on
+// every real call and cmd() quietly fell back. So the VOICE ITSELF changes here.
+//
+// The chain is walked at runtime, warmest first: the first voice this account ACCEPTS is the one
+// callers hear, and a voice Telnyx refuses is retired for the life of the process so no caller
+// pays for the same rejection twice. Generative voices take plain text — they need no SSML rate
+// control, the pauses come from real silence between separate speaks (TTS_PACING). Only the
+// neural safety nets keep the slowed SSML wrapper, and if the account refuses SSML the same
+// voice says the same words as plain text.
+//
+// On "Generative": Telnyx's published voice catalog (developers.telnyx.com/docs/tts-stt/
+// tts-available-voices) lists standard and -Neural Polly voices only — there is no -Generative
+// entry — while the OpenAPI schema shows generative voices as `aws.Polly.Generative.<VoiceId>`.
+// Both spellings are probed below; if the account accepts neither, the chain lands on the warm
+// conversational neural voices and finally on the known-good Joanna. Which one won is logged at
+// call start (logVoiceForCall) and on every step-down, so "what did the caller hear?" is never
+// a guess again.
+type EnVoice = { voice: string; language: string; ssml: boolean; note: string };
+const EN_VOICE_CHAIN: EnVoice[] = [
+  { voice: "Polly.Danielle-Generative",    language: "en-US", ssml: false, note: "generative, warm conversational female" },
+  { voice: "AWS.Polly.Generative.Danielle", language: "en-US", ssml: false, note: "generative, OpenAPI spelling" },
+  { voice: "Polly.Joanna-Generative",      language: "en-US", ssml: false, note: "generative, warm US female" },
+  { voice: "Polly.Ruth-Generative",        language: "en-US", ssml: false, note: "generative, friendly US female" },
+  { voice: "Polly.Danielle-Neural",        language: "en-US", ssml: true,  note: "neural, conversational + slowed" },
+  { voice: "Polly.Ruth-Neural",            language: "en-US", ssml: true,  note: "neural, friendly + slowed" },
+  { voice: "Polly.Joanna-Neural",          language: "en-US", ssml: true,  note: "known-good safety net + slowed" },
+  { voice: "Polly.Joanna",                 language: "en-US", ssml: false, note: "standard engine, last resort" },
+];
+// Pin one voice without a deploy (TTS_EN_VOICE=Polly.Danielle-Neural). The rest of the chain
+// stays behind the pin, so a pinned voice this account refuses still cannot leave a caller silent.
+const EN_VOICE_PIN = String(process.env.TTS_EN_VOICE || "").trim();
+const EN_VOICES: EnVoice[] = EN_VOICE_PIN
+  ? [{ voice: EN_VOICE_PIN, language: "en-US", ssml: /-Neural$/i.test(EN_VOICE_PIN), note: "pinned by TTS_EN_VOICE" },
+     ...EN_VOICE_CHAIN.filter((c) => c.voice !== EN_VOICE_PIN)]
+  : EN_VOICE_CHAIN;
+// Voices this account explicitly refused. Process-wide and bounded; a voice that merely failed
+// to answer (network blip) is NOT retired — SendResult.http tells the two apart.
+const EN_VOICE_DEAD = new Set<string>();
+function currentEnVoice(): EnVoice {
+  for (const v of EN_VOICES) if (!EN_VOICE_DEAD.has(v.voice)) return v;
+  return EN_VOICES[EN_VOICES.length - 1];
+}
+function enVoiceBody(text: string, v: EnVoice): any {
+  return v.ssml
+    ? { payload_type: "ssml", payload: ssmlSlow(text), voice: v.voice, language: v.language }
+    : { payload: text, voice: v.voice, language: v.language };
+}
+// Every spoken command goes through here. Spanish and the opt-in ElevenLabs path behave exactly
+// as before (cmd() owns their fallback); the English Polly path walks the chain above.
+async function voiceCmd(cid: string, action: string, text: string, lang: string, extra: any = {}): Promise<boolean> {
+  const l = lang === "es" ? "es" : "en";
+  if (l === "es" || (ELEVENLABS_ENABLED && ELEVENLABS_API_KEY_REF)) {
+    return cmd(cid, action, { ...ttsVoiceParams(text, l), ...extra });
+  }
+  for (const v of EN_VOICES) {
+    if (EN_VOICE_DEAD.has(v.voice)) continue;
+    let res = await sendActionEx(cid, action, { ...enVoiceBody(text, v), ...extra });
+    if (!res.ok && v.ssml) {
+      // SSML refused by the account tier → same voice, same words, plain text.
+      console.warn(`[TTS] SSML refused — retrying ${v.voice} as plain text (call ${String(cid).slice(-8)})`);
+      res = await sendActionEx(cid, action, { ...enVoiceBody(text, { ...v, ssml: false }), ...extra });
+    }
+    if (res.ok) return true;
+    if (res.http) {
+      EN_VOICE_DEAD.add(v.voice);
+      if (EN_VOICE_DEAD.size > 50) EN_VOICE_DEAD.clear(); // bounded: never grow forever
+      console.warn(`[TTS] VOICE REJECTED: ${v.voice} (${v.note}) — provider said: ${res.error}. Stepping down the English voice chain.`);
+    } else {
+      console.warn(`[TTS] voice unreachable this time: ${v.voice} — ${res.error}. Trying the next voice, not retiring it.`);
+    }
+  }
+  console.error(`[TTS] every English voice was refused — this prompt has no audio (call ${String(cid).slice(-8)})`);
+  return false;
+}
+// The one line to grep after a real call: exactly which English voice the caller is about to hear.
+function logVoiceForCall(cid: string) {
+  const v = currentEnVoice();
+  const premium = ELEVENLABS_ENABLED && ELEVENLABS_API_KEY_REF ? `, premium=ElevenLabs.Default.${ELEVENLABS_VOICE_ID}` : "";
+  console.log(
+    `[TTS] English voice = ${v.voice} (pacing=${TTS_PACING.en}ms${v.ssml ? `, ssml rate=${POLLY_RATE}` : ""}${premium}) ` +
+    `· Spanish voice = ${POLLY_VOICE.es.voice} · call ${String(cid).slice(-8)}`
+  );
+}
 // Calls where ElevenLabs already failed: skip the premium voice for the REST of that call
 // instead of paying two dead round-trips (and the silent beat they cost) on every prompt.
 const ELEVENLABS_DOWN = new Set<string>();
@@ -583,13 +673,10 @@ async function cmd(cid: string, action: string, body: any = {}) {
   return false;
 }
 // ── TTS voice selection ──────────────────────────────────────────────────────
-// Two tiers, ENGLISH ONLY for the premium tier:
-//   English — ElevenLabs (BYOK) when ELEVENLABS_API_KEY_REF is set; otherwise Polly.Joanna-Neural.
-//   Spanish — ALWAYS Polly.Lupe-Neural / es-US. ElevenLabs is permanently English-only: the
-//             owner ear-confirmed the Spanish voice, so the ES branch ignores the ElevenLabs
-//             env entirely (ELEVENLABS_API_KEY_REF / ELEVENLABS_VOICE_ID are inert for "es").
-// Every English command is additionally guarded by the Polly fallback in cmd() below: if Telnyx
-// rejects the ElevenLabs voice the caller still hears the prompt in Polly.Joanna-Neural.
+//   Spanish — ALWAYS Polly.Lupe-Neural / es-US, plain text, unpaced (owner ear-confirmed:
+//             Spanish literals, voice and timing are untouched by any English work).
+//   English — the voice chain above (warmest first, one voice for the whole call).
+//   ElevenLabs (BYOK) — opt-in only, English only; see ELEVENLABS_ENABLED.
 // Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
 const ELEVENLABS_API_KEY_REF = process.env.ELEVENLABS_API_KEY_REF || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (English)
@@ -597,21 +684,34 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8i
 // faster than a person would; 0.9 is unhurried without sounding sedated. Env-tunable, clamped
 // to ElevenLabs' documented range in ttsVoiceParams().
 const ELEVENLABS_SPEED = Number(process.env.ELEVENLABS_SPEED || "0.9");
-// The default neural voice per language — also the fallback target when an ElevenLabs command fails.
+// ElevenLabs is now OPT-IN (2026-10-29). Telnyx refuses our ElevenLabs voice on every real
+// call, so it was costing each caller two dead round-trips and a silent beat before the Polly
+// fallback — and the caller heard Polly anyway. Set TTS_ENABLE_ELEVENLABS=1 to keep diagnosing
+// the integration; until then the English voice comes from EN_VOICE_CHAIN.
+const ELEVENLABS_ENABLED = /^(1|true|yes)$/i.test(String(process.env.TTS_ENABLE_ELEVENLABS || ""));
 const POLLY_VOICE: Record<"en" | "es", { voice: string; language: string }> = {
   en: { voice: "Polly.Joanna-Neural", language: "en-US" },
   es: { voice: "Polly.Lupe-Neural", language: "es-US" },
 };
 function ttsVoiceParams(text: string, lang: string): any {
   const l = lang === "es" ? "es" : "en";
-  if (l === "en" && ELEVENLABS_API_KEY_REF) {
+  // Spanish is untouched: same voice, same plain-text payload, same rate (owner ear-confirmed).
+  if (l === "es") {
+    return {
+      payload: text,
+      voice: POLLY_VOICE.es.voice,
+      language: POLLY_VOICE.es.language,
+    };
+  }
+  // English premium tier — opt-in only. Kept intact so the integration can still be diagnosed by
+  // flipping one env var; it is off the default path because Telnyx refuses it on real calls and
+  // the caller heard Polly anyway.
+  if (ELEVENLABS_ENABLED && ELEVENLABS_API_KEY_REF) {
     const settings: any = { api_key_ref: ELEVENLABS_API_KEY_REF };
-    // Rate of speech — the second half of the owner's "way too fast" report. `speed` is a
-    // documented ElevenLabs-only field of Telnyx VoiceSettings ("Adjusts speech velocity ...
-    // Only applicable when using ElevenLabs"), distinct from `voice_speed`, which applies to
-    // Telnyx Ultra voices only. Kept inside ElevenLabs' supported 0.7–1.2 window, and cmd()
-    // retries without it if the live API ever refuses it, so a tuning value can never cost a
-    // caller the premium voice. Override with ELEVENLABS_SPEED (e.g. 0.85) without a deploy.
+    // `speed` is the documented ElevenLabs-only field of Telnyx VoiceSettings (distinct from
+    // `voice_speed`, which applies to Telnyx Ultra voices only), kept inside ElevenLabs' 0.7–1.2
+    // window. cmd() retries without it if the live API refuses it, so a tuning value can never
+    // cost a caller the premium voice.
     if (Number.isFinite(ELEVENLABS_SPEED) && ELEVENLABS_SPEED >= 0.7 && ELEVENLABS_SPEED <= 1.2) {
       settings.speed = ELEVENLABS_SPEED;
     }
@@ -621,28 +721,13 @@ function ttsVoiceParams(text: string, lang: string): any {
       voice_settings: settings,
     };
   }
-  // Spanish is untouched: same voice, same plain-text payload, same rate (owner ear-confirmed).
-  if (l === "es") {
-    return {
-      payload: text,
-      voice: POLLY_VOICE.es.voice,
-      language: POLLY_VOICE.es.language,
-    };
-  }
-  // English Polly (the fallback voice, and the only voice when no ElevenLabs secret is set):
-  // slowed with SSML prosody so the caller never hears the default, rushed rate again.
-  return {
-    payload_type: "ssml",
-    payload: ssmlSlow(text),
-    voice: POLLY_VOICE.en.voice,
-    language: POLLY_VOICE.en.language,
-  };
+  // English: whichever voice in the chain this account accepts (warmest first).
+  return enVoiceBody(text, currentEnVoice());
 }
 
 async function promptAndWait(cid: string, text: string) {
-  return cmd(cid, "gather", {
+  return voiceCmd(cid, "gather", text, "en", {
     type: "dtmf",
-    ...ttsVoiceParams(text, "en"),
     minimum_digits: 1,
     maximum_digits: 1,
     timeout_millis: 8000,
@@ -655,7 +740,7 @@ async function promptAndWait(cid: string, text: string) {
 const speakSegments = new Map<string, number>();
 async function speakOnly(cid: string, text: string, lang: string) {
   speakSegments.set(cid, (speakSegments.get(cid) || 0) + 1);
-  const ok = await cmd(cid, "speak", ttsVoiceParams(text, lang));
+  const ok = await voiceCmd(cid, "speak", text, lang);
   if (!ok) {
     // Never leave the counter stuck if Telnyx rejected the command — otherwise the call
     // would wait forever for an event that will not arrive.
@@ -668,7 +753,7 @@ async function speakOnly(cid: string, text: string, lang: string) {
 // Optional stop/queue control for one speak (Telnyx SpeakRequest.stop):
 // "current" stops the audio playing now, "all" also clears the rest of the queue.
 async function speakWithQueueControl(cid: string, text: string, lang: string, stop: "current" | "all") {
-  return cmd(cid, "speak", { ...ttsVoiceParams(text, lang), stop });
+  return voiceCmd(cid, "speak", text, lang, { stop });
 }
 
 // ── Natural pacing (owner report 2026-10-29: "the English voice is way too fast") ──────────
@@ -2270,6 +2355,8 @@ for (let attempt = 1; ; attempt++) {
 
             // ── New call: answer → language choice → speak → gather ───────
             if (ev === "call.initiated" || ev === "call_initiated") {
+              // One line per call: the English voice and pacing this caller is about to hear.
+              logVoiceForCall(cid);
               const toNumber = p.data?.payload?.to || "";
               const fromNumber = p.data?.payload?.from || "";
 
