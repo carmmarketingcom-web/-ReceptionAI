@@ -40,6 +40,11 @@ const TELNYX = "https://api.telnyx.com/v2";
 const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID || "";
 function th() { return { Authorization: `Bearer ${process.env.TELNYX_API_KEY || ""}`, "Content-Type": "application/json" }; }
 
+// The longer beat between "here is the menu" and the first option. Declared up here because
+// DEMO_EN is a module-level initialiser that references it (a `const` declared further down
+// would be in its temporal dead zone and crash the process at boot — caught by the call sim).
+const OPTION_PAUSE = 500;
+
 // ── Database-driven org lookup by phone number ────────────────────────────
 async function getOrgByPhoneNumber(phoneNumber: string): Promise<{ name: string; orgId: string } | null> {
   const dbUrl = process.env.DATABASE_URL;
@@ -681,8 +686,6 @@ async function speakWithQueueControl(cid: string, text: string, lang: string, st
 // (OPTION_PAUSE) before the option list. Spanish stays 0 — its literals, timing and voice are
 // untouched.
 const TTS_PACING: Record<"en" | "es", number> = { en: 320, es: 0 };
-// The longer beat between "here is the menu" and the first option.
-const OPTION_PAUSE = 500;
 // A prompt is a list of things to say, in order. `{ pauseMs }` is a silent beat with no audio —
 // the only honest way to get one, since a neural voice reads a comma as a breath, not a pause.
 type SpokenLine = string | { pauseMs: number };
