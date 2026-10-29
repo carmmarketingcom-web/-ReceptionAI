@@ -2765,6 +2765,190 @@ for (let attempt = 1; ; attempt++) {
               { status: 500, headers: { "Content-Type": "application/json" } });
           }
         }
+        // ── Analytics (real counts only — no demo arrays, no estimates) ──
+        // GET /api/analytics?days=7|30|90 — org-scoped aggregates over the rows this business
+        // actually has: conversations (type='call'), missed_calls and appointments. Every number
+        // is a COUNT over real rows; anything the schema cannot answer is simply not returned.
+        // Keep in sync with src/routes/api/analytics.ts and the other serve.ts tree.
+        if (pathname === "/api/analytics" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const url = new URL(req.url);
+            const requestedDays = parseInt(url.searchParams.get("days") || "7", 10);
+            const days = [7, 30, 90].includes(requestedDays) ? requestedDays : 7;
+            const now = new Date();
+            const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+            const to = now.toISOString();
+
+            // $1 = org timezone, $2 = organization id, $3 = from, $4 = to, $5 = days (all bound, never interpolated)
+            const CALL_AGG_SQL = `
+              WITH day_series AS (
+                -- Exactly N buckets ending today, in the organization's timezone.
+                SELECT generate_series(
+                  (($4::timestamptz - interval '1 second') AT TIME ZONE $1::text)::date - ($5::int - 1),
+                  (($4::timestamptz - interval '1 second') AT TIME ZONE $1::text)::date,
+                  interval '1 day'
+                )::date AS day
+              ),
+              call_rows AS (
+                SELECT status::text AS status,
+                       COALESCE(metadata->>'outcome', '') AS outcome,
+                       COALESCE(metadata->>'language', '') AS language,
+                       (started_at AT TIME ZONE $1::text)::date AS day,
+                       EXTRACT(hour FROM (started_at AT TIME ZONE $1::text))::int AS hour
+                FROM conversations
+                WHERE organization_id = $2
+                  AND type = 'call'
+                  AND started_at >= $3::timestamptz
+                  AND started_at < $4::timestamptz
+              )
+              SELECT
+                (SELECT count(*)::int FROM call_rows) AS total,
+                (SELECT count(*)::int FROM call_rows WHERE status <> 'missed') AS answered,
+                (SELECT count(*)::int FROM call_rows WHERE status = 'missed') AS missed,
+                (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
+                   SELECT status, count(*)::int AS count
+                   FROM call_rows GROUP BY status ORDER BY count(*) DESC, status
+                 ) x) AS statuses,
+                (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
+                   SELECT outcome, count(*)::int AS count
+                   FROM call_rows WHERE outcome <> '' GROUP BY outcome ORDER BY count(*) DESC, outcome
+                 ) x) AS outcomes,
+                (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
+                   SELECT to_char(d.day, 'YYYY-MM-DD') AS date,
+                          count(c.status)::int AS calls,
+                          count(c.status) FILTER (WHERE c.status <> 'missed')::int AS answered,
+                          count(c.status) FILTER (WHERE c.status = 'missed')::int AS missed
+                   FROM day_series d
+                   LEFT JOIN call_rows c ON c.day = d.day
+                   GROUP BY d.day ORDER BY d.day
+                 ) x) AS by_day,
+                (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
+                   SELECT h.hour, count(c.status)::int AS count
+                   FROM generate_series(0, 23) AS h(hour)
+                   LEFT JOIN call_rows c ON c.hour = h.hour
+                   GROUP BY h.hour ORDER BY h.hour
+                 ) x) AS by_hour,
+                (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
+                   SELECT language, count(*)::int AS count
+                   FROM call_rows WHERE language <> '' GROUP BY language ORDER BY count(*) DESC, language
+                 ) x) AS languages
+            `;
+
+            const tzRows: any[] = await sql.query(
+              `SELECT timezone FROM organizations WHERE id = $1`,
+              [organizationId]
+            );
+            let timezone = String(tzRows?.[0]?.timezone || "UTC");
+            try {
+              new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+            } catch {
+              timezone = "UTC";
+            }
+
+            const callRows: any[] = await sql.query(CALL_AGG_SQL, [timezone, organizationId, from, to, days]);
+            const channelRows: any[] = await sql.query(
+              `SELECT type::text AS channel, count(*)::int AS count
+               FROM conversations
+               WHERE organization_id = $1 AND started_at >= $2::timestamptz AND started_at < $3::timestamptz
+               GROUP BY type ORDER BY count(*) DESC, type`,
+              [organizationId, from, to]
+            );
+            const missedRows: any[] = await sql.query(
+              `SELECT count(*)::int AS total,
+                      count(*) FILTER (WHERE callback_requested)::int AS callback_requested,
+                      count(*) FILTER (WHERE callback_status IN ('contacted', 'resolved'))::int AS called_back
+               FROM missed_calls
+               WHERE organization_id = $1 AND created_at >= $2::timestamptz AND created_at < $3::timestamptz`,
+              [organizationId, from, to]
+            );
+            const appointmentRows: any[] = await sql.query(
+              `SELECT status::text AS status, count(*)::int AS count,
+                      count(*) FILTER (WHERE conversation_id IS NOT NULL)::int AS from_calls
+               FROM appointments
+               WHERE organization_id = $1 AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
+               GROUP BY status ORDER BY count(*) DESC, status`,
+              [organizationId, from, to]
+            );
+            const upcomingRows: any[] = await sql.query(
+              `SELECT count(*)::int AS upcoming
+               FROM appointments
+               WHERE organization_id = $1 AND status IN ('scheduled', 'confirmed') AND start_time >= now()`,
+              [organizationId]
+            );
+
+            const asArr = (v: any): any[] => {
+              if (Array.isArray(v)) return v;
+              if (typeof v === "string") {
+                try {
+                  const p = JSON.parse(v);
+                  return Array.isArray(p) ? p : [];
+                } catch {
+                  return [];
+                }
+              }
+              return [];
+            };
+            const n = (v: any): number => {
+              const x = Number(v);
+              return Number.isFinite(x) ? x : 0;
+            };
+
+            const c: any = callRows?.[0] || {};
+            const total = n(c.total);
+            const answered = n(c.answered);
+            const apptRows: any[] = appointmentRows || [];
+            const apptTotal = apptRows.reduce((s: number, r: any) => s + n(r.count), 0);
+            const apptFromCalls = apptRows.reduce((s: number, r: any) => s + n(r.from_calls), 0);
+
+            const statuses = asArr(c.statuses).map((r: any) => ({ status: String(r.status), count: n(r.count) }));
+            const outcomes = asArr(c.outcomes).map((r: any) => ({ outcome: String(r.outcome), count: n(r.count) }));
+            const callsByDay = asArr(c.by_day).map((r: any) => ({
+              date: String(r.date),
+              calls: n(r.calls),
+              answered: n(r.answered),
+              missed: n(r.missed),
+            }));
+            const channels = (channelRows || []).map((r: any) => ({ channel: String(r.channel), count: n(r.count) }));
+
+            return json({
+              range: { days, from, to, timezone },
+              calls: {
+                total,
+                answered,
+                missed: n(c.missed),
+                answerRate: total > 0 ? Math.round((answered / total) * 100) : null,
+              },
+              statuses,
+              outcomes,
+              callsByDay,
+              callsByHour: asArr(c.by_hour).map((r: any) => ({ hour: n(r.hour), count: n(r.count) })),
+              channels,
+              languages: asArr(c.languages).map((r: any) => ({ language: String(r.language), count: n(r.count) })),
+              missedCalls: {
+                total: n(missedRows?.[0]?.total),
+                callbackRequested: n(missedRows?.[0]?.callback_requested),
+                calledBack: n(missedRows?.[0]?.called_back),
+              },
+              appointments: {
+                total: apptTotal,
+                byStatus: apptRows.map((r: any) => ({ status: String(r.status), count: n(r.count) })),
+                fromCalls: apptFromCalls,
+                upcoming: n(upcomingRows?.[0]?.upcoming),
+              },
+              hasData: total > 0 || n(missedRows?.[0]?.total) > 0 || apptTotal > 0 || channels.length > 0,
+            });
+          } catch (err) {
+            console.error("[Analytics API]", String(err).slice(0, 200));
+            return json({ error: "Failed to load analytics" }, 500);
+          }
+        }
+
         // ── Team (real user accounts; there is no invented member list) ──
         // GET /api/users — list team members for the authenticated org.
         // Keep in sync with the root serve.ts tree and src/routes/api/users.ts.
