@@ -67,6 +67,28 @@ async function getOrgByPhoneNumber(phoneNumber: string): Promise<{ name: string;
   }
 }
 
+// ── Demo line (owner directive 2026-10-29) ───────────────────────────────────
+// The public demo number is a REAL phone_numbers row (registered to Carm Marketing LLC,
+// is_active = true), so `getOrgByPhoneNumber()` returns an org for it and the old `isDemo = !org`
+// was false on every real demo call: DEMO_EN/DEMO_ES and their disclosures were dead code in
+// production and a caller on the demo line heard the business greeting as "Carm Marketing LLC".
+// The demo line is therefore recognised by the number that was dialled — independent of the DB
+// mapping — and a customer's own line can never match it. DEMO_PHONE_NUMBER overrides the number
+// without a deploy; an unparseable value disables demo detection rather than matching everything.
+const DEMO_BRAND_NAME = "ReceptionAI";
+function normalizeE164(raw: string): string {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return `+${digits}`;
+}
+const DEMO_PHONE_NUMBER = normalizeE164(process.env.DEMO_PHONE_NUMBER || "+17279667556");
+function isDemoPhoneNumber(toNumber: string): boolean {
+  const dialed = normalizeE164(toNumber);
+  if (!dialed || !DEMO_PHONE_NUMBER) return false;
+  return dialed === DEMO_PHONE_NUMBER;
+}
 // ── Greeting (owner-approved wording, 2026-10-29) ────────────────────────────
 // The English greeting is the owner's verbatim script: warm welcome, "24/7 virtual receptionist,
 // and we can help you right now", then the menu instruction, then ONE OPTION PER UTTERANCE. The
@@ -93,39 +115,68 @@ const ES_GREETING_BODY: SpokenLine[] = [
   `Presione 5 para disponibilidad.`,
   `O presione 9 para dejar un mensaje.`,
 ];
+// The English menu body, ONE OPTION PER UTTERANCE. Shared verbatim by the first-time and the
+// returning greeting so the two can never drift apart again: until 2026-10-29 the returning
+// branch replaced this whole list with one line offering only 1, 2 and 3, which made press 4
+// (reschedule), 5 (availability) and 9 (leave a message) unreachable for any caller with a saved
+// name — the owner's "what you are setting up is not showing when I call" report. The wording
+// below is the owner-approved body from 2026-10-29 and is unchanged; only the opening line
+// differs between a first-time and a returning caller.
+const EN_GREETING_BODY: SpokenLine[] = [
+  `You've reached our 24/7 virtual receptionist, and we can help you right now.`,
+  `Please choose from the menu so we can get you to the right person faster.`,
+  { pauseMs: OPTION_PAUSE },
+  `Press 1 for appointments.`,
+  `Press 2 for services.`,
+  `Press 3 for a team member.`,
+  `Press 4 to reschedule.`,
+  `Press 5 for availability.`,
+  `Or press 9 to leave a message.`,
+];
+// Names the system itself writes into a contact record. Reading one aloud is a bug, not a
+// greeting: production evidence 2026-10-29 — the owner's own cell is stored as contact "Caller"
+// with 18 calls, so he heard "Welcome back, Caller!" when he called his own demo line.
+const PLACEHOLDER_NAMES = ["caller", "unknown", "guest", "customer", "test"];
+function isPlaceholderName(name: string | null | undefined, orgName?: string | null): boolean {
+  const n = String(name || "").trim().toLowerCase();
+  if (!n) return true; // an empty name is not a name
+  if (PLACEHOLDER_NAMES.includes(n)) return true;
+  const org = String(orgName || "").trim().toLowerCase();
+  return org.length > 0 && n === org; // the business name is not the caller's name
+}
+// A caller is greeted by name only when we know a REAL name AND they have really called before.
+// The call site used to force previousVisits: 1 whenever any first name existed, so the repeat
+// branch always won — no business name, and a placeholder read aloud.
+function returningCallerName(cs: { callerFirstName?: string; previousVisits?: number }, orgName: string): string | null {
+  const name = String(cs.callerFirstName || "").trim();
+  if (!name) return null;
+  if (isPlaceholderName(name, orgName)) return null;
+  if ((cs.previousVisits || 0) < 1) return null;
+  return name;
+}
+// The caller context the greeting is built from — the REAL visit count, never a forced 1.
+function callerContextFor(cs: { callerFirstName?: string; previousVisits?: number }): CallerContext | undefined {
+  if (!cs.callerFirstName) return undefined;
+  return { firstName: cs.callerFirstName, previousVisits: cs.previousVisits || 0 } as CallerContext;
+}
 function buildGreetingLines(orgName: string, lang: string, callerContext?: CallerContext): SpokenLine[] {
   const es = lang === "es";
-  if (callerContext) {
-    if (callerContext.previousVisits > 0 && callerContext.firstName) {
-      if (es) {
-        const opener = callerContext.lastService
-          ? `¡Bienvenido de nuevo, ${callerContext.firstName}! Su última visita fue por ${callerContext.lastService}.`
-          : `¡Bienvenido de nuevo, ${callerContext.firstName}!`;
-        return [opener, ...ES_GREETING_BODY];
-      }
-      if (callerContext.lastService) {
-        return [`Welcome back, ${callerContext.firstName}! Last visit: ${callerContext.lastService}. Press 1 to book, 2 for services, or 3 for a team member.`];
-      }
-      return [`Welcome back, ${callerContext.firstName}! Press 1 for appointments, 2 for services, or 3 for a team member.`];
-    }
+  // Owner-approved copy (2026-10-29, ratified): first-time "Welcome, and thank you for calling
+  // {Business}!"; returning "Welcome back, {FirstName}! Thank you for calling {Business}." —
+  // each followed by the COMPLETE menu, one option per utterance, same beats as before.
+  const backName = callerContext && callerContext.previousVisits > 0
+    && !isPlaceholderName(callerContext.firstName, orgName)
+    ? String(callerContext.firstName).trim()
+    : "";
+  if (backName) {
+    return es
+      ? [`¡Bienvenido de nuevo, ${backName}! Gracias por llamar a ${orgName}.`, ...ES_GREETING_BODY]
+      : [`Welcome back, ${backName}! Thank you for calling ${orgName}.`, ...EN_GREETING_BODY];
   }
-  if (es) {
-    return [`Hola, se ha comunicado con ${orgName}.`, ...ES_GREETING_BODY];
-  }
-  return [
-    `Thanks for calling ${orgName}!`,
-    `You've reached our 24/7 virtual receptionist, and we can help you right now.`,
-    `Please choose from the menu so we can get you to the right person faster.`,
-    { pauseMs: OPTION_PAUSE },
-    `Press 1 for appointments.`,
-    `Press 2 for services.`,
-    `Press 3 for a team member.`,
-    `Press 4 to reschedule.`,
-    `Press 5 for availability.`,
-    `Or press 9 to leave a message.`,
-  ];
+  return es
+    ? [`Hola, y gracias por llamar a ${orgName}.`, ...ES_GREETING_BODY]
+    : [`Welcome, and thank you for calling ${orgName}!`, ...EN_GREETING_BODY];
 }
-
 interface CallerContext {
   firstName?: string;
   lastName?: string;
@@ -1373,6 +1424,11 @@ interface CallState {
   startTime: Date;
   orgId: string | null;
   orgName: string | null;
+  // True when the DIALED number is the public demo line (isDemoPhoneNumber) — never inferred
+  // from a missing org row. Every demo-scripted branch hangs off this.
+  isDemo: boolean;
+  // Real prior-visit count from lookupCallerHistory (0 = first-time caller).
+  previousVisits?: number;
   callerFirstName?: string;
   callerContactId?: string;
   appointmentIntent: boolean;
@@ -1467,7 +1523,7 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
     case "reschedule_lookup": {
       // digits are phone number; look up appointments
       const phone = cs.dtmfHistory.slice(-11).join("");
-      if (!cs.orgId) {
+      if (cs.isDemo) {
         cs.phase = "menu";
         // Never answer a Spanish caller in English (belt and braces: digit 4 on the demo line is
         // now answered before it ever gets here).
@@ -2586,8 +2642,14 @@ for (let attempt = 1; ; attempt++) {
 
               // ── Regular inbound call ─────────────────────────────
               const org = await getOrgByPhoneNumber(toNumber);
-              const companyName = org?.name || process.env.COMPANY_NAME || "ReceptionAI";
-              const isDemo = !org; // no org in DB = demo number
+              // Demo is decided by the NUMBER THAT WAS DIALED, not by a missing DB row: the
+              // public demo line has a real phone_numbers row, so `!org` was false on every
+              // real demo call and the demo script was unreachable in production.
+              const isDemo = isDemoPhoneNumber(toNumber);
+              const companyName = isDemo ? DEMO_BRAND_NAME : (org?.name || process.env.COMPANY_NAME || DEMO_BRAND_NAME);
+              console.log(isDemo
+                ? `[CALL] demo line detected (${normalizeE164(toNumber)}) — demo script`
+                : `[CALL] business line ${companyName}`);
 
               // Look up caller history for known callers
               let callerContext: CallerContext | undefined;
@@ -2603,6 +2665,8 @@ for (let attempt = 1; ; attempt++) {
                 startTime: new Date(),
                 orgId: org?.orgId || null,
                 orgName: org?.name || null,
+                isDemo,
+                previousVisits: callerContext?.previousVisits || 0,
                 callerFirstName: callerContext?.firstName,
                 callerContactId: callerContext?.contactId,
                 appointmentIntent: false,
@@ -2674,7 +2738,7 @@ for (let attempt = 1; ; attempt++) {
                   }
                 }
                 const es = (cs.language || "en") === "es";
-                if (!cs.orgId) {
+                if (cs.isDemo) {
                   // Demo ending: say plainly what they just heard (owner directive) — in the
                   // caller's language. Spanish used to promise "we received your message, we'll
                   // contact you shortly" on a demo line that stores nothing and calls nobody back.
@@ -2773,32 +2837,41 @@ for (let attempt = 1; ; attempt++) {
                   cs.language = "en";
                   cs.phase = "menu";
                   cs.answered = true; // caller interacted — mark as answered
-                  const isDemo = !cs.orgId;
-                  if (isDemo) {
+                  if (cs.isDemo) {
+                    // On the demo line the business IS the product, so the caller hears
+                    // "ReceptionAI" — never the name of the org that happens to own the number
+                    // (Carm Marketing LLC) — and a caller we really know is welcomed back by
+                    // name. Body, beats and the single gather are unchanged.
+                    const backName = returningCallerName(cs, DEMO_BRAND_NAME);
+                    const opener = backName
+                      ? `Welcome back, ${backName}! Thank you for calling ${DEMO_BRAND_NAME}.`
+                      : DEMO_GREETING_OPENER;
                     // First English line carries stop:"all" — Telnyx then drops the Spanish
                     // leg still queued behind the language prompt ("stop current audio and
                     // clear the queue"), so a caller who pressed 1 no longer hears
                     // "Para español, presione 2" after choosing English.
-                    await speakWithQueueControl(cid, DEMO_GREETING_OPENER, "en", "all");
-                    // "Thanks for calling ReceptionAI!" is issued outside speakLines(), so give
-                    // it the same beat before the next idea that the other segments get.
+                    await speakWithQueueControl(cid, opener, "en", "all");
+                    // The opener is issued outside speakLines(), so give it the same beat before
+                    // the next idea that the other segments get.
                     await paceGap("en");
                     await speakLines(cid, DEMO_EN.greeting.slice(1), "en");
                   } else {
-                    const greeting = buildGreetingLines(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
+                    const greeting = buildGreetingLines(cs.orgName || DEMO_BRAND_NAME, "en", callerContextFor(cs));
                     await speakLines(cid, greeting, "en");
                   }
                 } else if (digit === "2") {
                   cs.language = "es";
                   cs.phase = "menu";
                   cs.answered = true; // caller interacted — mark as answered
-                  const isDemo = !cs.orgId;
                   // Same shape as the English branch: the menu is a LIST, spoken one option per
                   // utterance with real beats. The old code spoke one 40-word sentence (and for a
                   // business line it spoke only element [0] of the greeting).
-                  const greeting = isDemo
-                    ? DEMO_ES.greeting
-                    : buildGreetingLines(cs.orgName || "ReceptionAI", "es", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
+                  const backName = cs.isDemo ? returningCallerName(cs, DEMO_BRAND_NAME) : null;
+                  const greeting = cs.isDemo
+                    ? (backName
+                      ? [`¡Bienvenido de nuevo, ${backName}! Gracias por llamar a ${DEMO_BRAND_NAME}.`, ...DEMO_ES.greeting.slice(1)]
+                      : DEMO_ES.greeting)
+                    : buildGreetingLines(cs.orgName || DEMO_BRAND_NAME, "es", callerContextFor(cs));
                   await speakSpanishGreeting(cid, greeting);
                 } else {
                   await speakOnly(cid, `Please press 1 for English, or 2 for Spanish.`, "en");
@@ -2823,7 +2896,7 @@ for (let attempt = 1; ; attempt++) {
 
               if (digit === "1") {
                 if (cs) cs.appointmentIntent = true;
-                const isDemo = !cs?.orgId;
+                const isDemo = !!cs?.isDemo;
                 if (isDemo) {
                   if (es) {
                     await speakLines(cid, DEMO_ES.book, "es");
@@ -2839,8 +2912,8 @@ for (let attempt = 1; ; attempt++) {
 
               else if (digit === "2") {
                 if (es) {
-                  await speakLines(cid, !cs?.orgId ? DEMO_ES.pricing : ES_PRICING_LINES, "es");
-                } else if (!cs?.orgId) {
+                  await speakLines(cid, !cs?.isDemo ? DEMO_ES.pricing : ES_PRICING_LINES, "es");
+                } else if (!cs?.isDemo) {
                   if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
                   await speakLines(cid, DEMO_EN.pricing, "en");
                 } else {
@@ -2849,7 +2922,7 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "3") {
-                const isDemo = !cs?.orgId;
+                const isDemo = !!cs?.isDemo;
                 if (isDemo) {
                   if (es) {
                     await speakLines(cid, DEMO_ES.transfer, "es");
@@ -2869,7 +2942,7 @@ for (let attempt = 1; ; attempt++) {
                 // answered a Spanish caller with an English line ("I can't look up appointments
                 // in demo mode") — the long-standing "Spanish caller pressing 4 hears English"
                 // bug. Spanish now gets its own demo answer, exactly like English.
-                if (!cs?.orgId) {
+                if (!cs?.isDemo) {
                   if (es) {
                     await speakLines(cid, DEMO_ES.reschedule, "es");
                   } else {
@@ -2890,7 +2963,7 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else if (digit === "5") {
-                if (!cs?.orgId) {
+                if (!cs?.isDemo) {
                   if (es) {
                     await speakLines(cid, DEMO_ES.hours, "es");
                   } else {
@@ -2920,7 +2993,7 @@ for (let attempt = 1; ; attempt++) {
               }
 
               else {
-                if (!cs?.orgId) {
+                if (!cs?.isDemo) {
                   // Options once, in the same wording the greeting used — in the caller's language.
                   if (es) {
                     await speakLines(cid, DEMO_ES.notHeard, "es");
@@ -2957,7 +3030,7 @@ for (let attempt = 1; ; attempt++) {
               // After the caller has had a response, 8s of silence means they're done — close
               // the call honestly instead of re-announcing the options. Only the very first
               // silence gets one gentle nudge.
-              if (cs && !cs.orgId && !(cs.phase || "").startsWith("reschedule_")) {
+              if (cs && cs.isDemo && !(cs.phase || "").startsWith("reschedule_")) {
                 // Both languages (Spanish used to fall through to "No escuché nada" + the whole
                 // option list after every silence, in the caller's language but never closing).
                 const dlang = (cs.language || "en") === "es" ? "es" : "en";
@@ -2992,7 +3065,7 @@ for (let attempt = 1; ; attempt++) {
                 cs.gatherTimeouts = 0;
                 setTimeout(() => speakOnly(cid, es
                   ? "Parece que tiene dificultades con el menú. Presione 9 para dejar un mensaje de voz, o espere para intentar de nuevo."
-                  : "It seems you're having trouble with the menu. Press 1 to leave a voicemail, or wait to try again.", lang), 300);
+                  : "It seems you're having trouble with the menu. Press 9 to leave a voicemail, or wait to try again.", lang), 300);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
               const lang = cs?.language || "en";
