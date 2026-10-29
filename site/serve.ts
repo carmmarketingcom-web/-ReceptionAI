@@ -301,7 +301,7 @@ function buildShortPrompt(lang: string): string {
 const DEMO_EN = {
   greeting: [
     "Thanks for calling ReceptionAI!",
-    "You've reached a live demo of our AI receptionist, the one that answers calls for real businesses, day and night.",
+    "You've reached a live demo of our AI receptionist — the same voice your own callers would hear, day and night.",
     "If you'd like to see how the booking works, press 1.",
     "For pricing, press 2.",
     "And if you'd rather talk to a person, press 3 to reach our team.",
@@ -309,33 +309,41 @@ const DEMO_EN = {
   ],
   book: [
     "Perfect.",
-    "In a live account, this is where I'd check the calendar and hold a real appointment for you, then text you the confirmation.",
+    "In a live account, this is where I'd check the calendar and hold a real appointment for you.",
+    "Then I'd text you the confirmation.",
     "You're on our demo line right now, so nothing gets booked today.",
-    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to put it to work for your business.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to get started.",
     "Thanks for calling!",
   ],
   pricing: [
     "Happy to help with that.",
     "Starter is $99 a month, Growth is $199, and Scale is $399.",
     "Every plan is month to month, so there's no contract and you can cancel any time.",
-    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to compare the plans, or press 3 to talk to our team.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to compare the plans, or press 3 for our team.",
   ],
   transfer: [
     "Of course.",
-    "In a live account, I'd put you straight through to the team right now, and I'd text them your number if nobody picked up.",
+    "In a live account, I'd put you straight through to the team right now.",
+    "And I'd text them your number if nobody picked up.",
     "This is the demo line, so there's nobody on the other end today.",
-    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to have this answering your own calls.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to have this answering your own calls.",
     "Thanks for calling!",
   ],
   reschedule: [
     "Of course.",
-    "In a live account, I'd look up the appointment under your number and move it for you in a few seconds.",
-    "On the demo line there's nothing to look up, but you can try the real thing with an account at receptionai.store.",
+    "In a live account, I'd look up the appointment under your number and move it in a few seconds.",
+    "You're on the demo line, so there's nothing to look up today.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to get started.",
   ],
   hours: [
     "In a live account, I'd read the calendar live and offer you the next open times, usually within seconds.",
     "The demo line doesn't have a calendar behind it, so there's nothing real to offer you here.",
-    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to see it running for your business.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to see it running for your business.",
   ],
   notHeard: [
     "Sorry, I didn't catch that.",
@@ -344,12 +352,14 @@ const DEMO_EN = {
   nudge: "Take your time. Press 1 to see how the booking works, press 2 for pricing, or press 3 to talk to a person.",
   closing: [
     "No problem, I'll let you go.",
-    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to have it answering your own calls.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to have it answering your own calls.",
     "Thanks for calling, and have a great day!",
   ],
   voicemail: [
     "Thanks, I've got your message.",
-    "You've been listening to a live demo of ReceptionAI. Visit receptionai.store to have this answering your own calls.",
+    "That was a live example of how your own business will sound with ReceptionAI.",
+    "Visit receptionai.store to have this answering your own calls.",
     "Goodbye!",
   ],
 };
@@ -380,6 +390,16 @@ async function sendAction(cid: string, action: string, body: any): Promise<boole
 function isElevenLabsVoice(body: any): boolean {
   return typeof body?.voice === "string" && body.voice.startsWith("ElevenLabs.");
 }
+// The same command with the optional speech-rate setting removed (see cmd() below).
+function withoutSpeed(body: any): any {
+  const next: any = { ...body };
+  if (next.voice_settings && typeof next.voice_settings === "object") {
+    const settings = { ...next.voice_settings };
+    delete settings.speed;
+    next.voice_settings = settings;
+  }
+  return next;
+}
 // The same command, spoken by the default Polly neural voice for that language instead.
 function pollyFallbackBody(body: any): any {
   const next: any = { ...body };
@@ -397,6 +417,19 @@ async function cmd(cid: string, action: string, body: any = {}) {
   // SAME command is retried once with the equivalent Polly voice. It is one logical command, so
   // callers keep counting one segment (speakOnly's speakSegments reconciliation stays exact).
   if (!isElevenLabsVoice(body)) return false;
+  // Step 1: retry the SAME ElevenLabs command without the optional `speed` setting. Speech rate
+  // is a nicety; the premium voice is the product. If a live API ever rejects that field, the
+  // caller should still hear Rachel at her default rate rather than drop to Polly.
+  if (body?.voice_settings && "speed" in body.voice_settings) {
+    const stripped = withoutSpeed(body);
+    console.log(
+      `TTS RETRY: ${action} with ${body.voice} failed → retrying without speed ` +
+      `(call ${String(cid).slice(-8)})`
+    );
+    if (await sendAction(cid, action, stripped)) return true;
+  }
+  // Step 2: provider-level failure (bad/expired api_key_ref, freemium account, ElevenLabs
+  // outage). Speak the same prompt in the equivalent Polly voice instead.
   console.log(
     `TTS FALLBACK: ${action} with ${body.voice} failed → retrying with ${pollyFallbackBody(body).voice} ` +
     `(call ${String(cid).slice(-8)})`
@@ -414,6 +447,10 @@ async function cmd(cid: string, action: string, body: any = {}) {
 // Additive — previous fixes (WebSocket port, greeting, iOS CSS) are untouched.
 const ELEVENLABS_API_KEY_REF = process.env.ELEVENLABS_API_KEY_REF || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (English)
+// Rate of speech for the English premium voice. ElevenLabs' default (1.0) reads the script
+// faster than a person would; 0.9 is unhurried without sounding sedated. Env-tunable, clamped
+// to ElevenLabs' documented range in ttsVoiceParams().
+const ELEVENLABS_SPEED = Number(process.env.ELEVENLABS_SPEED || "0.9");
 // The default neural voice per language — also the fallback target when an ElevenLabs command fails.
 const POLLY_VOICE: Record<"en" | "es", { voice: string; language: string }> = {
   en: { voice: "Polly.Joanna-Neural", language: "en-US" },
@@ -422,10 +459,20 @@ const POLLY_VOICE: Record<"en" | "es", { voice: string; language: string }> = {
 function ttsVoiceParams(text: string, lang: string): any {
   const l = lang === "es" ? "es" : "en";
   if (l === "en" && ELEVENLABS_API_KEY_REF) {
+    const settings: any = { api_key_ref: ELEVENLABS_API_KEY_REF };
+    // Rate of speech — the second half of the owner's "way too fast" report. `speed` is a
+    // documented ElevenLabs-only field of Telnyx VoiceSettings ("Adjusts speech velocity ...
+    // Only applicable when using ElevenLabs"), distinct from `voice_speed`, which applies to
+    // Telnyx Ultra voices only. Kept inside ElevenLabs' supported 0.7–1.2 window, and cmd()
+    // retries without it if the live API ever refuses it, so a tuning value can never cost a
+    // caller the premium voice. Override with ELEVENLABS_SPEED (e.g. 0.85) without a deploy.
+    if (Number.isFinite(ELEVENLABS_SPEED) && ELEVENLABS_SPEED >= 0.7 && ELEVENLABS_SPEED <= 1.2) {
+      settings.speed = ELEVENLABS_SPEED;
+    }
     return {
       payload: text,
       voice: `ElevenLabs.Default.${ELEVENLABS_VOICE_ID}`,
-      voice_settings: { api_key_ref: ELEVENLABS_API_KEY_REF },
+      voice_settings: settings,
     };
   }
   return {
@@ -467,13 +514,54 @@ async function speakWithQueueControl(cid: string, text: string, lang: string, st
   return cmd(cid, "speak", { ...ttsVoiceParams(text, lang), stop });
 }
 
+// ── Natural pacing (owner report 2026-10-29: "the English voice is way too fast") ──────────
+// Root cause: the segments of one prompt were ISSUED back to back with nothing but an HTTP
+// round-trip between them, so ElevenLabs "Rachel" read "Thanks for calling ReceptionAI! You've
+// reached a live demo ... press 1 ... press 2 ... So, how can I help you today?" as one rushed
+// breath with no beat between the ideas. Telnyx neural voices take plain text (no SSML for
+// them), so the only honest pause lever is REAL SILENCE between queued speaks: hold the next
+// `speak` for a moment and the caller hears a human beat. Spanish keeps 0 — its literals,
+// timing and voice (Polly.Lupe-Neural) are untouched by this change.
+// Bounded on purpose: a prompt never gains more than ~1.3 s in total (6 gaps x 220 ms), and
+// nothing is ever added AFTER the last utterance, so the DTMF gather still arms the instant the
+// audio ends (#34/#35 single-gather rule intact).
+const TTS_PACING: Record<"en" | "es", number> = { en: 220, es: 0 };
+// A real gap between two queued speaks ("es" resolves to 0 ms, i.e. exactly the old behaviour).
+async function paceGap(lang: string) {
+  const ms = TTS_PACING[lang === "es" ? "es" : "en"];
+  if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+}
+// Split ONE payload at sentence boundaries so a two-sentence line gets its own beat. Only splits
+// where a sentence ends and the next one starts with a capital (so "$99 a month" and
+// "receptionai.store" are never cut). Spanish text is always returned as a single segment.
+function splitForPacing(text: string, lang: string): string[] {
+  if (!text) return [];
+  if (lang === "es") return [text];
+  const parts = text.split(/(?<=[.!?])\s+(?=[A-Z"'])/).map((s) => s.trim()).filter(Boolean);
+  return parts.length > 1 ? parts : [text];
+}
 // Speak several short lines as separate utterances. This is how this pipeline gets natural
 // pauses: Telnyx drives its neural voices with plain text (`payload_type: "text"`, SSML is not
 // supported for them), so one long comma-spliced sentence ("press 1 to ..., press 2 to ...")
 // comes out as a single flat breath. Separate speaks queue in order and each one gets its own
-// sentence-final intonation — the same mechanism the owner ear-confirmed in #26.
+// sentence-final intonation — the same mechanism the owner ear-confirmed in #26 — and the gap
+// above gives each idea room to land instead of running them together.
 async function speakLines(cid: string, lines: string[], lang: string) {
-  for (const line of lines) if (line) await speakOnly(cid, line, lang);
+  let spoken = 0;
+  for (const raw of lines) {
+    if (!raw) continue;
+    for (const line of splitForPacing(raw, lang)) {
+      if (!line) continue;
+      if (spoken > 0) await paceGap(lang);
+      await speakOnly(cid, line, lang);
+      spoken++;
+    }
+  }
+}
+// One payload, paced internally (sentence-ending beats) — used for single-line prompts that
+// carry more than one idea, e.g. the demo silence nudge.
+async function speakPaced(cid: string, text: string, lang: string) {
+  return speakLines(cid, [text], lang);
 }
 
 // ── Telnyx outbound dial ──────────────────────────────────────────────────
@@ -1724,10 +1812,18 @@ for (let attempt = 1; ; attempt++) {
               const recordingUrl = p.data?.payload?.recording_url || p.data?.payload?.public_recording_url || "";
               const duration = parseInt(p.data?.payload?.duration || "0", 10);
               const cs = calls.get(cid);
-              if (cs && recordingUrl && cs.orgId) {
+              // This guard used to require cs.orgId, which made the DEMO ending below
+              // unreachable: a caller on the demo line (no organization) left a message, heard
+              // the beep, and the call just ended — no ending, no disclosure (owner directive
+              // 2026-10-29: the ending must say what the demo was). The org-only work (recording
+              // row + owner alert) is now inside its own check, so a business call behaves
+              // exactly as before and a demo call still stores nothing.
+              if (cs && recordingUrl) {
                 cs.voicemail = true; // this call was a voicemail, not a normal completion
-                await saveVoicemailRecording(callSid || cid, recordingUrl, duration, cs.orgId, cs.callerNumber);
-                await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
+                if (cs.orgId) {
+                  await saveVoicemailRecording(callSid || cid, recordingUrl, duration, cs.orgId, cs.callerNumber);
+                  await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
+                }
                 const es = (cs.language || "en") === "es";
                 if (!es && !cs.orgId) {
                   // Demo ending: say plainly what they just heard (owner directive).
@@ -1833,6 +1929,9 @@ for (let attempt = 1; ; attempt++) {
                     // clear the queue"), so a caller who pressed 1 no longer hears
                     // "Para español, presione 2" after choosing English.
                     await speakWithQueueControl(cid, DEMO_EN.greeting[0], "en", "all");
+                    // "Thanks for calling ReceptionAI!" is issued outside speakLines(), so give
+                    // it the same beat before the next idea that the other segments get.
+                    await paceGap("en");
                     await speakLines(cid, DEMO_EN.greeting.slice(1), "en");
                   } else {
                     const greeting = buildGreeting(cs.orgName || "ReceptionAI", "en", cs.callerFirstName ? { firstName: cs.callerFirstName, previousVisits: 1 } as CallerContext : undefined);
@@ -1992,7 +2091,7 @@ for (let attempt = 1; ; attempt++) {
                   // next `demoTurns + 1` turned back into 0/falsy, so the nudge repeated after
                   // every press and the closing ("I'll let you go") never arrived.
                   cs.demoNudged = true;
-                  setTimeout(() => { speakOnly(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
+                  setTimeout(() => { speakPaced(cid, DEMO_EN.nudge, "en").catch(() => {}); }, 300);
                 } else {
                   pendingHangups.add(cid);
                   setTimeout(() => { speakLines(cid, DEMO_EN.closing, "en").catch(() => {}); }, 300);
