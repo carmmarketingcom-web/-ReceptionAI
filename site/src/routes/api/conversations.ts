@@ -8,7 +8,7 @@
 import { authenticate } from "../../../lib/middleware";
 import { getDb, isMockMode } from "../../../db/index";
 import { conversations, messages } from "../../../db/schema/index";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { sessionStore } from "../../../../voice-engine/src/conversation/engine.ts";
 
 export async function GET({ request }: { request: Request }) {
@@ -28,7 +28,7 @@ export async function GET({ request }: { request: Request }) {
       const rows = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.organizationId, authResult.organizationId))
+        .where(and(eq(conversations.organizationId, authResult.organizationId), eq(conversations.isDemo, false)))
         .orderBy(desc(conversations.startedAt))
         .limit(limit)
         .offset(offset);
