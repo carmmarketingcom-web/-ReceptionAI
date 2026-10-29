@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import ChatWidgetPreview from "~/components/ChatWidgetPreview";
+import PhoneShowcase from "~/components/PhoneShowcase";
 
 export const Route = createFileRoute("/_marketing/")({
   component: HomePage,
@@ -162,19 +163,16 @@ function HeroSection() {
             </div>
           </div>
 
-          {/* Right: Hero Image */}
+          {/* Right: Living phone showcase — 16s self-playing product loop (CSS-first).
+              Replaces the old hero raster PNG; strings come from APP_DEMO / VOICE_STEPS /
+              SMS_THREAD / OWNER_SUMMARY above, so nothing on screen is invented. */}
           <div className="flex-1 flex justify-center lg:justify-end">
-            <div className="relative lg:w-[110%]">
-              <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-indigo-500/30 via-purple-500/20 to-pink-500/30 blur-xl" />
-              <img
-                src="/images/hero.png"
-                alt="ReceptionAI — Your AI Receptionist answering calls and booking appointments 24/7"
-                className="relative w-full rounded-2xl border border-white/10 shadow-2xl shadow-indigo-500/10"
-                width={1536}
-                height={1024}
-                loading="eager"
-              />
-            </div>
+            <PhoneShowcase
+              app={APP_DEMO}
+              bookedLine={VOICE_STEPS[3].text}
+              confirmationSms={SMS_THREAD[0].body}
+              ownerSummary={OWNER_SUMMARY}
+            />
           </div>
         </div>
       </div>
