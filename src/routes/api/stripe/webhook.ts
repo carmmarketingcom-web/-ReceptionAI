@@ -12,8 +12,58 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
-import { buyPhoneNumber } from "../../../lib/telnyx";
+import { buyPhoneNumber, type PurchasedNumber } from "../../../lib/telnyx";
 import { sendEmail } from "../../../lib/email";
+import { DEFAULT_TIMEZONE, normalizeZip, preferredAreaCode, zipRegion } from "../../../lib/us-zip";
+
+/**
+ * Where the business is: its timezone and the area code its number should be bought in.
+ * The ZIP comes from the signup form (metadata.postalCode); the owner's mobile — which Stripe
+ * Checkout collects — is the second opinion for the area code. An unknown ZIP is not an error:
+ * the org still gets created, on the documented default timezone, and the miss is logged.
+ */
+function resolveRegion(rawZip: unknown, customerPhone: unknown, label: string) {
+  const zip = normalizeZip(rawZip);
+  const region = zip ? zipRegion(zip) : null;
+  const timezone = region?.timezone || DEFAULT_TIMEZONE;
+  const areaCode = preferredAreaCode(zip, typeof customerPhone === "string" ? customerPhone : "");
+  if (!zip) {
+    console.warn(`[Stripe] ${label}: no ZIP supplied — defaulting to timezone ${DEFAULT_TIMEZONE}, any-area-code number`);
+  } else if (!region) {
+    console.warn(`[Stripe] ${label}: ZIP ${zip} not in the region table — defaulting to timezone ${DEFAULT_TIMEZONE}, any-area-code number`);
+  } else {
+    console.log(`[Stripe] ${label}: ZIP ${zip} → timezone ${timezone}, area code ${areaCode || "(none)"}`);
+  }
+  return { zip, timezone, areaCode };
+}
+
+/**
+ * Buy a number in the customer's own area code, and fall back to any US number rather than
+ * fail provisioning. Which path was taken is always in the logs.
+ */
+async function buyNumberForRegion(areaCode: string, label: string): Promise<PurchasedNumber | null> {
+  if (areaCode) {
+    const local = await buyPhoneNumber(areaCode);
+    if (local) {
+      console.log(`[Telnyx] Bought local number ${local.phoneNumber} in area code ${areaCode} (${label})`);
+      return local;
+    }
+    console.warn(`[Telnyx] No numbers available in area code ${areaCode} (${label}) — falling back to any US number`);
+  } else {
+    console.log(`[Telnyx] No area code known (${label}) — buying any US number`);
+  }
+  const fallback = await buyPhoneNumber();
+  if (fallback) {
+    console.log(`[Telnyx] Bought fallback US number ${fallback.phoneNumber} (${label}, no area-code match)`);
+  }
+  return fallback;
+}
+
+/** A phone number for logs: last four digits only. The owner's mobile is never printed in full. */
+function maskPhone(input: unknown): string {
+  const digits = typeof input === "string" ? input.replace(/[^0-9]/g, "") : "";
+  return digits.length >= 4 ? `…${digits.slice(-4)}` : "(none)";
+}
 
 function verifyStripeSignature(
   rawBody: string,
@@ -254,6 +304,13 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
   }
   const meta = session.metadata || {};
   const isSelfServe = !!(meta.email && meta.plan);
+  // Timezone + area code from the customer's own ZIP. Carm payment links carry no ZIP, so this
+  // path can legitimately fall through to the defaults — logged, never fatal.
+  const region = resolveRegion(
+    meta.postalCode || customerDetails.address?.postal_code,
+    customerDetails.phone,
+    "Carm one-time"
+  );
   const plan = isSelfServe
     ? (["starter", "growth", "scale"].includes(meta.plan) ? meta.plan : "starter")
     : (rate === "standard" ? tier : mapCarmTierToPlan(tier));
@@ -272,17 +329,28 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
   const slug = `${isSelfServe ? "" : "carm-"}${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}`;
 
   await sql`
-    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale)
-    VALUES (${orgId}, ${orgName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', 'America/Chicago', 'en')
+    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale, postal_code)
+    VALUES (${orgId}, ${orgName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', ${region.timezone}, 'en', ${region.zip || null})
   `;
+
+  // The owner's mobile, collected by Stripe Checkout: it is the destination for press-3
+  // transfers, post-call summaries and missed-call alerts. Never overwrite a value that is
+  // already set — the customer's own entry in Settings wins.
+  if (typeof customerDetails.phone === "string" && customerDetails.phone.trim()) {
+    await sql`
+      UPDATE organizations SET phone = ${customerDetails.phone.trim()}, updated_at = NOW()
+      WHERE id = ${orgId} AND (phone IS NULL OR phone = '')
+    `;
+    console.log(`[Stripe] Owner mobile stored from checkout: ${maskPhone(customerDetails.phone)}`);
+  }
 
   await sql`
     INSERT INTO users (id, organization_id, email, name, role, password_hash)
     VALUES (${userId}, ${orgId}, ${email}, ${name || "Owner"}, 'owner', ${passwordHash})
   `;
 
-  // Phone number (same as self-serve: buy via Telnyx)
-  const purchased = await buyPhoneNumber();
+  // Phone number (same as self-serve: buy via Telnyx, in the customer's area code when known)
+  const purchased = await buyNumberForRegion(region.areaCode, `Carm org ${orgId}`);
   if (purchased) {
     await sql`
       INSERT INTO phone_numbers (id, organization_id, phone_number, provider, telnyx_number_id, is_active, capabilities)
@@ -353,6 +421,13 @@ async function handleCheckoutCompleted(session: any) {
   const useExistingNumber = metadata.useExistingNumber === "true";
   const existingPhoneNumber = metadata.existingPhoneNumber || "";
   const password = metadata.password || "";
+  // Their own timezone and their own area code, from the ZIP they gave at signup. Never fatal:
+  // a missing or unknown ZIP falls back to the documented defaults and says so in the log.
+  const region = resolveRegion(
+    metadata.postalCode || customer_details.address?.postal_code,
+    customer_details.phone,
+    `self-serve ${checkoutSessionId}`
+  );
 
   console.log(
     `[Stripe] Checkout completed: session=${checkoutSessionId}, ` +
@@ -372,10 +447,23 @@ async function handleCheckoutCompleted(session: any) {
 
   // b. Create organization
   await sql`
-    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale)
-    VALUES (${orgId}, ${companyName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', 'America/Chicago', 'en')
+    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale, postal_code)
+    VALUES (${orgId}, ${companyName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', ${region.timezone}, 'en', ${region.zip || null})
   `;
-  console.log(`[Stripe] Created org: ${orgId} — "${companyName}"`);
+  console.log(`[Stripe] Created org: ${orgId} — "${companyName}" (timezone ${region.timezone})`);
+
+  // The owner's mobile from Stripe Checkout — the destination for press-3 transfers, post-call
+  // summaries, missed-call alerts and callback requests. Only fills an empty column: a number the
+  // customer typed themselves is never overwritten.
+  if (typeof customer_details.phone === "string" && customer_details.phone.trim()) {
+    await sql`
+      UPDATE organizations SET phone = ${customer_details.phone.trim()}, updated_at = NOW()
+      WHERE id = ${orgId} AND (phone IS NULL OR phone = '')
+    `;
+    console.log(`[Stripe] Owner mobile stored from checkout: ${maskPhone(customer_details.phone)}`);
+  } else {
+    console.warn(`[Stripe] No owner mobile from checkout for org ${orgId} — the setup step must collect it`);
+  }
 
   // c. Create user (owner) with password hash
   const passwordHash = password ? await bcrypt.hash(password, 10) : null;
@@ -387,9 +475,9 @@ async function handleCheckoutCompleted(session: any) {
 
   // d/e. Phone number provisioning
   if (!useExistingNumber) {
-    // Buy a new number via Telnyx
-    console.log(`[Stripe] Buying new phone number via Telnyx...`);
-    const purchased = await buyPhoneNumber();
+    // Buy a new number via Telnyx — in the customer's own area code when we know it.
+    console.log(`[Stripe] Buying new phone number via Telnyx (area code ${region.areaCode || "any"})...`);
+    const purchased = await buyNumberForRegion(region.areaCode, `org ${orgId}`);
 
     if (purchased) {
       await sql`

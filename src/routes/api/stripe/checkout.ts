@@ -26,9 +26,10 @@ export async function POST({ request }: { request: Request }) {
       useExistingNumber?: boolean;
       existingPhoneNumber?: string;
       password?: string;
+      postalCode?: string;
     };
 
-    const { companyName, email, name, plan, useExistingNumber, existingPhoneNumber, password } = body;
+    const { companyName, email, name, plan, useExistingNumber, existingPhoneNumber, password, postalCode } = body;
 
     if (!companyName || !email || !name || !plan) {
       return new Response(
@@ -65,6 +66,11 @@ export async function POST({ request }: { request: Request }) {
       "metadata[password]": password || "",
       "metadata[useExistingNumber]": String(!!useExistingNumber),
       "metadata[existingPhoneNumber]": existingPhoneNumber || "",
+      // Where the business is: the webhook turns this into the org's timezone and the area code
+      // its number is bought in.
+      "metadata[postalCode]": postalCode || "",
+      // Stripe collects the owner's mobile here so the setup step can pre-fill it.
+      "phone_number_collection[enabled]": "true",
       "payment_behavior": "default_incomplete",
       "allow_promotion_codes": "true",
       "subscription_data[metadata][companyName]": companyName,

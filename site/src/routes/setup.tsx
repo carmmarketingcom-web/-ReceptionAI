@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "~/lib/api-client";
 import { useSettings, primaryPhoneNumber, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
 
@@ -35,8 +35,14 @@ function SetupPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
 
-  // Step 1
+  // Step 1 — what the AI says to callers, and the mobile number we transfer to.
   const [companyName, setCompanyName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [mobileError, setMobileError] = useState("");
+  // Skipping is allowed — a paying customer must never be blocked from their dashboard — but it
+  // leaves a banner in the dashboard until the number is set.
+  const [skipMobile, setSkipMobile] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
 
   // Step 2
   const [hours, setHours] = useState(defaultHours);
@@ -52,16 +58,38 @@ function SetupPage() {
 
   const [saving, setSaving] = useState(false);
 
+  // Pre-fill from the org we already have: the business name came from signup, and the mobile is
+  // the number Stripe Checkout collected — so most customers just confirm and press Continue.
+  useEffect(() => {
+    if (prefilled || !settingsData?.organization) return;
+    const org = settingsData.organization as { name?: string; phone?: string | null };
+    if (org.name) setCompanyName((current) => current || org.name || "");
+    if (typeof org.phone === "string" && org.phone.trim()) setMobile(org.phone.trim());
+    setPrefilled(true);
+  }, [settingsData, prefilled]);
+
   // ── Navigation ──────────────────────────────────────────────────────────
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
   const prev = () => setStep((s) => Math.max(s - 1, 1));
 
   const handleSaveAndContinue = async () => {
+    // Step 1 is the one thing that makes press-3 transfer and every owner alert work, so we ask
+    // for it here — but "Skip for now" is always available and the dashboard keeps asking.
+    if (step === 1) {
+      const phone = mobile.trim();
+      if (!phone && !skipMobile) {
+        setMobileError("Add the mobile number for call alerts, or choose \"Skip for now\".");
+        return;
+      }
+    }
     setSaving(true);
     try {
-      if (step === 1 && companyName.trim()) {
-        await api.put("/api/settings", { name: companyName.trim() });
+      if (step === 1) {
+        const payload: Record<string, unknown> = {};
+        if (companyName.trim()) payload.name = companyName.trim();
+        if (mobile.trim()) payload.phone = mobile.trim();
+        if (Object.keys(payload).length) await api.put("/api/settings", payload);
       }
       if (step === 2) {
         const hoursPayload = WEEKDAYS.map((day) => ({
@@ -148,6 +176,37 @@ function SetupPage() {
                   onKeyDown={(e) => e.key === "Enter" && handleSaveAndContinue()}
                   autoFocus
                 />
+              </div>
+
+              <div className="mt-5">
+                <label htmlFor="setupMobile" className="block text-sm font-medium text-gray-700">
+                  Your mobile number
+                </label>
+                <input
+                  id="setupMobile"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={mobile}
+                  onChange={(e) => { setMobile(e.target.value); setMobileError(""); }}
+                  placeholder="(727) 555-0123"
+                  className="mt-1.5 block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveAndContinue()}
+                />
+                <p className="mt-1.5 text-xs text-gray-500">
+                  For call alerts and "press 3" transfers — never shown to callers.
+                </p>
+                {mobileError && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {mobileError}
+                    <button
+                      onClick={() => { setSkipMobile(true); setMobileError(""); handleSaveAndContinue(); }}
+                      className="ml-2 font-semibold underline underline-offset-2"
+                    >
+                      Skip for now
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -277,6 +336,14 @@ function SetupPage() {
               {step === 3 && (
                 <button
                   onClick={next}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-400 transition hover:text-gray-600"
+                >
+                  Skip for now
+                </button>
+              )}
+              {step === 1 && !mobile.trim() && (
+                <button
+                  onClick={() => { setSkipMobile(true); setMobileError(""); handleSaveAndContinue(); }}
                   className="rounded-lg px-4 py-2 text-sm font-medium text-gray-400 transition hover:text-gray-600"
                 >
                   Skip for now
