@@ -30,3 +30,524 @@ textarea::placeholder {
     text-wrap: balance;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO PHONE SHOWCASE  ·  src/components/PhoneShowcase.tsx
+   Concept: HOMEPAGE_PHONE_3D_CONCEPT.md — Direction A ("Living phone")
+   + the demo-call CTA from Direction C.
+
+   CSS-first motion: the phone renders and the screen story plays without any
+   JavaScript. PhoneShowcase's single effect only writes --mx / --my / --p /
+   --glow and toggles .in-view (on screen) and .is-hidden (tab hidden).
+   Every screen beat runs on the SAME 16s linear master clock, so the story is
+   phase-locked by percentages — no JS ticker, no drift.
+   Only transform / opacity animate. No new dependencies.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── stage: perspective + entrance reveal (works before hydration) ── */
+.phone-stage {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  margin-inline: auto;
+  perspective: 1200px;
+  animation: phoneEnter 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes phoneEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* ── glow: blurred sibling, deliberately OUTSIDE the preserve-3d context
+      (a filtered element inside preserve-3d flattens the 3D in Safari) ── */
+.phone-glow {
+  position: absolute;
+  inset: -14% -10% 2%;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(46px);
+  opacity: calc(0.28 + var(--glow, 0) * 0.18);
+  transform: translateZ(-80px) translate3d(0, calc(var(--p, 0) * -18px), 0);
+}
+.phone-glow-inner {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(
+    closest-side,
+    rgba(99, 102, 241, 0.55),
+    rgba(168, 85, 247, 0.32) 55%,
+    rgba(236, 72, 153, 0.12) 78%,
+    transparent 85%
+  );
+  animation: glowPulse 10s ease-in-out infinite;
+}
+@keyframes glowPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+/* ── tilt: pointer (±7° / ±5°) + scroll parallax (26px / -3°) ── */
+.phone-tilt {
+  position: relative;
+  z-index: 1;
+  transform-style: preserve-3d;
+  transform: translate3d(0, calc(var(--p, 0) * 26px), 0) rotateX(calc(var(--p, 0) * -3deg))
+    rotateY(calc(var(--mx, 0) * 7deg)) rotateX(calc(var(--my, 0) * -5deg));
+}
+
+/* ── lift: hover only on fine pointers; kept off .phone-tilt so the rAF
+      writes never fight the 350ms transition ── */
+.phone-lift {
+  transform-style: preserve-3d;
+  transition: transform 350ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .phone-stage:hover .phone-lift {
+    transform: translateZ(40px) scale(1.015);
+  }
+}
+
+/* ── idle float + micro sway (never in the rAF hot path) ── */
+.phone-float {
+  animation: phoneFloat 7s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+@keyframes phoneFloat {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+}
+.phone-sway {
+  animation: phoneSway 9s ease-in-out infinite;
+  animation-delay: -2.5s;
+  transform-style: preserve-3d;
+}
+@keyframes phoneSway {
+  0%,
+  100% {
+    transform: rotate(-0.7deg);
+  }
+  50% {
+    transform: rotate(0.7deg);
+  }
+}
+
+/* ── hardware ── */
+.phone-body {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 19.5;
+  padding: 10px;
+  border-radius: 2.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(160deg, #171d2e, #030712 55%);
+  box-shadow:
+    0 40px 80px -28px rgba(0, 0, 0, 0.9),
+    0 0 70px -24px rgba(99, 102, 241, 0.45);
+  contain: layout paint;
+  overflow: hidden;
+}
+.phone-notch {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 30;
+  width: 84px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #030712;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.phone-screen {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 2.1rem;
+  background:
+    radial-gradient(120% 55% at 50% -8%, rgba(99, 102, 241, 0.22), transparent 62%),
+    radial-gradient(95% 45% at 50% 108%, rgba(168, 85, 247, 0.16), transparent 60%),
+    #111827; /* gray-900 */
+}
+
+/* ── screen layers ── */
+.phone-screen .beat {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  opacity: 0;
+  animation-duration: 16s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-delay: 0s;
+}
+.phone-screen .s-idle {
+  inset: 0;
+  opacity: 1; /* the app screen stays behind every beat */
+  animation: none;
+}
+.phone-screen .s-call {
+  top: 108px;
+  animation-name: sCallIn;
+}
+.phone-screen .s-live {
+  top: 108px;
+  animation-name: sLiveIn;
+}
+.phone-screen .s-chip {
+  top: 42%;
+  animation-name: sChipIn;
+}
+.phone-screen .s-sms {
+  bottom: 22px;
+  animation-name: sSmsIn;
+}
+.phone-screen .s-welcome {
+  bottom: 22px;
+  animation-name: sWelcomeIn;
+}
+.phone-screen .s-owner {
+  bottom: 22px;
+  animation-name: sOwnerIn;
+}
+.phone-screen .s-loop {
+  inset: 0;
+  z-index: 10;
+  background: #111827;
+  animation-name: sLoop;
+}
+
+/* Default = paused at 0%, which is exactly the no-JS state: every animated
+   beat is invisible and .screen-static shows the coherent "after the call"
+   frame instead. JS adds .in-view when the hero is on screen. */
+.phone-screen * {
+  animation-play-state: paused;
+}
+.phone-stage.in-view .phone-screen * {
+  animation-play-state: running;
+}
+.phone-stage.is-hidden .phone-screen * {
+  animation-play-state: paused;
+}
+.phone-stage.in-view .phone-tilt,
+.phone-stage.in-view .phone-float {
+  will-change: transform;
+}
+
+/* ── the 16s master clock (16s × % → seconds noted) ── */
+@keyframes sCallIn {
+  /* incoming banner 1.4s – 4.0s */
+  0%,
+  8.4% {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  11% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  23.5% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  26% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+@keyframes sLiveIn {
+  /* answered + booked 4.0s – 7.0s */
+  0%,
+  24.5% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  27% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  44% {
+    opacity: 0;
+    transform: translateY(0) scale(0.97);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0) scale(0.97);
+  }
+}
+@keyframes sChipIn {
+  /* call ended 7.0s – 8.4s */
+  0%,
+  43.5% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  46% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  51% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  53% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+@keyframes sSmsIn {
+  /* confirmation SMS 8.4s – 10.8s */
+  0%,
+  52.5% {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+  55.5% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  66% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  68% {
+    opacity: 0;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes sWelcomeIn {
+  /* repeat-caller 10.8s – 12.8s */
+  0%,
+  67.5% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  70.5% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  78.5% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80.5% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+}
+@keyframes sOwnerIn {
+  /* owner summary 12.8s – 15.2s */
+  0%,
+  80% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  83% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  94% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  95.5% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+}
+@keyframes sLoop {
+  /* 15.2s – 16.0s reset: 100% and 0% match, so the loop point is seamless */
+  0% {
+    opacity: 0.9;
+  }
+  4% {
+    opacity: 0;
+  }
+  95% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0.9;
+  }
+}
+
+/* ── in-frame motion ── */
+.call-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(74, 222, 128, 0.5);
+  animation: callRing 1.4s ease-out infinite;
+}
+.call-ring-2 {
+  animation-delay: 0.7s;
+}
+@keyframes callRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+.wave-bar {
+  width: 3px;
+  height: 100%;
+  border-radius: 9999px;
+  background: #4ade80;
+  transform-origin: bottom;
+  animation: waveBar 900ms ease-in-out infinite;
+}
+.wave-bar:nth-child(1) {
+  animation-delay: 0ms;
+}
+.wave-bar:nth-child(2) {
+  animation-delay: 120ms;
+}
+.wave-bar:nth-child(3) {
+  animation-delay: 240ms;
+}
+.wave-bar:nth-child(4) {
+  animation-delay: 360ms;
+}
+.wave-bar:nth-child(5) {
+  animation-delay: 480ms;
+}
+@keyframes waveBar {
+  0%,
+  100% {
+    transform: scaleY(0.2);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* ── decorative depth inside the screen: brand watermark + home indicator ── */
+.phone-watermark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.phone-watermark > span {
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px solid rgba(129, 140, 248, 0.14);
+}
+.phone-watermark > span:nth-child(1) {
+  width: 190px;
+  height: 190px;
+  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.12), transparent 72%);
+}
+.phone-watermark > span:nth-child(2) {
+  width: 290px;
+  height: 290px;
+  border-color: rgba(129, 140, 248, 0.09);
+}
+.phone-watermark > span:nth-child(3) {
+  width: 400px;
+  height: 400px;
+  border-color: rgba(168, 85, 247, 0.07);
+}
+.phone-home-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 30;
+  width: 116px;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* ── static base layer: what no-JS and reduced-motion users see ── */
+.screen-static {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background:
+    radial-gradient(120% 55% at 50% -8%, rgba(99, 102, 241, 0.22), transparent 62%),
+    radial-gradient(95% 45% at 50% 108%, rgba(168, 85, 247, 0.16), transparent 60%),
+    #111827; /* gray-900 */
+}
+
+/* With JS on screen, the animated story takes over from the static frame.
+   Without JS the class never lands and the static frame stays. */
+@media (prefers-reduced-motion: no-preference) {
+  .phone-stage.in-view .screen-static {
+    display: none;
+  }
+}
+
+/* Reduced motion: no float, no tilt, no story — a correct still frame. */
+@media (prefers-reduced-motion: reduce) {
+  .phone-stage,
+  .phone-tilt,
+  .phone-lift,
+  .phone-float,
+  .phone-sway,
+  .phone-glow,
+  .phone-glow-inner,
+  .screen-static .animate-pulse {
+    animation: none !important;
+    transform: none !important;
+  }
+  .phone-stage {
+    opacity: 1 !important;
+  }
+  .phone-screen .beat {
+    display: none !important;
+  }
+  .screen-static {
+    display: block !important;
+  }
+}
+
