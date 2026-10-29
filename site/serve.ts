@@ -3611,8 +3611,8 @@ for (let attempt = 1; ; attempt++) {
               void notifyOwnerOfSupportRequest("web chat", `Message: "${message.slice(0, 300)}\nLanguage: ${lang}`);
               return new Response(JSON.stringify({
                 reply: isEs
-                  ? "Gracias — he avisado a nuestro equipo. Para ayuda más rápida, llama al (727) 966-7556 o escribe a support@receptionai.ctonew.app."
-                  : "Thanks — I've flagged this to our team. For the fastest help, call (727) 966-7556 or email support@receptionai.ctonew.app.",
+                  ? "Gracias — he avisado a nuestro equipo. Para ayuda más rápida, llama al (727) 966-7556 o escribe a hello@receptionai.store."
+                  : "Thanks — I've flagged this to our team. For the fastest help, call (727) 966-7556 or email hello@receptionai.store.",
               }), { status: 200, headers: { "Content-Type": "application/json" } });
             }
 
@@ -3620,43 +3620,70 @@ for (let attempt = 1; ; attempt++) {
             // Whole-word matching only: substring matching answered the wrong question
             // (e.g. "do" inside "window", "plan" inside "planning").
             const fallback = (reason: string) => {
-              console.warn("[chat] fallback: " + reason);
-              const has = (...words: string[]) =>
-                words.some((w) => new RegExp(`\\b${w}\\b`, "i").test(msg));
-              // Contract + cancellation live at the TOP of the matcher: "plan"/"planes"
-              // is a pricing keyword, so asking "does my plan require a contract?" would
-              // otherwise be answered with prices instead of the real answer.
-              if (has("contract", "contracts", "commitment", "binding", "long-term", "contrato", "contratos", "compromiso", "obligación", "a plazo")) {
+              // Accent-insensitive whole-word matching: "qué hacen" must match "que hacen" and
+              // "facturación" must match "facturacion". Substring matching answered the wrong
+              // question (e.g. "do" inside "window", "plan" inside "planning").
+              const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+              const nmsg = norm(msg);
+              const has = (...words: string[]) => words.some((w) => new RegExp(`\\b${norm(w)}\\b`, "i").test(nmsg));
+              // Branch ORDER matters: contract/cancellation sit above pricing ("plan"/"planes" is a
+              // pricing keyword), trial sits above demo ("prueba" is a demo keyword), and coming-soon
+              // sits above services ("funciones"/"features" is a services keyword). Every answer below
+              // uses ONLY facts the model path is given, and fits the 300-char reply cap.
+              if (has("contract", "contracts", "commitment", "binding", "long-term", "contrato", "contratos", "compromiso", "obligacion", "a plazo")) {
                 return isEs
                   ? "Sin contratos — todos los planes son mensuales y puedes cancelar cuando quieras."
                   : "No contracts — every plan is month-to-month and you can cancel anytime.";
               }
-              if (has("cancel", "cancellation", "cancelar", "cancela", "cancelo", "cancelas", "cancelan", "cancelación", "cancelacion", "darse de baja", "darme de baja", "dar de baja")) {
+              if (has("cancel", "cancellation", "cancelar", "cancela", "cancelo", "cancelas", "cancelan", "cancelacion", "darse de baja", "darme de baja", "dar de baja")) {
                 return isEs
                   ? "Puedes cancelar cuando quieras desde tu panel (Facturación → cancelar) o escribiendo a hello@receptionai.store — sin cargos."
                   : "Cancel anytime from your dashboard (Billing → cancel) or email hello@receptionai.store — no cancellation fees.";
               }
-              if (has("price", "pricing", "cost", "costs", "precio", "precios", "costo", "plan", "plans", "planes")) {
+              if (has("price", "prices", "pricing", "cost", "costs", "precio", "precios", "costo", "costos", "tarifa", "tarifas", "plan", "plans", "planes", "how much", "cuanto")) {
                 return isEs
                   ? "Planes: Starter $99/mes (1 linea, 500 min IA), Growth $199/mes (2 lineas, 2000 min IA), Scale $399/mes (ilimitado)."
                   : "Plans: Starter $99/mo (1 line, 500 AI-min), Growth $199/mo (2 lines, 2,000 AI-min), Scale $399/mo (unlimited).";
               }
-              if (has("book", "booking", "appointment", "appointments", "reserva", "reservar", "cita", "citas")) {
+              // Trial sits ABOVE demo: "prueba" is also a demo keyword, and there is no free trial.
+              if (has("trial", "free trial", "free version", "free month", "prueba gratis", "prueba gratuita", "mes gratis", "version gratuita")) {
+                return isEs
+                  ? "No hay prueba gratis — los planes son suscripciones mensuales y el primer mes se cobra al momento de la compra. Puedes probar la demo en vivo llamando al (727) 966-7556."
+                  : "There's no free trial — plans are monthly subscriptions and the first month is charged at checkout. You can try the live demo first: call (727) 966-7556.";
+              }
+              if (has("billing", "billed", "bill", "invoice", "invoices", "charged", "charge", "charges", "facturacion", "factura", "facturas", "cobran", "cobro", "cobrar", "pago", "pagos")) {
+                return isEs
+                  ? "El primer mes se cobra al momento de la compra y después se renueva automáticamente cada mes hasta que canceles. Precio de fundador: 50% de descuento los primeros 3 meses para los primeros 100 clientes."
+                  : "The first month is charged at checkout, then it renews automatically each month until you cancel. Founder pricing: 50% off the first 3 months for the first 100 customers.";
+              }
+              if (has("hours", "hour", "business hours", "open", "abierto", "abren", "horario", "horarios", "24/7", "24-7", "what time", "a que hora")) {
+                return isEs
+                  ? "La recepcionista IA contesta 24/7, sin horario de oficina: llamadas, chat web y textos de día y de noche en inglés y español. Las citas siguen el horario que configures en el calendario."
+                  : "The AI receptionist answers 24/7 — there are no business hours. Calls, web chat and texts are handled day and night in English and Spanish, and bookings follow the hours you set.";
+              }
+              // Coming-soon sits ABOVE services: "funciones"/"features" is a services keyword.
+              if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
+                return isEs
+                  ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por SMS, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
+                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, SMS confirmations and reminders, voicemail, missed-call alerts, web chat, owner transfer, built-in calendar. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
+              }
+              // Services: the same capabilities the model path is given as facts.
+              if (has("services", "service", "servicios", "servicio", "features", "feature", "funciones", "funcion", "what do you do", "what do you offer", "que hace", "que hacen", "que ofrece", "que ofrecen", "ofrece", "ofrecen")) {
+                return isEs
+                  ? "ReceptionAI contesta llamadas 24/7 en inglés y español, agenda citas por teléfono y en la web, envía confirmaciones y recordatorios por SMS y te manda un resumen después de cada llamada. También recibe mensajes de voz, avisa de llamadas perdidas, tiene chat web y SMS y transfiere llamadas al dueño."
+                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments by phone and web, sends SMS confirmations and reminders, and texts you a summary after every call. It also catches voicemail, alerts you to missed calls, runs web chat and SMS, and can transfer callers to you.";
+              }
+              if (has("book", "booking", "appointment", "appointments", "reserva", "reservas", "reservar", "cita", "citas")) {
                 return isEs
                   ? "Reserva una demo llamando al (727) 966-7556, o registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
                   : "Book a demo by calling (727) 966-7556, or sign up at receptionai.store/signup. Plans start at $99/month.";
               }
-              if (has("demo", "try", "probar", "prueba")) {
+              if (has("demo", "try", "probar", "prueba", "test")) {
                 return isEs
                   ? "Prueba la demo llamando al (727) 966-7556, o registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
                   : "Try the live demo by calling (727) 966-7556, or sign up at receptionai.store/signup. Plans start at $99/month.";
               }
-              if (has("feature", "features", "funcion", "funciones", "que hace")) {
-                return isEs
-                  ? "Atiendo llamadas 24/7 en ingles y espanol, agendo citas y envio confirmaciones y recordatorios por SMS, y te mando un resumen tras cada llamada."
-                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments, and texts you a summary after every call.";
-              }
-              if (has("signup", "register", "start", "registrate", "registrarme", "registro", "empezar")) {
+              if (has("signup", "sign up", "register", "start", "registrate", "registrarme", "registro", "empezar")) {
                 return isEs
                   ? "Registrate en receptionai.store/signup. Los planes empiezan en $99 al mes."
                   : "Sign up at receptionai.store/signup. Plans start at $99/month.";
@@ -3666,7 +3693,17 @@ for (let attempt = 1; ; attempt++) {
                   ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o SMS y reciben confirmacion por SMS."
                   : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or SMS and get SMS confirmations.";
               }
-              if (/\b(hi|hello|hey|hola|buenas|saludos)\b/.test(msg)) {
+              if (has("support", "soporte", "talk to a person", "hablar con una persona", "hablar con alguien", "atencion al cliente", "customer service", "servicio al cliente", "help desk")) {
+                return isEs
+                  ? "Para hablar con una persona, escribe a hello@receptionai.store o llama a nuestra demo en vivo al (727) 966-7556. El plan Scale incluye soporte prioritario 24/7 con respuesta humana el mismo día."
+                  : "For a person, email hello@receptionai.store or call our live demo line at (727) 966-7556. The Scale plan includes 24/7 priority support with a same-day human response.";
+              }
+              if (has("callback", "call back", "call me", "contact me", "reach me", "llamame", "llamarme", "que me llamen", "contactenme", "que me contacten", "escribeme", "escribirme")) {
+                return isEs
+                  ? "Deja tu teléfono o correo en este chat y lo anoto para nuestro equipo. Para hablar con una persona ahora, llama a nuestra demo en vivo al (727) 966-7556."
+                  : "Leave your phone or email in this chat and I'll note it for our team. For a human right now, call our live demo line at (727) 966-7556.";
+              }
+              if (/\b(hi|hello|hey|hola|buenas|saludos)\b/.test(nmsg)) {
                 return isEs
                   ? "Hola! Como puedo ayudarte? Puedo contarte sobre planes, funciones o como reservar una demo."
                   : "Hi! How can I help? I can tell you about plans, features, or how to book a demo.";
