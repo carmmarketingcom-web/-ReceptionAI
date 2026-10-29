@@ -9,6 +9,7 @@ export const Route = createFileRoute("/signup")({
 
 function SignupPage() {
   const [fullName, setFullName] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [plan, setPlan] = useState("starter");
@@ -26,6 +27,8 @@ function SignupPage() {
     return () => el.removeEventListener("change", handler);
   }, []);
 
+  // Last-resort only: if the business-name field is somehow empty, fall back to the email
+  // local part. A typed business name always wins — this never overrides it.
   const deriveCompanyName = (emailAddr: string) => {
     const localPart = emailAddr.split("@")[0] || "";
     return localPart.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 20) || "My Business";
@@ -34,6 +37,14 @@ function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    // Business name is what the AI says to every caller ("Thanks for calling {Business}"),
+    // so it is required and must not be whitespace only.
+    const business = businessName.trim();
+    if (!business) {
+      setError("Please enter your business name");
+      return;
+    }
 
     if (!acknowledgedTerms) {
       setError("Please acknowledge the terms to continue");
@@ -47,7 +58,7 @@ function SignupPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyName: deriveCompanyName(email),
+          companyName: business || deriveCompanyName(email),
           email,
           name: fullName,
           plan,
@@ -141,6 +152,23 @@ function SignupPage() {
                   className="mt-1 block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
                   autoFocus
                 />
+              </div>
+
+              {/* Business Name — this is what the AI says to every caller */}
+              <div>
+                <label htmlFor="signupBusinessName" className="block text-sm font-semibold text-gray-700">
+                  Business name
+                </label>
+                <input
+                  id="signupBusinessName"
+                  type="text"
+                  required
+                  value={businessName}
+                  onChange={(e) => { setBusinessName(e.target.value); setError(""); }}
+                  placeholder="Smith HVAC & Plumbing"
+                  className="mt-1 block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                />
+                <p className="mt-1 text-xs text-gray-500">This is the name your callers will hear.</p>
               </div>
 
               {/* Email */}

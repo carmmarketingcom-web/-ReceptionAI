@@ -138,7 +138,9 @@ async function handleCheckoutCompleted(session: any) {
     customer_details = {},
   } = session;
 
-  const companyName = metadata.companyName || "";
+  // Trimmed: the org name is spoken to every caller, so stray whitespace from the signup form
+  // must never reach it. An all-whitespace value falls through to the missing-name guard below.
+  const companyName = (metadata.companyName || "").trim();
   const email = metadata.email || customer_details.email || "";
   const name = metadata.name || customer_details.name || "";
   const plan = metadata.plan || "starter";

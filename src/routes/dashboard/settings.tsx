@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { api, ApiError } from "~/lib/api-client";
-import { useSettings } from "~/lib/hooks/use-data";
+import { useSettings, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/settings")({
   component: SettingsPage,
@@ -75,10 +75,9 @@ function SettingsPage() {
   const [calStatus, setCalStatus] = useState<{ connected: boolean; email: string | null; configured: boolean } | null>(null);
   const [calBusy, setCalBusy] = useState(false);
 
-  // Phone numbers — mock for now
-  const [phoneNumbers] = useState([
-    "(555) " + String(Math.floor(Math.random() * 900) + 100) + "-" + String(Math.floor(Math.random() * 9000) + 1000),
-  ]);
+  // Phone numbers — the business's real line(s) from `phone_numbers` (org-scoped, via
+  // GET /api/settings). No number yet is an honest state; we never render a generated one.
+  const phoneNumbers = data?.phoneNumbers ?? [];
 
   // Populate from API
   useEffect(() => {
@@ -260,13 +259,26 @@ function SettingsPage() {
           </button>
         </div>
         <div className="mt-4 space-y-2">
-          {phoneNumbers.map((num, i) => (
-            <div key={i} className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
+          {phoneNumbers.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
               <span className="text-lg">📞</span>
-              <span className="flex-1 text-sm font-medium text-gray-900">{num}</span>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Active</span>
+              <span className="flex-1 text-sm text-gray-500">
+                {loading ? "Checking your number…" : NO_PHONE_YET_MESSAGE}
+              </span>
             </div>
-          ))}
+          ) : (
+            phoneNumbers.map((num, i) => (
+              <div key={num.phoneNumber || i} className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
+                <span className="text-lg">📞</span>
+                <span className="flex-1 text-sm font-medium text-gray-900">{formatPhoneNumber(num.phoneNumber)}</span>
+                {num.isActive === false ? (
+                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">Inactive</span>
+                ) : (
+                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Active</span>
+                )}
+              </div>
+            ))
+          )}
         </div>
         <p className="mt-3 text-xs text-gray-400">To add more numbers or port an existing one, contact support.</p>
       </div>

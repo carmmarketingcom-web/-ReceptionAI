@@ -214,8 +214,11 @@ async function handleCarmOneTimeCheckout(session: any): Promise<void> {
   const plan = isSelfServe
     ? (["starter", "growth", "scale"].includes(meta.plan) ? meta.plan : "starter")
     : (rate === "standard" ? tier : mapCarmTierToPlan(tier));
-  const companyName = meta.companyName || name || email.split("@")[0] || "Business";
-  const orgName = isSelfServe ? companyName : `New Carm Client — ${companyName}`;
+  // The org name is what the AI says out loud ("Thanks for calling {name}"), so it must be the
+  // customer's own business name — never a staff-facing label like "New Carm Client — …".
+  // Fall back to the customer's name, then the email local part, before a generic placeholder.
+  const companyName = (meta.companyName || "").trim() || name || email.split("@")[0] || "Business";
+  const orgName = companyName;
   const passwordHash = meta.password ? await bcrypt.hash(meta.password, 10) : generateRandomHash();
 
   console.log(`[Stripe] Provisioning client: tier=${tier} rate=${rate} plan=${plan} org="${orgName}" email=${email}`);
@@ -289,7 +292,9 @@ async function handleCheckoutCompleted(session: any) {
     customer_details = {},
   } = session;
 
-  const companyName = metadata.companyName || "";
+  // Trimmed: the org name is spoken to every caller, so stray whitespace from the signup form
+  // must never reach it. An all-whitespace value falls through to the missing-name guard below.
+  const companyName = (metadata.companyName || "").trim();
   const email = metadata.email || customer_details.email || "";
   const name = metadata.name || customer_details.name || "";
   const plan = metadata.plan || "starter";

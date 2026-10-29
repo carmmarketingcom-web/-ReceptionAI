@@ -11,6 +11,7 @@ import {
   organizations,
   businessHours,
   organizationSettings,
+  phoneNumbers,
 } from "../../../db/schema/index";
 import { eq, and } from "drizzle-orm";
 
@@ -41,6 +42,7 @@ export async function GET({ request }: { request: Request }) {
             { dayOfWeek: "6", isClosed: true },
           ],
           transferNumber: null,
+          phoneNumbers: [],
           settings: {},
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -67,6 +69,18 @@ export async function GET({ request }: { request: Request }) {
       .from(organizationSettings)
       .where(eq(organizationSettings.organizationId, orgId));
 
+    // The business's own line(s) — org-scoped, never another org's number. An empty list is a
+    // real answer (number still being provisioned), so the dashboard never invents one.
+    // organizations.phone is the owner's personal mobile and is never rendered publicly.
+    const numbers = await db
+      .select({
+        phoneNumber: phoneNumbers.phoneNumber,
+        isActive: phoneNumbers.isActive,
+      })
+      .from(phoneNumbers)
+      .where(eq(phoneNumbers.organizationId, orgId))
+      .orderBy(phoneNumbers.createdAt);
+
     const settingsMap: Record<string, any> = {};
     for (const s of settings) {
       settingsMap[s.key] = s.value;
@@ -78,6 +92,10 @@ export async function GET({ request }: { request: Request }) {
       JSON.stringify({
         organization: org || null,
         transferNumber,
+        phoneNumbers: numbers.map((n) => ({
+          phoneNumber: n.phoneNumber,
+          isActive: n.isActive === true,
+        })),
         businessHours: hours,
         settings: settingsMap,
       }),
