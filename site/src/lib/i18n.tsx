@@ -44,11 +44,42 @@ export const translations: Record<string, { en: string; es: string }> = {
   "home.hero.line1": { en: "Never miss", es: "Nunca pierdas" },
   "home.hero.highlight": { en: "another customer call.", es: "otra llamada de cliente." },
   "home.hero.subtitle": {
-    en: "Every call answered. Every appointment booked. Every caller texted back — in English and Spanish, at 2am on a Sunday. $99 a month.",
-    es: "Cada llamada contestada. Cada cita agendada. Cada llamante recibe un mensaje de texto de vuelta — en inglés y español, a las 2 de la mañana un domingo. $99 al mes.",
+    en: "Every call answered. Every appointment booked. Every caller texted back — in English and Spanish, at 2am on a Sunday.",
+    es: "Cada llamada contestada. Cada cita agendada. Cada llamante recibe un mensaje de texto de vuelta — en inglés y español, a las 2 de la mañana un domingo.",
   },
+  "home.hero.price": { en: "$99 a month.", es: "$99 al mes." },
   "home.hero.cta": { en: "Hear the live demo", es: "Escucha la demo en vivo" },
   "home.hero.secondary": { en: "See pricing", es: "Ver precios" },
+  /* The demo line number itself is never translated or localized. */
+  "home.hero.demoPrefix": { en: "The demo line is", es: "La línea de demostración es" },
+  "home.hero.demoSuffix": {
+    en: "— a real call to the AI, answered exactly as your callers would hear it.",
+    es: "— una llamada real a la IA, contestada tal como la escucharían tus clientes.",
+  },
+  /* What the AI actually does on a call — shipped behaviour only, one line each. */
+  "home.value.1": { en: "Answers after hours and while you're on a job", es: "Contesta fuera de horario y mientras estás en un trabajo" },
+  "home.value.2": { en: "Takes the caller's name and number", es: "Toma el nombre y el número de quien llama" },
+  "home.value.3": { en: "Books straight into your calendar", es: "Agenda directo en tu calendario" },
+  "home.value.4": { en: "Texts the caller a confirmation and reminders", es: "Le manda al llamante una confirmación y recordatorios por texto" },
+  "home.value.5": { en: "Texts you a summary after every call", es: "Te manda un resumen después de cada llamada" },
+  "home.value.6": { en: "English and Spanish", es: "Inglés y español" },
+  "home.value.7": { en: "Transfers to you when it matters", es: "Te transfiere la llamada cuando hace falta" },
+  /* The only figure on the page that is not ours. The source and its date travel
+     with the number in both languages — a translated statistic without its
+     attribution would be a fabricated statistic. */
+  "home.bls.pre": {
+    en: "For comparison: the median US wage for a receptionist is",
+    es: "Para comparar: el salario medio en EE. UU. de un recepcionista es de",
+  },
+  "home.bls.amount": { en: "$38,010 a year", es: "$38,010 al año" },
+  "home.bls.mid": {
+    en: "— before benefits, and before anyone covers a lunch break.",
+    es: "— antes de beneficios y antes de que alguien cubra la pausa del almuerzo.",
+  },
+  "home.bls.source": {
+    en: "(U.S. Bureau of Labor Statistics, May 2025.)",
+    es: "(Oficina de Estadísticas Laborales de EE. UU., mayo de 2025.)",
+  },
 
   /* ─── Industries ─── */
   "ind.hvac": { en: "HVAC", es: "HVAC" },
@@ -59,6 +90,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "ind.law": { en: "Law", es: "Legal" },
   "ind.medspa": { en: "Med Spa", es: "Med Spa" },
   "ind.homeservices": { en: "Home Services", es: "Servicios para el Hogar" },
+  /* The trades card lists "Legal" where the marquee lists "Law" — same word in Spanish. */
+  "ind.legal": { en: "Legal", es: "Legal" },
 
   /* ─── Home — Logo marquee ─── */
   "home.marquee.title": { en: "Built for every service industry", es: "Hecho para cada industria de servicios" },
@@ -193,6 +226,108 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "Demo line: (727) 966-7556. Founder pricing: 50% off your first 3 months. Cancel anytime.",
     es: "Línea de demostración: (727) 966-7556. Precio de fundador: 50% de descuento en tus primeros 3 meses. Cancela cuando quieras.",
   },
+  "home.final.ready": { en: "Ready to start?", es: "¿Listo para comenzar?" },
+  "home.final.createAccount": { en: "Create your account", es: "Crea tu cuenta" },
+
+  /* ─── Home — Missed-call calculator ─── */
+  /* The maths, the 1-in-3 assumption and the "estimate only" disclaimer are
+     identical in both languages. Only the words change. */
+  "home.calc.badge": { en: "Missed-call calculator", es: "Calculadora de llamadas perdidas" },
+  "home.calc.headline": { en: "How much are missed calls costing you?", es: "¿Cuánto te cuestan las llamadas perdidas?" },
+  "home.calc.subtitle": {
+    en: "Put a number on the opportunities that disappear when the phone rings while your team is busy.",
+    es: "Ponle número a las oportunidades que se pierden cuando suena el teléfono y tu equipo está ocupado.",
+  },
+  "home.calc.callsLabel": { en: "Calls you miss per week", es: "Llamadas que pierdes por semana" },
+  "home.calc.jobLabel": { en: "Average job value", es: "Valor promedio del trabajo" },
+  "home.calc.assumption": {
+    en: "Assumes 1 in 3 missed callers would have become a paying job.",
+    es: "Asume que 1 de cada 3 llamantes perdidos se habría convertido en un trabajo pagado.",
+  },
+  "home.calc.outputLabel": { en: "REVENUE_LOST / YEAR", es: "INGRESOS PERDIDOS / AÑO" },
+  "home.calc.monthlyPre": { en: "That's about", es: "Eso es cerca de" },
+  "home.calc.monthlyPost": {
+    en: "a month — far more than the cost of never missing a call again.",
+    es: "al mes — mucho más de lo que cuesta no volver a perder una llamada.",
+  },
+  "home.calc.cta": { en: "Stop the leak — get started", es: "Detén la fuga — comienza ahora" },
+  "home.calc.disclaimer": { en: "Estimate only — your results will vary.", es: "Solo un estimado — tus resultados pueden variar." },
+  "home.calc.decrease": { en: "Decrease missed calls", es: "Reducir las llamadas perdidas" },
+  "home.calc.increase": { en: "Increase missed calls", es: "Aumentar las llamadas perdidas" },
+
+  /* ─── Home — See it working ─── */
+  /* The quoted scripts and messages stay in the language the product actually
+     sends them in: the wording inside the quotation marks is verbatim product
+     output, not marketing copy. The Spanish SMS sample sits right beside it. */
+  "home.see.badge": { en: "See it working", es: "Míralo funcionando" },
+  "home.see.title1": { en: "See it working — what your", es: "Míralo funcionando — lo que" },
+  "home.see.title2": { en: "customers experience", es: "viven tus clientes" },
+  "home.see.subtitle": {
+    en: "Real call scripts and real text messages. The wording below is what our receptionist actually says on the phone and sends by SMS — sample names and times are placeholders.",
+    es: "Guiones de llamada y mensajes de texto reales. El texto de abajo es lo que nuestra recepcionista dice de verdad en el teléfono y envía por SMS — los nombres y las horas son ejemplos.",
+  },
+  "home.see.call.label": { en: "On the phone", es: "En el teléfono" },
+  "home.see.call.title": { en: "A call lands at 7 PM on a Saturday", es: "Entra una llamada un sábado a las 7 PM" },
+  "home.see.pill1": { en: "Inbound call", es: "Llamada entrante" },
+  "home.see.pill2": { en: "Press 1 to book", es: "Presiona 1 para agendar" },
+  "home.see.pill3": { en: "Slots offered", es: "Horarios ofrecidos" },
+  "home.see.pill4": { en: "Confirmed ✓", es: "Confirmada ✓" },
+  "home.see.pill5": { en: "SMS sent", es: "SMS enviado" },
+  "home.see.step.answered": { en: "Answered", es: "Contestada" },
+  "home.see.step.menu": { en: "Menu", es: "Menú" },
+  "home.see.step.availability": { en: "Availability", es: "Disponibilidad" },
+  "home.see.step.booked": { en: "Booked", es: "Agendada" },
+  "home.see.sms.label": { en: "By text", es: "Por mensaje de texto" },
+  "home.see.sms.title": { en: "What your customer's phone shows", es: "Lo que ve el teléfono de tu cliente" },
+  "home.see.sms.booking": { en: "Booking confirmation", es: "Confirmación de la cita" },
+  "home.see.sms.reminder": { en: "Reminder — 24 hours before", es: "Recordatorio — 24 horas antes" },
+  "home.see.sms.abandoned": { en: "Call ended with interest but no booking", es: "La llamada terminó con interés pero sin cita" },
+  "home.see.sms.spanish": { en: "Same messages in Spanish", es: "Los mismos mensajes en español" },
+  "home.see.owner.label": { en: "To your phone", es: "A tu teléfono" },
+  "home.see.owner.title": { en: "The summary after every call", es: "El resumen después de cada llamada" },
+  "home.see.chip.caller": { en: "Caller", es: "Llamante" },
+  "home.see.chip.duration": { en: "Duration", es: "Duración" },
+  "home.see.chip.outcome": { en: "Outcome", es: "Resultado" },
+  "home.see.chip.dtmf": { en: "DTMF", es: "DTMF" },
+  "home.see.owner.note": {
+    en: "Texted to the owner's phone number on file — no dashboard needed to know what happened.",
+    es: "Se envía al número del dueño que está registrado — no necesitas abrir el panel para saber qué pasó.",
+  },
+  "home.see.owner.link": { en: "See what each plan includes", es: "Mira qué incluye cada plan" },
+
+  /* ─── Home — Features overview link ─── */
+  "home.features.statusLink": {
+    en: "See the honest status of every feature — Live, Partial, or Coming Soon",
+    es: "Mira el estado honesto de cada función — Activa, Parcial o Próximamente",
+  },
+
+  /* ─── Home — What actually happens (no customer quotes exist) ─── */
+  "home.social.body": {
+    en: "ReceptionAI is new, so there are no customer quotes on this page to show you. Instead, here is exactly what the software does on a call — all of it built and running today.",
+    es: "ReceptionAI es nuevo, así que no hay opiniones de clientes que mostrarte en esta página. En su lugar, esto es exactamente lo que el software hace en una llamada — todo construido y funcionando hoy.",
+  },
+  "home.social.card1.title": { en: "Answers every call, day or night", es: "Contesta cada llamada, de día o de noche" },
+  "home.social.card1.body": {
+    en: "A real conversation, not a phone tree — in English or Spanish. Nights, weekends and holidays included. Callers choose English or Spanish before the menu.",
+    es: "Una conversación real, no un menú automático — en inglés o español. Noches, fines de semana y feriados incluidos. El llamante elige inglés o español antes del menú.",
+  },
+  "home.social.card2.title": { en: "Books the appointment on the call", es: "Agenda la cita durante la llamada" },
+  "home.social.card2.body": {
+    en: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then texts the caller a confirmation and reminders 24 hours and 2 hours ahead.",
+    es: "Revisa tu disponibilidad real — tus horarios, tus feriados, las citas que ya tienes y un margen de 15 minutos — agenda el horario y luego le manda al llamante una confirmación y recordatorios 24 horas y 2 horas antes.",
+  },
+  "home.social.card3.title": { en: "Texts you a summary after every call", es: "Te manda un resumen después de cada llamada" },
+  "home.social.card3.body": {
+    en: "Who called, how long it ran, what the outcome was and what they asked for. It arrives on your phone, so you don't have to open the dashboard to know what happened.",
+    es: "Quién llamó, cuánto duró, cuál fue el resultado y qué pidió. Llega a tu teléfono, así no tienes que abrir el panel para saber qué pasó.",
+  },
+  "home.social.example": { en: "Example", es: "Ejemplo" },
+  "home.social.exampleTitle": { en: "What lands on your phone after a call", es: "Lo que llega a tu teléfono después de una llamada" },
+  "home.social.exampleBody": {
+    en: "The owner's summary text, in the format ReceptionAI sends it. The message shown here is a sample of that format — it is not a real customer's call.",
+    es: "El mensaje de resumen del dueño, en el formato en que ReceptionAI lo envía. El mensaje que ves aquí es una muestra de ese formato — no es la llamada de un cliente real.",
+  },
+  "home.social.smsToOwner": { en: "SMS · to the business owner", es: "SMS · al dueño del negocio" },
 
   /* ─── Pricing ─── */
   "pricing.badge": { en: "Pricing", es: "Precios" },

@@ -2,6 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import ChatWidgetPreview from "~/components/ChatWidgetPreview";
 import PhoneShowcase from "~/components/PhoneShowcase";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/")({
   component: HomePage,
@@ -10,13 +11,36 @@ export const Route = createFileRoute("/_marketing/")({
 /* ─── What the AI actually does on a call — shipped behaviour only.
        No "replaces your staff", no percentages, nothing unbuilt. ─── */
 const VALUE_POINTS = [
-  "Answers after hours and while you're on a job",
-  "Takes the caller's name and number",
-  "Books straight into your calendar",
-  "Texts the caller a confirmation and reminders",
-  "Texts you a summary after every call",
-  "English and Spanish",
-  "Transfers to you when it matters",
+  "home.value.1",
+  "home.value.2",
+  "home.value.3",
+  "home.value.4",
+  "home.value.5",
+  "home.value.6",
+  "home.value.7",
+];
+
+/* Industry labels, in the order each band shows them. */
+const MARQUEE_INDUSTRIES = [
+  "ind.hvac",
+  "ind.plumbing",
+  "ind.electrical",
+  "ind.dental",
+  "ind.veterinary",
+  "ind.law",
+  "ind.medspa",
+  "ind.homeservices",
+];
+
+const TRADES_INDUSTRIES = [
+  "ind.hvac",
+  "ind.plumbing",
+  "ind.electrical",
+  "ind.dental",
+  "ind.veterinary",
+  "ind.legal",
+  "ind.medspa",
+  "ind.homeservices",
 ];
 
 /* ─── Scroll Reveal Hook (starts visible for SSR, hides below-fold for animation) ─── */
@@ -77,6 +101,9 @@ function Icon({ name, className = "h-6 w-6" }: { name: string; className?: strin
 }
 
 function HomePage() {
+  /* Subscribe to the locale: `t()` reads module-level state, so a page that
+     never calls this hook would keep rendering the old language after a toggle. */
+  useLocale();
   return (
     <div className="bg-white">
       <HeroSection />
@@ -115,21 +142,20 @@ function HeroSection() {
             {/* Badge */}
             <div className="mb-8 inline-flex items-center gap-2.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-5 py-2 text-sm font-medium text-indigo-300 backdrop-blur-sm">
               <span className="flex h-2.5 w-2.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)] animate-pulse" />
-              AI Receptionist — Now Available
+              {t("home.badge")}
             </div>
 
             <h1 className="text-5xl font-extrabold tracking-tight text-white sm:text-6xl md:text-7xl lg:text-7xl xl:text-8xl leading-[1.05]">
-              Never miss
+              {t("home.hero.line1")}
               <br />
               <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                another customer call.
+                {t("home.hero.highlight")}
               </span>
             </h1>
 
             <p className="mx-auto mt-8 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl lg:mx-0">
-              Every call answered. Every appointment booked. Every caller texted back — in
-              English and Spanish, at 2am on a Sunday.{" "}
-              <span className="whitespace-nowrap font-semibold text-white">$99 a month.</span>
+              {t("home.hero.subtitle")}{" "}
+              <span className="whitespace-nowrap font-semibold text-white">{t("home.hero.price")}</span>
             </p>
 
             {/* Two CTAs only: hear it, or see what it costs. */}
@@ -138,43 +164,43 @@ function HeroSection() {
                 href="tel:+17279667556"
                 className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               >
-                Hear the live demo
+                {t("home.hero.cta")}
                 <Icon name="phone" className="h-5 w-5" />
               </a>
               <Link
                 to="/pricing"
                 className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-8 py-4 text-base font-semibold text-gray-200 transition-all hover:border-white/25 hover:bg-white/10 hover:text-white"
               >
-                See pricing
+                {t("home.hero.secondary")}
               </Link>
             </div>
             <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-gray-500 lg:mx-0">
-              The demo line is{" "}
+              {t("home.hero.demoPrefix")}{" "}
               <a href="tel:+17279667556" className="font-semibold text-gray-300 transition hover:text-white">
                 (727) 966-7556
               </a>{" "}
-              — a real call to the AI, answered exactly as your callers would hear it.
+              {t("home.hero.demoSuffix")}
             </p>
 
             {/* What happens on a call — shipped behaviour only */}
             <ul className="mx-auto mt-8 grid max-w-xl gap-x-6 gap-y-3 text-left sm:grid-cols-2 lg:mx-0">
-              {VALUE_POINTS.map((point) => (
-                <li key={point} className="flex items-start gap-2.5 text-sm leading-relaxed text-gray-400">
+              {VALUE_POINTS.map((key) => (
+                <li key={key} className="flex items-start gap-2.5 text-sm leading-relaxed text-gray-400">
                   <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                   </svg>
-                  {point}
+                  {t(key)}
                 </li>
               ))}
             </ul>
 
             {/* Cost comparison — the only figure on this page that is not ours, and it is sourced. */}
             <p className="mx-auto mt-6 max-w-xl text-sm leading-relaxed text-gray-500 lg:mx-0">
-              For comparison: the median US wage for a receptionist is{" "}
-              <span className="font-semibold text-gray-400">$38,010 a year</span> — before
-              benefits, and before anyone covers a lunch break.{" "}
+              {t("home.bls.pre")}{" "}
+              <span className="font-semibold text-gray-400">{t("home.bls.amount")}</span>{" "}
+              {t("home.bls.mid")}{" "}
               <span className="text-gray-600">
-                (U.S. Bureau of Labor Statistics, May 2025.)
+                {t("home.bls.source")}
               </span>
             </p>
           </div>
@@ -198,21 +224,19 @@ function HeroSection() {
 
 /* ─── Logo Marquee ─── */
 function LogoMarquee() {
-  const industries = ["HVAC", "Plumbing", "Electrical", "Dental", "Veterinary", "Law", "Med Spa", "Home Services"];
-
   return (
     <section className="border-b border-gray-100 bg-white py-12">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <p className="mb-8 text-center text-sm font-semibold uppercase tracking-widest text-gray-400">
-          Built for every service industry
+          {t("home.marquee.title")}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
-          {industries.map((ind) => (
+          {MARQUEE_INDUSTRIES.map((key) => (
             <span
-              key={ind}
+              key={key}
               className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-700 hover:shadow-md"
             >
-              {ind}
+              {t(key)}
             </span>
           ))}
         </div>
@@ -230,12 +254,12 @@ function MissedCallCalculator() {
   const monthlyRevenueLost = annualRevenueLost / 12;
   const formatMoney = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
   const copy = {
-    headline: "How much are missed calls costing you?",
-    callsLabel: "Calls you miss per week",
-    jobLabel: "Average job value",
-    assumption: "Assumes 1 in 3 missed callers would have become a paying job.",
-    outputLabel: "REVENUE_LOST / YEAR",
-    cta: "Stop the leak — get started",
+    headline: t("home.calc.headline"),
+    callsLabel: t("home.calc.callsLabel"),
+    jobLabel: t("home.calc.jobLabel"),
+    assumption: t("home.calc.assumption"),
+    outputLabel: t("home.calc.outputLabel"),
+    cta: t("home.calc.cta"),
   };
 
   return (
@@ -244,9 +268,9 @@ function MissedCallCalculator() {
       <div className="pointer-events-none absolute -right-40 top-0 h-96 w-96 rounded-full bg-purple-600/20 blur-3xl" />
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
-          <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-indigo-200">Missed-call calculator</span>
+          <span className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-indigo-200">{t("home.calc.badge")}</span>
           <h2 className="mt-5 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">{copy.headline}</h2>
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-indigo-100/75">Put a number on the opportunities that disappear when the phone rings while your team is busy.</p>
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-indigo-100/75">{t("home.calc.subtitle")}</p>
         </div>
 
         <div className="mx-auto mt-14 grid max-w-5xl overflow-hidden rounded-3xl border border-white/15 bg-white/10 shadow-2xl shadow-indigo-950/40 backdrop-blur-xl lg:grid-cols-[1fr_.95fr]">
@@ -254,9 +278,9 @@ function MissedCallCalculator() {
             <div>
               <div className="flex items-center justify-between text-sm font-semibold text-white"><span>{copy.callsLabel}</span><output>{missedCalls}</output></div>
               <div className="mt-4 flex items-center gap-4">
-                <button type="button" aria-label="Decrease missed calls" disabled={missedCalls === 1} onClick={() => setMissedCalls((value) => Math.max(1, value - 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">−</button>
+                <button type="button" aria-label={t("home.calc.decrease")} disabled={missedCalls === 1} onClick={() => setMissedCalls((value) => Math.max(1, value - 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">−</button>
                 <output className="min-w-12 text-center text-2xl font-black">{missedCalls}</output>
-                <button type="button" aria-label="Increase missed calls" disabled={missedCalls === 50} onClick={() => setMissedCalls((value) => Math.min(50, value + 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">+</button>
+                <button type="button" aria-label={t("home.calc.increase")} disabled={missedCalls === 50} onClick={() => setMissedCalls((value) => Math.min(50, value + 1))} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-2xl leading-none transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35">+</button>
               </div>
               <div className="mt-2 flex justify-between text-xs text-indigo-200/60"><span>1</span><span>50</span></div>
             </div>
@@ -278,11 +302,11 @@ function MissedCallCalculator() {
             <div>
               <div className="text-xs font-extrabold tracking-[.16em] text-indigo-200">{copy.outputLabel}</div>
               <div className="mt-3 text-5xl font-black tracking-[-.08em] text-white sm:text-6xl">{formatMoney(annualRevenueLost)}</div>
-              <p className="mt-5 max-w-sm text-sm leading-relaxed text-indigo-100/75">That's about {formatMoney(monthlyRevenueLost)} a month — far more than the cost of never missing a call again.</p>
+              <p className="mt-5 max-w-sm text-sm leading-relaxed text-indigo-100/75">{t("home.calc.monthlyPre")} {formatMoney(monthlyRevenueLost)} {t("home.calc.monthlyPost")}</p>
             </div>
             <div>
               <Link to="/signup" className="mt-10 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-extrabold text-indigo-700 shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-50">{copy.cta}<span aria-hidden>→</span></Link>
-              <p className="mt-3 text-center text-xs text-indigo-100/55">Estimate only — your results will vary.</p>
+              <p className="mt-3 text-center text-xs text-indigo-100/55">{t("home.calc.disclaimer")}</p>
             </div>
           </div>
         </div>
@@ -314,26 +338,44 @@ const APP_DEMO = {
   phone: "(555) 010-2288",
 };
 
+/* `key` is a dictionary key for the step label. `text` is verbatim product
+   output and is deliberately not translated: it is what the phone literally
+   says, and the Spanish SMS sample sits beside it in the same card. */
 const VOICE_STEPS = [
-  { key: "Answered", text: `Welcome! For English, press 1. Para español, presione 2.` },
-  { key: "Menu", text: `Hello, you've reached ${APP_DEMO.org}. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.` },
-  { key: "Availability", text: `Here are the next available times. Option 1: ${APP_DEMO.day} at ${APP_DEMO.time}. Option 2: ${APP_DEMO.day} at 2:00 PM. Press 1, 2, 3, or 4 to book, or 9 to speak with the team.` },
-  { key: "Booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll text you a confirmation and a reminder. Thank you! Goodbye!` },
+  { key: "home.see.step.answered", text: `Welcome! For English, press 1. Para español, presione 2.` },
+  { key: "home.see.step.menu", text: `Hello, you've reached ${APP_DEMO.org}. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.` },
+  { key: "home.see.step.availability", text: `Here are the next available times. Option 1: ${APP_DEMO.day} at ${APP_DEMO.time}. Option 2: ${APP_DEMO.day} at 2:00 PM. Press 1, 2, 3, or 4 to book, or 9 to speak with the team.` },
+  { key: "home.see.step.booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll text you a confirmation and a reminder. Thank you! Goodbye!` },
 ];
 
 const SMS_THREAD = [
   {
-    label: "Booking confirmation",
+    label: "home.see.sms.booking",
     body: `Hi ${APP_DEMO.caller}, your appointment for ${APP_DEMO.service} on Tue, Nov 4 at ${APP_DEMO.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${APP_DEMO.phone}.`,
   },
   {
-    label: "Reminder — 24 hours before",
+    label: "home.see.sms.reminder",
     body: `Hi ${APP_DEMO.caller}, reminder: you have an appointment at ${APP_DEMO.org} for ${APP_DEMO.service} tomorrow (Tue, Nov 4) at ${APP_DEMO.time}.`,
   },
   {
-    label: "Call ended with interest but no booking",
+    label: "home.see.sms.abandoned",
     body: `Hi, this is ${APP_DEMO.org}. We noticed you called earlier and were interested in booking an appointment but we weren't able to complete it. Would you like us to reach out to schedule? Reply YES and we'll contact you shortly.`,
   },
+];
+
+const SEE_PILLS = [
+  "home.see.pill1",
+  "home.see.pill2",
+  "home.see.pill3",
+  "home.see.pill4",
+  "home.see.pill5",
+];
+
+const OWNER_CHIPS = [
+  "home.see.chip.caller",
+  "home.see.chip.duration",
+  "home.see.chip.outcome",
+  "home.see.chip.dtmf",
 ];
 
 const SMS_THREAD_ES = `Hola ${APP_DEMO.caller}, su cita para ${APP_DEMO.service} el Tue, Nov 4 a las ${APP_DEMO.time} está confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${APP_DEMO.phone}.`;
@@ -359,16 +401,15 @@ function SeeItWorking() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-3xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1.5 text-sm font-semibold text-indigo-300 backdrop-blur-sm">
-            See it working
+            {t("home.see.badge")}
           </span>
           <h2 id="see-it-working-heading" className="mt-6 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            See it working — what your
+            {t("home.see.title1")}
             <br className="hidden sm:block" />
-            <span className="text-indigo-400"> customers experience</span>
+            <span className="text-indigo-400"> {t("home.see.title2")}</span>
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-gray-400">
-            Real call scripts and real text messages. The wording below is what our receptionist
-            actually says on the phone and sends by SMS — sample names and times are placeholders.
+            {t("home.see.subtitle")}
           </p>
         </Reveal>
 
@@ -381,21 +422,21 @@ function SeeItWorking() {
                   <Icon name="phone" className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">On the phone</p>
-                  <h3 className="text-sm font-bold text-white sm:text-base">A call lands at 7 PM on a Saturday</h3>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">{t("home.see.call.label")}</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">{t("home.see.call.title")}</h3>
                 </div>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
-                {["Inbound call", "Press 1 to book", "Slots offered", "Confirmed ✓", "SMS sent"].map((pill) => (
-                  <span key={pill} className="whitespace-nowrap rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-gray-300">{pill}</span>
+                {SEE_PILLS.map((pill) => (
+                  <span key={pill} className="whitespace-nowrap rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-gray-300">{t(pill)}</span>
                 ))}
               </div>
 
               <ol className="mt-5 space-y-3">
                 {VOICE_STEPS.map((step) => (
                   <li key={step.key} className="border-l-2 border-indigo-500/40 pl-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{step.key}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t(step.key)}</p>
                     <p className="mt-1 text-xs leading-relaxed text-gray-300">&ldquo;{step.text}&rdquo;</p>
                   </li>
                 ))}
@@ -411,22 +452,22 @@ function SeeItWorking() {
                   <Icon name="sms" className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">By text</p>
-                  <h3 className="text-sm font-bold text-white sm:text-base">What your customer&apos;s phone shows</h3>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">{t("home.see.sms.label")}</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">{t("home.see.sms.title")}</h3>
                 </div>
               </div>
 
               <div className="mt-5 space-y-3">
                 {SMS_THREAD.map((sms) => (
                   <div key={sms.label}>
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{sms.label}</p>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t(sms.label)}</p>
                     <p className="rounded-2xl rounded-tl-md bg-indigo-600/90 px-3.5 py-2.5 text-xs leading-relaxed text-white shadow-lg shadow-indigo-950/30">
                       {sms.body}
                     </p>
                   </div>
                 ))}
                 <div>
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">Same messages in Spanish</p>
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t("home.see.sms.spanish")}</p>
                   <p className="rounded-2xl rounded-tl-md bg-indigo-600/60 px-3.5 py-2.5 text-xs leading-relaxed text-white/90 shadow-lg shadow-indigo-950/30">
                     {SMS_THREAD_ES}
                   </p>
@@ -443,15 +484,15 @@ function SeeItWorking() {
                   <Icon name="check" className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">To your phone</p>
-                  <h3 className="text-sm font-bold text-white sm:text-base">The summary after every call</h3>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">{t("home.see.owner.label")}</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">{t("home.see.owner.title")}</h3>
                 </div>
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-gray-200">
-                {["Caller", "Duration", "Outcome", "DTMF"].map((chip, i) => (
+                {OWNER_CHIPS.map((chip, i) => (
                   <span key={chip} className="flex items-center gap-1.5">
-                    <span className="rounded-full border border-indigo-400/30 bg-indigo-500/15 px-2.5 py-1 text-indigo-200">{chip}</span>
+                    <span className="rounded-full border border-indigo-400/30 bg-indigo-500/15 px-2.5 py-1 text-indigo-200">{t(chip)}</span>
                     {i < 3 && <span aria-hidden className="text-gray-600">·</span>}
                   </span>
                 ))}
@@ -462,12 +503,12 @@ function SeeItWorking() {
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-gray-500">
-                Texted to the owner's phone number on file — no dashboard needed to know what happened.
+                {t("home.see.owner.note")}
               </p>
 
               <div className="mt-auto" />
               <Link to="/pricing" className="mt-5 inline-flex items-center gap-1.5 self-start text-xs font-semibold text-indigo-300 transition hover:text-indigo-200">
-                See what each plan includes
+                {t("home.see.owner.link")}
                 <span aria-hidden>→</span>
               </Link>
             </div>
@@ -481,17 +522,17 @@ function SeeItWorking() {
 /* ─── How It Works ─── */
 function HowItWorksSection() {
   const steps = [
-    { icon: "phone", title: "We answer your calls 24/7", desc: "In English or Spanish. Every call, every time — no missed leads." },
-    { icon: "calendar", title: "We book appointments automatically", desc: "On your built-in calendar. No Google account needed. Just set your hours." },
-    { icon: "sms", title: "You get an SMS summary after every call", desc: "Caller info, duration, and outcome — straight to your phone. No dashboard required." },
+    { icon: "phone", title: t("home.how.step1.title"), desc: t("home.how.step1.desc") },
+    { icon: "calendar", title: t("home.how.step2.title"), desc: t("home.how.step2.desc") },
+    { icon: "sms", title: t("home.how.step3.title"), desc: t("home.how.step3.desc") },
   ];
 
   return (
     <section className="bg-white py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">How it works</span>
-          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">Your AI receptionist<br /><span className="text-indigo-600">in 3 simple steps</span></h2>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">{t("home.how.badge")}</span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">{t("home.how.title1")}<br /><span className="text-indigo-600">{t("home.how.title2")}</span></h2>
         </Reveal>
 
         <div className="mt-16 grid gap-8 md:grid-cols-3">
@@ -514,8 +555,6 @@ function HowItWorksSection() {
 
 /* ─── Built for Trades ─── */
 function BuiltForTrades() {
-  const industries = ["HVAC", "Plumbing", "Electrical", "Dental", "Veterinary", "Legal", "Med Spa", "Home Services"];
-
   return (
     <section className="relative bg-gray-950 py-20 sm:py-28 overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:48px_48px]" />
@@ -529,18 +568,17 @@ function BuiltForTrades() {
                 <Icon name="wrench" className="h-6 w-6" />
               </span>
               <h2 className="text-2xl font-extrabold text-white sm:text-3xl">
-                Built for trades — no integrations needed
+                {t("home.trades.title")}
               </h2>
             </div>
             <p className="text-lg leading-relaxed text-gray-400 sm:text-xl">
-              Your calendar is built right in. No ServiceTitan. No Housecall Pro.
-              Nothing to connect. Nothing to sync. Just set your hours and go.
+              {t("home.trades.desc")}
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-gray-500">
-              <span className="font-semibold text-gray-300">Works great for:</span>
-              {industries.map((ind, i) => (
-                <span key={ind}>
-                  {ind}{i < industries.length - 1 ? " •" : ""}
+              <span className="font-semibold text-gray-300">{t("home.trades.worksFor")}</span>
+              {TRADES_INDUSTRIES.map((key, i) => (
+                <span key={key}>
+                  {t(key)}{i < TRADES_INDUSTRIES.length - 1 ? " •" : ""}
                 </span>
               ))}
             </div>
@@ -553,22 +591,24 @@ function BuiltForTrades() {
 
 /* ─── Features ─── */
 function FeaturesOverview() {
+  /* The "in development" / "is coming" / "in progress" half of each description
+     is load-bearing: it must survive translation exactly. */
   const features = [
-    { icon: "phone", title: "24/7 Call Answering", desc: "Never miss a business opportunity. AI answers every call instantly, day or night, weekends and holidays included." },
-    { icon: "globe", title: "Bilingual (English & Spanish)", desc: "Serve your customers in the language they're most comfortable with. Seamless switching between English and Spanish." },
-    { icon: "calendar", title: "Smart Appointment Scheduling", desc: "AI reads your calendar and books appointments automatically. Sends confirmations, reminders, and follow-ups." },
-    { icon: "chat", title: "Calls, Texts & Web Chat", desc: "Calls, texts and web chat handled in one place. The unified inbox for WhatsApp and Facebook messages is in development." },
-    { icon: "refresh", title: "Human Handoff When Needed", desc: "Callers press 3 to reach you on a live call, and web-chat requests for a person text your phone. Sentiment-based escalation is coming." },
-    { icon: "chart", title: "Call Outcomes & Missed Calls", desc: "See call activity, missed calls and real outcomes in your dashboard. The advanced analytics dashboard is in progress." },
+    { icon: "phone", title: t("feature.247.title"), desc: t("feature.247.desc") },
+    { icon: "globe", title: t("feature.multilingual.title"), desc: t("feature.multilingual.desc") },
+    { icon: "calendar", title: t("feature.scheduling.title"), desc: t("feature.scheduling.desc") },
+    { icon: "chat", title: t("feature.multichannel.title"), desc: t("feature.multichannel.desc") },
+    { icon: "refresh", title: t("feature.human.title"), desc: t("feature.human.desc") },
+    { icon: "chart", title: t("feature.analytics.title"), desc: t("feature.analytics.desc") },
   ];
 
   return (
     <section className="bg-white py-24 sm:py-32" id="features">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">Features</span>
-          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">Everything your business needs</h2>
-          <p className="mt-5 text-lg leading-relaxed text-gray-500 sm:text-xl">One platform. Calls, messages, scheduling — so you can focus on the work.</p>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">{t("home.features.badge")}</span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">{t("home.features.title")}</h2>
+          <p className="mt-5 text-lg leading-relaxed text-gray-500 sm:text-xl">{t("home.features.subtitle")}</p>
         </Reveal>
 
         <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -589,7 +629,7 @@ function FeaturesOverview() {
             to="/features"
             className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 transition hover:text-indigo-700"
           >
-            See the honest status of every feature — Live, Partial, or Coming Soon
+            {t("home.features.statusLink")}
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
@@ -603,17 +643,17 @@ function FeaturesOverview() {
 /* ─── How It Works (numbered) ─── */
 function HowItWorks() {
   const steps = [
-    { step: "01", title: "Get Your Number", desc: "You're live in minutes with a new number — or keep your old number by forwarding calls to it. Set your business hours and your AI receptionist is ready." },
-    { step: "02", title: "AI Takes the Calls", desc: "Your AI receptionist answers every call, asks the right questions, and books appointments — in English or Spanish." },
-    { step: "03", title: "You Focus on Work", desc: "Get SMS summaries after every call. See everything in your dashboard. Only step in when you want to." },
+    { step: "01", title: t("home.setup.step1.title"), desc: t("home.setup.step1.desc") },
+    { step: "02", title: t("home.setup.step2.title"), desc: t("home.setup.step2.desc") },
+    { step: "03", title: t("home.setup.step3.title"), desc: t("home.setup.step3.desc") },
   ];
 
   return (
     <section className="bg-gray-50 py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">Simple Setup</span>
-          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">Up and running in minutes</h2>
+          <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">{t("home.setup.badge")}</span>
+          <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">{t("home.setup.title")}</h2>
         </Reveal>
 
         <div className="mt-16 grid gap-8 md:grid-cols-3">
@@ -642,18 +682,18 @@ function SocialProof() {
   const cards = [
     {
       icon: "phone",
-      title: "Answers every call, day or night",
-      body: "A real conversation, not a phone tree — in English or Spanish. Nights, weekends and holidays included. Callers choose English or Spanish before the menu.",
+      title: t("home.social.card1.title"),
+      body: t("home.social.card1.body"),
     },
     {
       icon: "calendar",
-      title: "Books the appointment on the call",
-      body: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then texts the caller a confirmation and reminders 24 hours and 2 hours ahead.",
+      title: t("home.social.card2.title"),
+      body: t("home.social.card2.body"),
     },
     {
       icon: "sms",
-      title: "Texts you a summary after every call",
-      body: "Who called, how long it ran, what the outcome was and what they asked for. It arrives on your phone, so you don't have to open the dashboard to know what happened.",
+      title: t("home.social.card3.title"),
+      body: t("home.social.card3.body"),
     },
   ];
   const exampleSummary = [
@@ -676,16 +716,15 @@ function SocialProof() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-4 py-1.5 text-sm font-semibold text-indigo-300 backdrop-blur-sm">
-            Live in the product today
+            {t("home.social.badge")}
           </span>
           <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-            No borrowed reviews.
+            {t("home.social.title1")}
             <br />
-            <span className="text-indigo-400">This is what actually happens.</span>
+            <span className="text-indigo-400">{t("home.social.title2")}</span>
           </h2>
           <p className="mt-6 text-base leading-relaxed text-gray-400">
-            ReceptionAI is new, so there are no customer quotes on this page to show you. Instead, here is exactly
-            what the software does on a call — all of it built and running today.
+            {t("home.social.body")}
           </p>
         </Reveal>
 
@@ -707,18 +746,17 @@ function SocialProof() {
           <div className="grid gap-8 rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-sm lg:grid-cols-[1fr_minmax(0,400px)] lg:items-center lg:p-9">
             <div>
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-300">
-                Example
+                {t("home.social.example")}
               </span>
-              <h3 className="mt-4 text-2xl font-bold text-white">What lands on your phone after a call</h3>
+              <h3 className="mt-4 text-2xl font-bold text-white">{t("home.social.exampleTitle")}</h3>
               <p className="mt-3 text-sm leading-relaxed text-gray-400">
-                The owner's summary text, in the format ReceptionAI sends it. The message shown here is a sample of
-                that format — it is not a real customer's call.
+                {t("home.social.exampleBody")}
               </p>
             </div>
             <div className="rounded-2xl bg-[#141416] p-5 ring-1 ring-white/10">
               <div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-500">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                SMS · to the business owner
+                {t("home.social.smsToOwner")}
               </div>
               <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-gray-200">
                 {exampleSummary}
@@ -734,10 +772,10 @@ function SocialProof() {
 /* ─── Stats Bar ─── */
 function StatsSection() {
   const features = [
-    { icon: "phone", title: "24/7 Call Answering" },
-    { icon: "globe", title: "English & Spanish" },
-    { icon: "calendar", title: "Built-in Calendar" },
-    { icon: "sparkle", title: "Smart Follow-ups" },
+    { icon: "phone", title: t("home.stats.1") },
+    { icon: "globe", title: t("home.stats.2") },
+    { icon: "calendar", title: t("home.stats.3") },
+    { icon: "sparkle", title: t("home.stats.4") },
   ];
 
   return (
@@ -763,18 +801,9 @@ function StatsSection() {
 /* ─── FAQ ─── */
 function HonestFaq() {
   const faqs = [
-    {
-      q: "Will my customers know it's AI?",
-      a: "They hear a warm, natural voice and a real conversation — not a phone tree. If they ever ask whether it's an AI, it says so plainly, and it can connect them to a real person at any point in the call.",
-    },
-    {
-      q: "What about emergencies? Burst pipe. No heat.",
-      a: "Press 3 at any time and the call is bridged straight to you or your team. If nobody picks up, the caller gets a text back — so an urgent call never just ends.",
-    },
-    {
-      q: "What if it gets something wrong?",
-      a: "You get an SMS after every call with the caller's number, what they asked, and what happened. If something needs your attention, you'll know within seconds. And we're always improving the AI — your feedback makes it smarter.",
-    },
+    { q: t("home.faq.q1"), a: t("home.faq.a1") },
+    { q: t("home.faq.q2"), a: t("home.faq.a2") },
+    { q: t("home.faq.q3"), a: t("home.faq.a3") },
   ];
 
   return (
@@ -782,12 +811,12 @@ function HonestFaq() {
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">
-            You've got questions. Fair ones.
+            {t("home.faq.badge")}
           </span>
           <h2 className="mt-6 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">
-            Honest answers from a team
+            {t("home.faq.title1")}
             <br />
-            <span className="text-indigo-600">that builds for trades</span>
+            <span className="text-indigo-600">{t("home.faq.title2")}</span>
           </h2>
         </Reveal>
 
@@ -819,31 +848,30 @@ function FinalCta() {
       <div className="relative mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
         <Reveal>
           <h2 className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-            Ready to never miss a lead again?
+            {t("home.final.title")}
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl">
-            Call the demo line and hear it answer — then see what it costs. 50% off your first 3 months with founder
-            pricing.
+            {t("home.final.subtitle")}
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <a
               href="tel:+17279667556"
               className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
             >
-              Hear the live demo
+              {t("home.final.cta")}
               <Icon name="phone" className="h-5 w-5" />
             </a>
             <Link
               to="/pricing"
               className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-8 py-4 text-base font-semibold text-gray-200 transition-all hover:border-white/25 hover:bg-white/10 hover:text-white"
             >
-              See pricing
+              {t("home.final.pricing")}
             </Link>
           </div>
           <p className="mt-5 text-sm text-gray-500">
-            Demo line: (727) 966-7556. Founder pricing: 50% off your first 3 months. Cancel anytime. Ready to start?{" "}
+            {t("home.final.note")} {t("home.final.ready")}{" "}
             <Link to="/signup" className="font-medium text-indigo-300 underline underline-offset-4 transition hover:text-white">
-              Create your account
+              {t("home.final.createAccount")}
             </Link>
             .
           </p>
