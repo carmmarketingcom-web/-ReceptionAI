@@ -6,7 +6,7 @@ import { t, useLocale } from "~/lib/i18n";
  * English-only, so showing the globe there would promise a Spanish version
  * that does not exist. The nav and footer keep using the stored locale.
  */
-const TRANSLATED_PATHS = new Set(["/pricing", "/faq"]);
+const TRANSLATED_PATHS = new Set(["/", "/pricing", "/faq"]);
 
 export default function Header() {
   const { locale, setLocale } = useLocale();
