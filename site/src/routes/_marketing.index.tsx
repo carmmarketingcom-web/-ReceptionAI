@@ -116,9 +116,9 @@ function HeroSection() {
             </h1>
 
             <p className="mx-auto mt-8 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl lg:mx-0">
-              ReceptionAI answers calls, texts, web chats, and messages — in English and
-              Spanish. Books appointments, sends reminders, and transfers to your
-              team when needed. All for less than the cost of a human receptionist.
+              Every call answered. Every appointment booked. Every caller texted back — in
+              English and Spanish, at 2am on a Sunday.{" "}
+              <span className="whitespace-nowrap font-semibold text-white">$99 a month.</span>
             </p>
 
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:justify-start">
@@ -160,6 +160,16 @@ function HeroSection() {
                 </div>
               ))}
             </div>
+
+            {/* Cost comparison — the only figure on this page that is not ours, and it is sourced. */}
+            <p className="mx-auto mt-6 max-w-xl text-sm leading-relaxed text-gray-500 lg:mx-0">
+              For comparison: the median US wage for a receptionist is{" "}
+              <span className="font-semibold text-gray-400">$38,010 a year</span> — before
+              benefits, and before anyone covers a lunch break.{" "}
+              <span className="text-gray-600">
+                (U.S. Bureau of Labor Statistics, May 2025.)
+              </span>
+            </p>
           </div>
 
           {/* Right: Living phone showcase — 16s self-playing product loop (CSS-first).
