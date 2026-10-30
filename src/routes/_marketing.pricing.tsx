@@ -360,12 +360,12 @@ export default function PricingPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
-            <Link
-              to="/demo"
+            <a
+              href="tel:+17279667556"
               className="inline-flex items-center gap-2 rounded-xl border border-indigo-400 bg-transparent px-8 py-4 text-base font-semibold text-white transition hover:bg-indigo-500/20"
             >
-              {t("pricing.cta.secondary")}
-            </Link>
+              Hear the live demo — (727) 966-7556
+            </a>
           </div>
         </div>
       </section>
