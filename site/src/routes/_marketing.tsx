@@ -17,7 +17,9 @@ function MarketingLayout() {
           <Outlet />
         </main>
         <Footer />
-        <div className="fixed bottom-6 right-6 z-50">
+        {/* Floating chat widget: kept inside the viewport on phones (right/bottom insets +
+            a max width) and below the sticky header, so it never sits on a section heading. */}
+        <div className="fixed bottom-4 right-3 z-50 max-w-[calc(100vw-1.5rem)] sm:bottom-6 sm:right-6">
           <ChatWidgetPreview />
         </div>
       </div>

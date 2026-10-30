@@ -15,12 +15,14 @@ export default function Header() {
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-8 md:flex">
+        <nav className="hidden items-center gap-5 md:flex lg:gap-7">
           <Link to="/features" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.features")}</Link>
           <Link to="/book" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700">{t("nav.book")}</Link>
           <Link to="/pricing" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.pricing")}</Link>
           <Link to="/demo" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.demo")}</Link>
           <Link to="/faq" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.faq")}</Link>
+          <Link to="/about" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>About</Link>
+          <Link to="/contact" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>Contact</Link>
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
@@ -61,6 +63,8 @@ export default function Header() {
               <Link to="/pricing" className="block rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>{t("nav.pricing")}</Link>
               <Link to="/demo" className="block rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>{t("nav.demo")}</Link>
               <Link to="/faq" className="block rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>{t("nav.faq")}</Link>
+              <Link to="/about" className="block rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>About</Link>
+              <Link to="/contact" className="block rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>Contact</Link>
               <Link to="/book" className="block rounded-lg bg-indigo-600 px-3 py-2 text-center text-base font-medium text-white hover:bg-indigo-700" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>{t("nav.book")}</Link>
               <div className="border-t border-gray-100 pt-3">
                 <Link to="/login" className="block rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-50" onClick={() => (document.getElementById("mobile-menu-details") as HTMLDetailsElement)?.removeAttribute("open")}>{t("nav.login")}</Link>

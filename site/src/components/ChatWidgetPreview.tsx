@@ -1,172 +1,184 @@
-import { useState, useRef, useEffect } from "react";
-
-type Message = {
-  role: "bot" | "user";
-  content: string;
-};
+let widgetCounter = 0;
 
 export default function ChatWidgetPreview() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "bot", content: "Hi! I'm your AI receptionist. How can I help you today?" },
-  ]);
-  const [input, setInput] = useState("");
-  const [lang, setLang] = useState<"en" | "es">("en");
-  const [typing, setTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const widgetId = `cw-${++widgetCounter}`;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typing]);
-
-  const switchLanguage = (newLang: "en" | "es") => {
-    setLang(newLang);
-    setMessages([
-      {
-        role: "bot",
-        content: newLang === "en"
-          ? "Hi! I'm your AI receptionist. How can I help you today?"
-          : "Hola! Soy tu recepcionista de IA. Como puedo ayudarte hoy?",
-      },
-    ]);
-  };
-
-  const sendMessage = async () => {
-    if (!input.trim() || typing) return;
-    const userMsg = input.trim();
-    setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-    setInput("");
-    setTyping(true);
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, lang }),
-      });
-      const data = (await res.json()) as { reply?: string };
-      const reply = data.reply || "I'm not sure how to answer that. Can you rephrase?";
-      setMessages((prev) => [...prev, { role: "bot", content: reply }]);
-    } catch {
-      setMessages((prev) => [...prev, {
-        role: "bot",
-        content: lang === "en"
-          ? "Sorry, I'm having trouble connecting. Please try again."
-          : "Lo siento, tengo problemas para conectarme. Intentalo de nuevo.",
-      }]);
-    } finally {
-      setTyping(false);
+  const html = `
+<div id="${widgetId}" class="cw-root flex flex-col items-end" style="position:relative;z-index:99999">
+  <style>
+    #${widgetId} .cw-panel { display: none; }
+    #${widgetId}.cw-open .cw-panel { display: block; }
+    #${widgetId} .cw-btn, #${widgetId} .cw-lang, #${widgetId} .cw-send {
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent; cursor: pointer; user-select: none; -webkit-user-select: none;
     }
-  };
+    #${widgetId} .cw-input {
+      -webkit-user-select: text; user-select: text;
+      color: #111827 !important;
+      -webkit-text-fill-color: #111827 !important;
+      background: #fff !important;
+      color-scheme: light !important;
+    }
+  </style>
 
-  return (
-    <div className="flex flex-col">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-500">Language:</span>
-          <button
-            onClick={() => switchLanguage("en")}
-            className={`rounded-lg px-3 py-1 text-xs font-medium transition ${lang === "en" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-          >
-            EN
-          </button>
-          <button
-            onClick={() => switchLanguage("es")}
-            className={`rounded-lg px-3 py-1 text-xs font-medium transition ${lang === "es" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-          >
-            ES
-          </button>
-        </div>
-        <button
-          onClick={() => switchLanguage(lang)}
-          className="text-xs text-gray-400 hover:text-gray-600"
-        >
-          Reset
-        </button>
-      </div>
+  <!-- One compact row: language toggle + button.
+       Keeping both on a single line halves the height this widget covers on a phone,
+       so it stops sitting on top of section headings. -->
+  <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1 rounded-full border border-gray-200 bg-white/95 p-1 shadow-sm backdrop-blur">
+      <button class="cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium bg-indigo-600 text-white" data-cw-action="lang-en">EN</button>
+      <button class="cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium bg-gray-100 text-gray-600" data-cw-action="lang-es">ES</button>
+    </div>
 
-      <div className="relative mx-auto w-full max-w-sm">
-        {!isOpen && (
-          <button
-            onClick={() => setIsOpen(true)}
-            className="flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-medium text-white shadow-lg hover:bg-indigo-700"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            {lang === "en" ? "Chat with us" : "Chatea con nosotros"}
-          </button>
-        )}
+    <!-- Toggle -->
+    <button class="cw-btn flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg sm:px-5 sm:py-3" data-cw-action="toggle">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span id="${widgetId}-label">Chat with us</span>
+    </button>
+  </div>
 
-        {isOpen && (
-          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between bg-indigo-600 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">AI</div>
-                <div>
-                  <p className="text-sm font-semibold text-white">ReceptionAI</p>
-                  <p className="text-xs text-indigo-200">{lang === "en" ? "Online" : "En linea"}</p>
-                </div>
-              </div>
-              <button onClick={() => setIsOpen(false)} className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="h-72 space-y-3 overflow-y-auto p-4">
-              {messages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${msg.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-900"}`}>
-                    <p className="text-sm">{msg.content}</p>
-                    <p className={`mt-1 text-[10px] ${msg.role === "user" ? "text-indigo-200" : "text-gray-400"}`}>
-                      {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {typing && (
-                <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-2xl bg-gray-100 px-4 py-3 text-gray-900">
-                    <div className="flex gap-1">
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: "0ms" }} />
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: "150ms" }} />
-                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: "300ms" }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="flex items-center gap-2 border-t border-gray-100 p-3">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                placeholder={lang === "en" ? "Type a message..." : "Escribe un mensaje..."}
-                disabled={typing}
-                className="flex-1 rounded-full border border-gray-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!input.trim() || typing}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:opacity-50"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-4 text-center text-xs text-gray-400">
-        {lang === "en"
-          ? "Ask me about pricing, hours, appointments, or features!"
-          : "Preguntame sobre precios, horarios, citas o caracteristicas!"}
+  <!-- Panel -->
+  <div class="cw-panel mt-3 w-[calc(100vw-1.75rem)] max-w-sm overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+    <div class="flex items-center justify-between bg-indigo-600 px-4 py-3">
+      <div class="flex items-center gap-2">
+        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">AI</div>
+        <div><p class="text-sm font-semibold text-white">ReceptionAI</p><p class="text-xs text-indigo-200">Online</p></div>
       </div>
     </div>
-  );
+    <div id="${widgetId}-msgs" class="h-72 space-y-3 overflow-y-auto p-4" style="-webkit-overflow-scrolling:touch"></div>
+    <div id="${widgetId}-typing"></div>
+    <div class="flex items-center gap-2 border-t border-gray-100 p-3">
+      <input id="${widgetId}-input" data-cw-action="focus" class="cw-input flex-1 rounded-full border border-gray-200 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" placeholder="Type a message..." autocomplete="on" style="pointer-events:auto!important;-webkit-user-select:text!important;user-select:text!important;color:#111827!important;-webkit-text-fill-color:#111827!important;background:#fff!important;color-scheme:light!important" />
+      <button class="cw-send flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white" data-cw-action="send">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var root = document.getElementById("${widgetId}");
+  if (!root || root._init) return;
+  root._init = true;
+
+  var msgs = document.getElementById("${widgetId}-msgs");
+  var typingEl = document.getElementById("${widgetId}-typing");
+  var input = document.getElementById("${widgetId}-input");
+  var label = document.getElementById("${widgetId}-label");
+
+  var isOpen = false;
+  var lang = "en";
+  var messages = [{ role: "bot", content: "Hi! I'm your AI receptionist. How can I help you today?" }];
+  var typing = false;
+
+  var t = {
+    greeting: { en: "Hi! I'm your AI receptionist. How can I help you today?", es: "Hola! Soy tu recepcionista de IA. Como puedo ayudarte hoy?" },
+    error: { en: "Sorry, I'm having trouble connecting.", es: "Lo siento, tengo problemas para conectarme." },
+    summary: { en: "Chat with us", es: "Chatea con nosotros" },
+    placeholder: { en: "Type a message...", es: "Escribe un mensaje..." }
+  };
+
+  function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  function render() {
+    if (!msgs) return;
+    msgs.innerHTML = messages.map(function(m) {
+      return '<div class="flex ' + (m.role === "user" ? "justify-end" : "justify-start") + '">' +
+        '<div class="max-w-[80%] rounded-2xl px-4 py-2 ' + (m.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-900") + '">' +
+        '<p class="text-sm">' + esc(m.content) + '</p></div></div>';
+    }).join("");
+    if (typingEl) typingEl.innerHTML = typing ? '<div class="flex justify-start px-2"><div class="max-w-[80%] rounded-2xl bg-gray-100 px-4 py-3"><div class="flex gap-1"><span class="h-2 w-2 animate-bounce rounded-full bg-gray-400" style="animation-delay:0ms"></span><span class="h-2 w-2 animate-bounce rounded-full bg-gray-400" style="animation-delay:150ms"></span><span class="h-2 w-2 animate-bounce rounded-full bg-gray-400" style="animation-delay:300ms"></span></div></div></div>' : "";
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function toggleChat() {
+    isOpen = !isOpen;
+    root.classList.toggle("cw-open", isOpen);
+  }
+
+  function switchLang(l) {
+    lang = l;
+    messages = [{ role: "bot", content: t.greeting[lang] }];
+    if (label) label.textContent = t.summary[lang];
+    if (input) input.placeholder = t.placeholder[lang];
+    // Update lang button styles
+    var enBtn = root.querySelector('[data-cw-action="lang-en"]');
+    var esBtn = root.querySelector('[data-cw-action="lang-es"]');
+    if (enBtn) { enBtn.className = "cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium " + (lang === "en" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"); }
+    if (esBtn) { esBtn.className = "cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium " + (lang === "es" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"); }
+    render();
+  }
+
+  async function send() {
+    if (!input) return;
+    var text = input.value.trim();
+    if (!text || typing) return;
+    input.value = "";
+    messages.push({ role: "user", content: text });
+    typing = true;
+    render();
+    try {
+      var res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, lang: lang, history: messages.filter(function(_,i){return i>0;}), sessionId: "cw-" + Date.now() })
+      });
+      var data = await res.json();
+      messages.push({ role: "bot", content: data.reply || "I'm not sure how to answer that." });
+    } catch(e) {
+      messages.push({ role: "bot", content: t.error[lang] });
+    } finally {
+      typing = false;
+      render();
+    }
+  }
+
+  // EVENT DELEGATION on document.body for maximum reliability
+  document.body.addEventListener("click", function(e) {
+    var el = e.target;
+    if (!el) return;
+    // Walk up to find a data-cw-action
+    while (el && el !== document.body) {
+      if (el.getAttribute && el.getAttribute("data-cw-action")) break;
+      el = el.parentElement;
+    }
+    if (!el || !el.getAttribute) return;
+    var action = el.getAttribute("data-cw-action");
+    if (action === "toggle" && el.closest("#${widgetId}")) { e.preventDefault(); toggleChat(); }
+    if (action === "lang-en" && el.closest("#${widgetId}")) { e.preventDefault(); switchLang("en"); }
+    if (action === "lang-es" && el.closest("#${widgetId}")) { e.preventDefault(); switchLang("es"); }
+    if (action === "send" && el.closest("#${widgetId}")) { e.preventDefault(); send(); }
+    if (action === "focus" && el.closest("#${widgetId}")) { e.preventDefault(); input.focus(); input.click(); }
+  }, true); // use capture phase
+
+  // Also listen for touchend for mobile
+  document.body.addEventListener("touchend", function(e) {
+    var el = e.target;
+    if (!el) return;
+    while (el && el !== document.body) {
+      if (el.getAttribute && el.getAttribute("data-cw-action")) break;
+      el = el.parentElement;
+    }
+    if (!el || !el.getAttribute) return;
+    var action = el.getAttribute("data-cw-action");
+    if (action === "toggle" && el.closest("#${widgetId}")) { e.preventDefault(); toggleChat(); }
+    if (action === "lang-en" && el.closest("#${widgetId}")) { e.preventDefault(); switchLang("en"); }
+    if (action === "lang-es" && el.closest("#${widgetId}")) { e.preventDefault(); switchLang("es"); }
+    if (action === "send" && el.closest("#${widgetId}")) { e.preventDefault(); send(); }
+    if (action === "focus" && el.closest("#${widgetId}")) { e.preventDefault(); input.focus(); input.click(); }
+  }, true);
+
+  // Input: listen on document for keydown in our input
+  document.body.addEventListener("keydown", function(e) {
+    if (e.target && e.target.id === "${widgetId}-input" && e.key === "Enter") {
+      e.preventDefault();
+      send();
+    }
+  }, true);
+
+  render();
+})();
+<\/script>`;
+
+  return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }

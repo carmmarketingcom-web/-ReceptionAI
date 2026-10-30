@@ -4,7 +4,7 @@ export default function ChatWidgetPreview() {
   const widgetId = `cw-${++widgetCounter}`;
 
   const html = `
-<div id="${widgetId}" class="cw-root" style="position:relative;z-index:99999">
+<div id="${widgetId}" class="cw-root flex flex-col items-end" style="position:relative;z-index:99999">
   <style>
     #${widgetId} .cw-panel { display: none; }
     #${widgetId}.cw-open .cw-panel { display: block; }
@@ -20,20 +20,24 @@ export default function ChatWidgetPreview() {
     }
   </style>
 
-  <!-- Language buttons (also managed by delegation) -->
-  <div class="mb-3 flex items-center justify-end gap-2">
-    <button class="cw-lang rounded-lg px-3 py-1 text-xs font-medium bg-indigo-600 text-white" data-cw-action="lang-en">EN</button>
-    <button class="cw-lang rounded-lg px-3 py-1 text-xs font-medium bg-gray-100 text-gray-600" data-cw-action="lang-es">ES</button>
+  <!-- One compact row: language toggle + button.
+       Keeping both on a single line halves the height this widget covers on a phone,
+       so it stops sitting on top of section headings. -->
+  <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1 rounded-full border border-gray-200 bg-white/95 p-1 shadow-sm backdrop-blur">
+      <button class="cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium bg-indigo-600 text-white" data-cw-action="lang-en">EN</button>
+      <button class="cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium bg-gray-100 text-gray-600" data-cw-action="lang-es">ES</button>
+    </div>
+
+    <!-- Toggle -->
+    <button class="cw-btn flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg sm:px-5 sm:py-3" data-cw-action="toggle">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span id="${widgetId}-label">Chat with us</span>
+    </button>
   </div>
 
-  <!-- Toggle -->
-  <button class="cw-btn flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-medium text-white shadow-lg" data-cw-action="toggle">
-    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    <span id="${widgetId}-label">Chat with us</span>
-  </button>
-
   <!-- Panel -->
-  <div class="cw-panel mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+  <div class="cw-panel mt-3 w-[calc(100vw-1.75rem)] max-w-sm overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
     <div class="flex items-center justify-between bg-indigo-600 px-4 py-3">
       <div class="flex items-center gap-2">
         <div class="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">AI</div>
@@ -100,8 +104,8 @@ export default function ChatWidgetPreview() {
     // Update lang button styles
     var enBtn = root.querySelector('[data-cw-action="lang-en"]');
     var esBtn = root.querySelector('[data-cw-action="lang-es"]');
-    if (enBtn) { enBtn.className = "cw-lang rounded-lg px-3 py-1 text-xs font-medium " + (lang === "en" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"); }
-    if (esBtn) { esBtn.className = "cw-lang rounded-lg px-3 py-1 text-xs font-medium " + (lang === "es" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"); }
+    if (enBtn) { enBtn.className = "cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium " + (lang === "en" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"); }
+    if (esBtn) { esBtn.className = "cw-lang rounded-full px-2 py-0.5 text-[11px] font-medium " + (lang === "es" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"); }
     render();
   }
 
