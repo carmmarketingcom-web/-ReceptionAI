@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { t } from "~/lib/i18n";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/pricing")({
   component: PricingPage,
@@ -10,9 +10,9 @@ const tiers = [
     name: "Starter",
     price: "$99",
     // Plain-English "who it's for" — one line, no jargon.
-    who: "For solo operators and one-person shops that just need the phone covered.",
+    whoKey: "pricing.starter.who",
     // The real limits of the plan, stated the same way everywhere on the site.
-    limits: "1 phone line · 500 AI minutes a month",
+    limitsKey: "pricing.starter.limits",
     descriptionKey: "pricing.starter.desc",
     featureKeys: [
       "pricing.starter.feature1",
@@ -32,8 +32,8 @@ const tiers = [
   {
     name: "Growth",
     price: "$199",
-    who: "For growing teams that need a second line and more call volume.",
-    limits: "2 phone lines · 2,000 AI minutes a month",
+    whoKey: "pricing.growth.who",
+    limitsKey: "pricing.growth.limits",
     descriptionKey: "pricing.growth.desc",
     featureKeys: [
       "pricing.growth.feature1",
@@ -51,8 +51,8 @@ const tiers = [
   {
     name: "Scale",
     price: "$399",
-    who: "For high-volume businesses that need unlimited lines and a custom-trained AI.",
-    limits: "Unlimited phone lines · 10,000+ AI minutes a month",
+    whoKey: "pricing.scale.who",
+    limitsKey: "pricing.scale.limits",
     descriptionKey: "pricing.scale.desc",
     featureKeys: [
       "pricing.scale.feature1",
@@ -72,18 +72,9 @@ const tiers = [
 /* The only things that are genuinely not shipped. No dates, no promises —
    the same three items are repeated on /about. */
 const comingSoon = [
-  {
-    name: "WhatsApp messaging",
-    body: "The AI answers WhatsApp messages the same way it answers calls and texts.",
-  },
-  {
-    name: "Facebook Messenger",
-    body: "Messenger conversations answered by the same AI, in the same dashboard.",
-  },
-  {
-    name: "Google / Outlook calendar sync",
-    body: "Two-way sync with the calendar you already use. Today ReceptionAI books into its own built-in calendar.",
-  },
+  { nameKey: "pricing.soon.whatsapp.name", bodyKey: "pricing.soon.whatsapp.body" },
+  { nameKey: "pricing.soon.facebook.name", bodyKey: "pricing.soon.facebook.body" },
+  { nameKey: "pricing.soon.calendar.name", bodyKey: "pricing.soon.calendar.body" },
 ];
 
 const addOns = [
@@ -94,6 +85,9 @@ const addOns = [
 ];
 
 export default function PricingPage() {
+  // Subscribe to the locale context: t() reads a module-level value, so without
+  // this the page keeps rendering English after the visitor flips the toggle.
+  useLocale();
   return (
     <>
       {/* Hero */}
@@ -136,7 +130,7 @@ export default function PricingPage() {
                   <h2 className="text-xl font-bold text-gray-900">{tier.name}</h2>
                   <p className="mt-1 text-sm text-gray-500">{t(tier.descriptionKey)}</p>
                   {/* Who it's for — one plain line */}
-                  <p className="mt-3 text-sm font-medium leading-relaxed text-gray-700">{tier.who}</p>
+                  <p className="mt-3 text-sm font-medium leading-relaxed text-gray-700">{t(tier.whoKey)}</p>
                 </div>
 
                 <div className="mb-4">
@@ -146,7 +140,7 @@ export default function PricingPage() {
 
                 {/* The real limits of this plan, stated plainly */}
                 <p className="mb-6 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800">
-                  {tier.limits}
+                  {t(tier.limitsKey)}
                 </p>
 
                 <ul className="mb-8 flex-1 space-y-3">
@@ -169,7 +163,7 @@ export default function PricingPage() {
                         {t(key)}
                         {tier.comingSoonKeys.includes(key) && (
                           <span className="ml-2 inline-block rounded-full bg-gray-100 px-2 py-0.5 align-middle text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Coming soon
+                            {t("pricing.comingSoonChip")}
                           </span>
                         )}
                       </span>
@@ -207,13 +201,13 @@ export default function PricingPage() {
           {/* Plain billing note — sits directly under the three plan buttons */}
           <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-gray-200 bg-gray-50 px-5 py-4">
             <p className="text-center text-sm leading-relaxed text-gray-700">
-              <span className="font-semibold text-gray-900">Billed monthly</span> · your card is charged today for
-              the first month, then monthly · <span className="font-semibold text-gray-900">cancel anytime</span> ·{" "}
-              <span className="font-semibold text-gray-900">FOUNDER50</span> = 50% off your first 3 months (first 100
-              customers).
+              <span className="font-semibold text-gray-900">{t("pricing.billing.title")}</span> ·{" "}
+              {t("pricing.billing.line1")}{" "}
+              <span className="font-semibold text-gray-900">{t("pricing.billing.cancel")}</span> ·{" "}
+              <span className="font-semibold text-gray-900">FOUNDER50</span> {t("pricing.billing.line2")}
             </p>
             <p className="mt-2 text-center text-xs text-gray-500">
-              No free trial and no contract — the first payment is today.
+              {t("pricing.billing.sub")}
             </p>
           </div>
 
@@ -221,16 +215,16 @@ export default function PricingPage() {
           <div className="mx-auto mt-12 max-w-3xl rounded-2xl border border-dashed border-gray-300 bg-white p-8">
             <div className="flex flex-col items-center gap-2 text-center">
               <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Coming soon
+                {t("pricing.soon.chip")}
               </span>
-              <h3 className="text-lg font-bold text-gray-900">Not included today</h3>
+              <h3 className="text-lg font-bold text-gray-900">{t("pricing.soon.title")}</h3>
               <p className="max-w-xl text-sm text-gray-500">
-                These three are being built. They are not part of any plan yet, and we are not promising a date.
+                {t("pricing.soon.body")}
               </p>
             </div>
             <ul className="mt-6 space-y-4">
               {comingSoon.map((item) => (
-                <li key={item.name} className="flex items-start gap-3">
+                <li key={item.nameKey} className="flex items-start gap-3">
                   <svg
                     className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400"
                     fill="none"
@@ -241,8 +235,8 @@ export default function PricingPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 2" />
                   </svg>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">{item.name}</p>
-                    <p className="text-sm text-gray-500">{item.body}</p>
+                    <p className="text-sm font-semibold text-gray-900">{t(item.nameKey)}</p>
+                    <p className="text-sm text-gray-500">{t(item.bodyKey)}</p>
                   </div>
                 </li>
               ))}
@@ -364,7 +358,7 @@ export default function PricingPage() {
               href="tel:+17279667556"
               className="inline-flex items-center gap-2 rounded-xl border border-indigo-400 bg-transparent px-8 py-4 text-base font-semibold text-white transition hover:bg-indigo-500/20"
             >
-              Hear the live demo — (727) 966-7556
+              {t("pricing.cta.demo")}
             </a>
           </div>
         </div>

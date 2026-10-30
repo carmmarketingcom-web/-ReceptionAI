@@ -1,11 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { t } from "~/lib/i18n";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/faq")({
   component: FaqPage,
 });
 
 function FaqPage() {
+  // Subscribe to the locale context: t() reads a module-level value, so without
+  // this the page keeps rendering English after the visitor flips the toggle.
+  useLocale();
   return (
     <div className="bg-white">
       {/* Hero */}

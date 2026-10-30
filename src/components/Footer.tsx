@@ -50,12 +50,12 @@ export default function Footer() {
             <ul className="mt-3 space-y-2">
               <li>
                 <Link to="/about" className="text-sm text-gray-500 transition hover:text-gray-900">
-                  About
+                  {t("footer.about")}
                 </Link>
               </li>
               <li>
                 <Link to="/contact" className="text-sm text-gray-500 transition hover:text-gray-900">
-                  Contact
+                  {t("footer.contact")}
                 </Link>
               </li>
               <li>
@@ -70,7 +70,7 @@ export default function Footer() {
               </li>
               <li>
                 <a href="mailto:hello@receptionai.store" className="text-sm text-gray-500 transition hover:text-gray-900">
-                  Email us
+                  {t("footer.email")}
                 </a>
               </li>
             </ul>
@@ -91,7 +91,7 @@ export default function Footer() {
                 </a>
               </li>
               <li className="text-xs leading-relaxed text-gray-400">
-                Live demo line — you'll hear the AI, not a person.
+                {t("footer.demoNote")}
               </li>
             </ul>
           </div>
@@ -101,7 +101,7 @@ export default function Footer() {
           {t("footer.copyright")}
         </div>
         <p className="mt-2 text-center text-xs text-gray-400">
-          ReceptionAI is operated by Carm Marketing LLC.
+          {t("footer.operator")}
         </p>
       </div>
     </footer>

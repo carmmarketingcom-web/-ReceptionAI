@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import Header from "~/components/Header";
 import Footer from "~/components/Footer";
+import { LocaleProvider } from "~/lib/i18n";
 
 export const Route = createFileRoute("/terms")({
   component: TermsPage,
@@ -8,6 +9,9 @@ export const Route = createFileRoute("/terms")({
 
 function TermsPage() {
   return (
+    /* Legal copy exists in English only, so the provider is pinned: the header
+       and footer stay English and no toggle is offered that could not translate. */
+    <LocaleProvider fixed="en">
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main className="flex-1 bg-white px-4 py-20">
@@ -65,5 +69,6 @@ function TermsPage() {
       </main>
       <Footer />
     </div>
+    </LocaleProvider>
   );
 }
