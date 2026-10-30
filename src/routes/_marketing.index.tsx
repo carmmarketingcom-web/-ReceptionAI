@@ -7,6 +7,18 @@ export const Route = createFileRoute("/_marketing/")({
   component: HomePage,
 });
 
+/* ─── What the AI actually does on a call — shipped behaviour only.
+       No "replaces your staff", no percentages, nothing unbuilt. ─── */
+const VALUE_POINTS = [
+  "Answers after hours and while you're on a job",
+  "Takes the caller's name and number",
+  "Books straight into your calendar",
+  "Texts the caller a confirmation and reminders",
+  "Texts you a summary after every call",
+  "English and Spanish",
+  "Transfers to you when it matters",
+];
+
 /* ─── Scroll Reveal Hook (starts visible for SSR, hides below-fold for animation) ─── */
 function useScrollReveal(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null);
@@ -110,9 +122,8 @@ function HeroSection() {
               Never miss
               <br />
               <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                another lead
+                another customer call.
               </span>
-              {" "}again.
             </h1>
 
             <p className="mx-auto mt-8 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl lg:mx-0">
@@ -121,46 +132,41 @@ function HeroSection() {
               <span className="whitespace-nowrap font-semibold text-white">$99 a month.</span>
             </p>
 
+            {/* Two CTAs only: hear it, or see what it costs. */}
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:justify-start">
-              <Link
-                to="/signup"
+              <a
+                href="tel:+17279667556"
                 className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
               >
-                Get Started
-                <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </Link>
-              <Link to="/features" className="group inline-flex items-center gap-2 rounded-xl px-6 py-4 text-sm font-medium text-gray-400 transition hover:text-white hover:bg-white/5">
-                See how it works
-                <svg className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
+                Hear the live demo
+                <Icon name="phone" className="h-5 w-5" />
+              </a>
+              <Link
+                to="/pricing"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-8 py-4 text-base font-semibold text-gray-200 transition-all hover:border-white/25 hover:bg-white/10 hover:text-white"
+              >
+                See pricing
               </Link>
             </div>
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-gray-500 lg:mx-0">
+              The demo line is{" "}
+              <a href="tel:+17279667556" className="font-semibold text-gray-300 transition hover:text-white">
+                (727) 966-7556
+              </a>{" "}
+              — a real call to the AI, answered exactly as your callers would hear it.
+            </p>
 
-            {/* Trust */}
-            <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-gray-500 lg:justify-start justify-center">
-              {["Founder pricing: 50% off first 3 months", "Built-in calendar — zero setup", "Cancel anytime"].map((label) => (
-                <div key={label} className="flex items-center gap-2">
-                  <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                  {label}
-                </div>
+            {/* What happens on a call — shipped behaviour only */}
+            <ul className="mx-auto mt-8 grid max-w-xl gap-x-6 gap-y-3 text-left sm:grid-cols-2 lg:mx-0">
+              {VALUE_POINTS.map((point) => (
+                <li key={point} className="flex items-start gap-2.5 text-sm leading-relaxed text-gray-400">
+                  <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  {point}
+                </li>
               ))}
-            </div>
-
-            {/* Try it live — call the AI */}
-            <div className="mt-8 flex items-center gap-3 rounded-2xl border border-green-500/20 bg-green-500/5 px-5 py-4 backdrop-blur-sm lg:justify-self-start w-fit mx-auto lg:mx-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
-                <Icon name="phone" className="h-5 w-5 text-green-400" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-green-300">Try it live — call the AI now</p>
-                <a href="tel:+17279667556" className="text-xl font-bold text-green-400 hover:text-green-300 transition tracking-wide">
-                  (727) 966-7556
-                </a>
-              </div>
-            </div>
+            </ul>
 
             {/* Cost comparison — the only figure on this page that is not ours, and it is sourced. */}
             <p className="mx-auto mt-6 max-w-xl text-sm leading-relaxed text-gray-500 lg:mx-0">
@@ -816,34 +822,31 @@ function FinalCta() {
             Ready to never miss a lead again?
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400 sm:text-xl">
-            Start today and see ReceptionAI handle your inbound calls and messages — 50% off your first 3 months with founder pricing.
+            Call the demo line and hear it answer — then see what it costs. 50% off your first 3 months with founder
+            pricing.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link
-              to="/signup"
+            <a
+              href="tel:+17279667556"
               className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]"
             >
-              Get Started
-              <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
-            <Link to="/pricing" className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-8 py-4 text-base font-semibold text-gray-300 transition-all hover:bg-white/10 hover:text-white hover:border-white/20">
-              View Pricing
+              Hear the live demo
+              <Icon name="phone" className="h-5 w-5" />
+            </a>
+            <Link
+              to="/pricing"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-8 py-4 text-base font-semibold text-gray-200 transition-all hover:border-white/25 hover:bg-white/10 hover:text-white"
+            >
+              See pricing
             </Link>
           </div>
-          <p className="mt-5 text-sm text-gray-500">Founder pricing: 50% off your first 3 months. Cancel anytime.</p>
-          <div className="mt-8 inline-flex items-center gap-3 rounded-2xl border border-green-500/20 bg-green-500/5 px-6 py-4 backdrop-blur-sm">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/20">
-              <Icon name="phone" className="h-5 w-5 text-green-400" />
-            </div>
-            <div className="text-left">
-              <p className="text-sm font-semibold text-green-300">Or try it now — call the AI</p>
-              <a href="tel:+17279667556" className="text-xl font-bold text-green-400 hover:text-green-300 transition tracking-wide">
-                (727) 966-7556
-              </a>
-            </div>
-          </div>
+          <p className="mt-5 text-sm text-gray-500">
+            Demo line: (727) 966-7556. Founder pricing: 50% off your first 3 months. Cancel anytime. Ready to start?{" "}
+            <Link to="/signup" className="font-medium text-indigo-300 underline underline-offset-4 transition hover:text-white">
+              Create your account
+            </Link>
+            .
+          </p>
         </Reveal>
       </div>
     </section>

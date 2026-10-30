@@ -4,7 +4,7 @@ import { t } from "~/lib/i18n";
 export default function Footer() {
   return (
     <footer className="border-t border-gray-100 bg-gray-50">
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-12 pb-28 sm:px-6 sm:pb-12 lg:px-8">
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
@@ -49,6 +49,16 @@ export default function Footer() {
             <h3 className="text-sm font-semibold text-gray-900">{t("footer.company")}</h3>
             <ul className="mt-3 space-y-2">
               <li>
+                <Link to="/about" className="text-sm text-gray-500 transition hover:text-gray-900">
+                  About
+                </Link>
+              </li>
+              <li>
+                <Link to="/contact" className="text-sm text-gray-500 transition hover:text-gray-900">
+                  Contact
+                </Link>
+              </li>
+              <li>
                 <a href="/privacy" className="text-sm text-gray-500 transition hover:text-gray-900">
                   {t("footer.privacy")}
                 </a>
@@ -60,7 +70,7 @@ export default function Footer() {
               </li>
               <li>
                 <a href="mailto:hello@receptionai.store" className="text-sm text-gray-500 transition hover:text-gray-900">
-                  {t("footer.contact")}
+                  Email us
                 </a>
               </li>
             </ul>
@@ -80,6 +90,9 @@ export default function Footer() {
                   (727) 966-7556
                 </a>
               </li>
+              <li className="text-xs leading-relaxed text-gray-400">
+                Live demo line — you'll hear the AI, not a person.
+              </li>
             </ul>
           </div>
         </div>
@@ -87,6 +100,9 @@ export default function Footer() {
         <div className="mt-10 border-t border-gray-200 pt-6 text-center text-sm text-gray-400">
           {t("footer.copyright")}
         </div>
+        <p className="mt-2 text-center text-xs text-gray-400">
+          ReceptionAI is operated by Carm Marketing LLC.
+        </p>
       </div>
     </footer>
   );
