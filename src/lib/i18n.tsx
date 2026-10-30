@@ -37,33 +37,18 @@ export const translations: Record<string, { en: string; es: string }> = {
   "lang.label.en": { en: "EN", es: "EN" },
   "lang.label.es": { en: "ES", es: "ES" },
 
-  /* ─── Hero (legacy keys kept for compatibility) ─── */
-  "hero.title": {
-    en: "Never Miss a Lead Again. Your AI Receptionist Works 24/7.",
-    es: "Nunca Pierdas un Cliente. Tu Recepcionista IA Trabaja 24/7.",
-  },
-  "hero.subtitle": {
-    en: "ReceptionAI answers calls, texts, web chats, and messages — in English and Spanish — schedules appointments, sends reminders, and transfers to your team when needed. All for less than the cost of a human receptionist.",
-    es: "ReceptionAI responde llamadas, mensajes de texto, chats web y mensajes — en inglés y español — agenda citas, envía recordatorios y transfiere a tu equipo cuando sea necesario. Todo por menos del costo de un recepcionista humano.",
-  },
-  "hero.cta": { en: "Start Today", es: "Comenzar Hoy" },
-  "hero.watchDemo": { en: "Watch Demo", es: "Ver Demo" },
-
   /* ─── Home — Hero ─── */
+  /* Mirrors _marketing.index.tsx HeroSection verbatim. Nothing here promises a
+     feature the live page does not show. */
   "home.badge": { en: "AI Receptionist — Now Available", es: "Recepcionista IA — Ya Disponible" },
   "home.hero.line1": { en: "Never miss", es: "Nunca pierdas" },
-  "home.hero.highlight": { en: "another lead", es: "otro cliente" },
-  "home.hero.line2": { en: "again.", es: "de nuevo." },
+  "home.hero.highlight": { en: "another customer call.", es: "otra llamada de cliente." },
   "home.hero.subtitle": {
-    en: "ReceptionAI answers calls, texts, web chats, and messages — in English and Spanish. Books appointments, sends reminders, and transfers to your team when needed. All for less than the cost of a human receptionist.",
-    es: "ReceptionAI responde llamadas, mensajes de texto, chats web y mensajes — en inglés y español. Agenda citas, envía recordatorios y transfiere a tu equipo cuando sea necesario. Todo por menos del costo de un recepcionista humano.",
+    en: "Every call answered. Every appointment booked. Every caller texted back — in English and Spanish, at 2am on a Sunday. $99 a month.",
+    es: "Cada llamada contestada. Cada cita agendada. Cada llamante recibe un mensaje de texto de vuelta — en inglés y español, a las 2 de la mañana un domingo. $99 al mes.",
   },
-  "home.hero.cta": { en: "Start Today", es: "Comenzar Hoy" },
-  "home.hero.secondary": { en: "See how it works", es: "Mira cómo funciona" },
-  "home.hero.trust1": { en: "Cancel anytime", es: "Cancela cuando quieras" },
-  "home.hero.trust2": { en: "No contracts", es: "Sin contratos" },
-  "home.hero.trust3": { en: "50% off first 3 months", es: "50% de descuento los primeros 3 meses" },
-  "home.hero.tryTitle": { en: "Try it live — call the AI now", es: "Pruébalo en vivo — llama a la IA ahora" },
+  "home.hero.cta": { en: "Hear the live demo", es: "Escucha la demo en vivo" },
+  "home.hero.secondary": { en: "See pricing", es: "Ver precios" },
 
   /* ─── Industries ─── */
   "ind.hvac": { en: "HVAC", es: "HVAC" },
@@ -130,20 +115,20 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "AI reads your calendar and books appointments automatically. Sends confirmations, reminders, and follow-ups.",
     es: "La IA lee tu calendario y agenda citas automáticamente. Envía confirmaciones, recordatorios y seguimientos.",
   },
-  "feature.multichannel.title": { en: "Omnichannel Inbox", es: "Bandeja de Entrada Omnicanal" },
+  "feature.multichannel.title": { en: "Calls, Texts & Web Chat", es: "Llamadas, Textos y Chat Web" },
   "feature.multichannel.desc": {
-    en: "Calls, texts, web chat, WhatsApp, Facebook — all conversations in one place. Never lose track of a lead.",
-    es: "Llamadas, textos, chat web, WhatsApp, Facebook — todas las conversaciones en un solo lugar. Nunca pierdas el rastro de un cliente potencial.",
+    en: "Calls, texts and web chat handled in one place. The unified inbox for WhatsApp and Facebook messages is in development.",
+    es: "Llamadas, mensajes de texto y chat web atendidos en un solo lugar. La bandeja de entrada unificada para mensajes de WhatsApp y Facebook está en desarrollo.",
   },
   "feature.human.title": { en: "Human Handoff When Needed", es: "Transferencia a Humanos Cuando Sea Necesario" },
   "feature.human.desc": {
-    en: "Smart escalation to your team. When the AI detects a complex issue, it transfers the call or chat seamlessly.",
-    es: "Escalado inteligente a tu equipo. Cuando la IA detecta un problema complejo, transfiere la llamada o el chat sin problemas.",
+    en: "Callers press 3 to reach you on a live call, and web-chat requests for a person text your phone. Sentiment-based escalation is coming.",
+    es: "Los llamantes presionan 3 para comunicarse contigo en una llamada en vivo, y las solicitudes de una persona en el chat web llegan a tu teléfono por mensaje de texto. La escalación automática según el sentimiento aún está en desarrollo.",
   },
-  "feature.analytics.title": { en: "Analytics & Insights", es: "Analíticas e Información" },
+  "feature.analytics.title": { en: "Call Outcomes & Missed Calls", es: "Resultados de Llamadas y Llamadas Perdidas" },
   "feature.analytics.desc": {
-    en: "See how many calls you're missing, booking rates, peak hours, and customer satisfaction — all in one dashboard.",
-    es: "Ve cuántas llamadas estás perdiendo, tasas de reserva, horas pico y satisfacción del cliente — todo en un panel.",
+    en: "See call activity, missed calls and real outcomes in your dashboard. The advanced analytics dashboard is in progress.",
+    es: "Mira la actividad de llamadas, las llamadas perdidas y los resultados reales en tu panel. El panel de analíticas avanzadas está en desarrollo.",
   },
 
   /* ─── Home — Numbered setup ─── */
@@ -165,34 +150,16 @@ export const translations: Record<string, { en: string; es: string }> = {
     es: "Recibe resúmenes por SMS después de cada llamada. Ve todo en tu panel. Interviene solo cuando quieras.",
   },
 
-  /* ─── Home — Social proof ─── */
-  "home.social.badge": { en: "Trusted by service businesses", es: "Con la confianza de negocios de servicios" },
-  "home.social.title1": { en: "Real results from", es: "Resultados reales de" },
-  "home.social.title2": { en: "real business owners", es: "dueños de negocios reales" },
-  "home.social.q1": {
-    en: "ReceptionAI handles all our after-hours calls. We've booked 40+ emergency jobs we would've missed.",
-    es: "ReceptionAI maneja todas nuestras llamadas fuera de horario. Hemos reservado más de 40 trabajos de emergencia que habríamos perdido.",
-  },
-  "home.social.q1.author": { en: "Mike R.", es: "Mike R." },
-  "home.social.q1.role": { en: "HVAC Owner, Phoenix", es: "Dueño de HVAC, Phoenix" },
-  "home.social.q2": {
-    en: "My front desk was drowning. Now the AI handles routine booking and my staff focuses on patients in the office.",
-    es: "Mi recepción estaba desbordada. Ahora la IA maneja las reservas rutinarias y mi personal se enfoca en los pacientes en la oficina.",
-  },
-  "home.social.q2.author": { en: "Dr. Sarah L.", es: "Dra. Sarah L." },
-  "home.social.q2.role": { en: "Dental Practice, Austin", es: "Clínica Dental, Austin" },
-  "home.social.q3": {
-    en: "The SMS summaries are genius. I know what happened on every call without logging into anything.",
-    es: "Los resúmenes por SMS son geniales. Sé lo que pasó en cada llamada sin tener que iniciar sesión en nada.",
-  },
-  "home.social.q3.author": { en: "James K.", es: "James K." },
-  "home.social.q3.role": { en: "Plumbing Co., Denver", es: "Empresa de Plomería, Denver" },
+  /* ─── Home — What actually happens (no testimonials exist — see index.tsx) ─── */
+  "home.social.badge": { en: "Live in the product today", es: "En vivo en el producto hoy" },
+  "home.social.title1": { en: "No borrowed reviews.", es: "Sin reseñas prestadas." },
+  "home.social.title2": { en: "This is what actually happens.", es: "Esto es lo que realmente pasa." },
 
   /* ─── Home — Stats bar ─── */
   "home.stats.1": { en: "24/7 Call Answering", es: "Respuesta de Llamadas 24/7" },
   "home.stats.2": { en: "English & Spanish", es: "Inglés y Español" },
   "home.stats.3": { en: "Built-in Calendar", es: "Calendario Integrado" },
-  "home.stats.4": { en: "Cancel Anytime", es: "Cancela Cuando Quieras" },
+  "home.stats.4": { en: "Smart Follow-ups", es: "Seguimientos Inteligentes" },
 
   /* ─── Home — Honest FAQ ─── */
   "home.faq.badge": { en: "You've got questions. Fair ones.", es: "Tienes preguntas. Y son justas." },
@@ -200,13 +167,13 @@ export const translations: Record<string, { en: string; es: string }> = {
   "home.faq.title2": { en: "that builds for trades", es: "que construye para oficios" },
   "home.faq.q1": { en: "Will my customers know it's AI?", es: "¿Mis clientes sabrán que es IA?" },
   "home.faq.a1": {
-    en: "They'll hear a professional, friendly voice that greets them by name. Most callers don't realize it's AI — they just know someone answered and helped them. If they ever ask, we're transparent: they're speaking with an automated receptionist that can connect them to a real person anytime.",
-    es: "Escucharán una voz profesional y amable que los saluda por su nombre. La mayoría de los llamantes no se da cuenta de que es IA — solo saben que alguien respondió y los ayudó. Si preguntan, somos transparentes: están hablando con una recepcionista automatizada que puede conectarlos con una persona real en cualquier momento.",
+    en: "They hear a warm, natural voice and a real conversation — not a phone tree. If they ever ask whether it's an AI, it says so plainly, and it can connect them to a real person at any point in the call.",
+    es: "Escuchan una voz cálida y natural y una conversación real — no un árbol telefónico. Si preguntan si es una IA, lo dice con claridad, y puede conectarlos con una persona real en cualquier momento de la llamada.",
   },
   "home.faq.q2": { en: "What about emergencies? Burst pipe. No heat.", es: "¿Y las emergencias? Tubería rota. Sin calefacción." },
   "home.faq.a2": {
-    en: 'Press 3 at any time to transfer to you or your team. We suggest customizing your greeting: "If this is an emergency, press 3 now." Your customers always have a path to a human.',
-    es: 'Presiona 3 en cualquier momento para transferir la llamada a ti o a tu equipo. Sugerimos personalizar tu saludo: "Si es una emergencia, presiona 3 ahora". Tus clientes siempre tendrán un camino hacia un humano.',
+    en: "Press 3 at any time and the call is bridged straight to you or your team. If nobody picks up, the caller gets a text back — so an urgent call never just ends.",
+    es: "Presiona 3 en cualquier momento y la llamada se conecta directamente contigo o con tu equipo. Si nadie contesta, el llamante recibe un mensaje de texto de vuelta — así una llamada urgente nunca se queda sin respuesta.",
   },
   "home.faq.q3": { en: "What if it gets something wrong?", es: "¿Qué pasa si se equivoca?" },
   "home.faq.a3": {
@@ -217,13 +184,15 @@ export const translations: Record<string, { en: string; es: string }> = {
   /* ─── Home — Final CTA ─── */
   "home.final.title": { en: "Ready to never miss a lead again?", es: "¿Listo para no perder clientes nunca más?" },
   "home.final.subtitle": {
-    en: "Get started today and see how ReceptionAI handles your inbound calls and messages.",
-    es: "Comienza hoy y descubre cómo ReceptionAI maneja tus llamadas y mensajes entrantes.",
+    en: "Call the demo line and hear it answer — then see what it costs. 50% off your first 3 months with founder pricing.",
+    es: "Llama a la línea de demostración y escúchala responder — luego mira cuánto cuesta. 50% de descuento en tus primeros 3 meses con el precio de fundador.",
   },
-  "home.final.cta": { en: "Start Today", es: "Comenzar Hoy" },
-  "home.final.pricing": { en: "View Pricing", es: "Ver Precios" },
-  "home.final.note": { en: "Cancel anytime. No contracts.", es: "Cancela cuando quieras. Sin contratos." },
-  "home.final.tryIt": { en: "Or try it now — call the AI", es: "O pruébalo ahora — llama a la IA" },
+  "home.final.cta": { en: "Hear the live demo", es: "Escucha la demo en vivo" },
+  "home.final.pricing": { en: "See pricing", es: "Ver precios" },
+  "home.final.note": {
+    en: "Demo line: (727) 966-7556. Founder pricing: 50% off your first 3 months. Cancel anytime.",
+    es: "Línea de demostración: (727) 966-7556. Precio de fundador: 50% de descuento en tus primeros 3 meses. Cancela cuando quieras.",
+  },
 
   /* ─── Pricing ─── */
   "pricing.badge": { en: "Pricing", es: "Precios" },
@@ -315,6 +284,64 @@ export const translations: Record<string, { en: string; es: string }> = {
     es: "Un gerente de cuenta dedicado y soporte prioritario con respuesta humana el mismo día — para cuando no puedes darte el lujo de esperar.",
   },
 
+  /* ─── Pricing — plan cards: who it's for + the real limits ─── */
+  "pricing.starter.who": {
+    en: "For solo operators and one-person shops that just need the phone covered.",
+    es: "Para operadores independientes y negocios de una sola persona que solo necesitan que alguien conteste el teléfono.",
+  },
+  "pricing.starter.limits": { en: "1 phone line · 500 AI minutes a month", es: "1 línea telefónica · 500 minutos de IA al mes" },
+  "pricing.growth.who": {
+    en: "For growing teams that need a second line and more call volume.",
+    es: "Para equipos en crecimiento que necesitan una segunda línea y más volumen de llamadas.",
+  },
+  "pricing.growth.limits": { en: "2 phone lines · 2,000 AI minutes a month", es: "2 líneas telefónicas · 2,000 minutos de IA al mes" },
+  "pricing.scale.who": {
+    en: "For high-volume businesses that need unlimited lines and a custom-trained AI.",
+    es: "Para negocios de alto volumen que necesitan líneas ilimitadas y una IA entrenada a la medida.",
+  },
+  "pricing.scale.limits": { en: "Unlimited phone lines · 10,000+ AI minutes a month", es: "Líneas telefónicas ilimitadas · más de 10,000 minutos de IA al mes" },
+  /* Inline chip on a plan bullet that describes something not shipped yet. */
+  "pricing.comingSoonChip": { en: "Coming soon", es: "Próximamente" },
+
+  /* ─── Pricing — billing note under the plan buttons ─── */
+  "pricing.billing.title": { en: "Billed monthly", es: "Facturación mensual" },
+  "pricing.billing.line1": {
+    en: "your card is charged today for the first month, then monthly ·",
+    es: "hoy se cobra el primer mes a tu tarjeta y luego cada mes ·",
+  },
+  "pricing.billing.cancel": { en: "cancel anytime", es: "cancela cuando quieras" },
+  "pricing.billing.line2": {
+    en: "= 50% off your first 3 months (first 100 customers).",
+    es: "= 50% de descuento en tus primeros 3 meses (primeros 100 clientes).",
+  },
+  "pricing.billing.sub": {
+    en: "No free trial and no contract — the first payment is today.",
+    es: "Sin prueba gratis y sin contrato — el primer pago es hoy.",
+  },
+
+  /* ─── Pricing — what is genuinely not shipped (no dates, no promises) ─── */
+  "pricing.soon.chip": { en: "Coming soon", es: "Próximamente" },
+  "pricing.soon.title": { en: "Not included today", es: "No incluido hoy" },
+  "pricing.soon.body": {
+    en: "These three are being built. They are not part of any plan yet, and we are not promising a date.",
+    es: "Estas tres funciones se están construyendo. Todavía no forman parte de ningún plan y no estamos prometiendo una fecha.",
+  },
+  "pricing.soon.whatsapp.name": { en: "WhatsApp messaging", es: "Mensajería por WhatsApp" },
+  "pricing.soon.whatsapp.body": {
+    en: "The AI answers WhatsApp messages the same way it answers calls and texts.",
+    es: "La IA responde los mensajes de WhatsApp igual que responde las llamadas y los mensajes de texto.",
+  },
+  "pricing.soon.facebook.name": { en: "Facebook Messenger", es: "Facebook Messenger" },
+  "pricing.soon.facebook.body": {
+    en: "Messenger conversations answered by the same AI, in the same dashboard.",
+    es: "Conversaciones de Messenger respondidas por la misma IA, en el mismo panel.",
+  },
+  "pricing.soon.calendar.name": { en: "Google / Outlook calendar sync", es: "Sincronización con calendario de Google / Outlook" },
+  "pricing.soon.calendar.body": {
+    en: "Two-way sync with the calendar you already use. Today ReceptionAI books into its own built-in calendar.",
+    es: "Sincronización en dos direcciones con el calendario que ya usas. Hoy ReceptionAI agenda en su propio calendario integrado.",
+  },
+
   /* ─── Pricing — Add-ons ─── */
   "pricing.addons.title": { en: "Optional Add-ons", es: "Complementos Opcionales" },
   "pricing.addons.subtitle": {
@@ -371,7 +398,11 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "Talk to our team. We'll help you find the perfect plan for your business.",
     es: "Habla con nuestro equipo. Te ayudaremos a encontrar el plan perfecto para tu negocio.",
   },
-  "pricing.cta.secondary": { en: "Talk to Sales", es: "Hablar con Ventas" },
+  /* The secondary button is the real demo line, not a sales team that doesn't exist. */
+  "pricing.cta.demo": {
+    en: "Hear the live demo — (727) 966-7556",
+    es: "Escucha la demo en vivo — (727) 966-7556",
+  },
 
   /* ─── FAQ page — hero ─── */
   "faq.hero.title": { en: "Getting Started with ReceptionAI", es: "Cómo Empezar con ReceptionAI" },
@@ -502,6 +533,16 @@ export const translations: Record<string, { en: string; es: string }> = {
   "footer.privacy": { en: "Privacy Policy", es: "Política de Privacidad" },
   "footer.terms": { en: "Terms of Service", es: "Términos del Servicio" },
   "footer.contact": { en: "Contact", es: "Contacto" },
+  "footer.about": { en: "About", es: "Acerca de" },
+  "footer.email": { en: "Email us", es: "Escríbenos" },
+  "footer.demoNote": {
+    en: "Live demo line — you'll hear the AI, not a person.",
+    es: "Línea de demostración en vivo — escucharás a la IA, no a una persona.",
+  },
+  "footer.operator": {
+    en: "ReceptionAI is operated by Carm Marketing LLC.",
+    es: "ReceptionAI es operado por Carm Marketing LLC.",
+  },
   "footer.copyright": {
     en: "© 2026 ReceptionAI. All rights reserved.",
     es: "© 2026 ReceptionAI. Todos los derechos reservados.",
@@ -582,19 +623,34 @@ const LocaleContext = createContext<LocaleContextValue>({
   setLocale: () => {},
 });
 
-export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("en");
+/**
+ * `fixed` pins the provider to one locale and makes it read-only. Use it on
+ * pages whose body exists in English only (legal pages): the chrome then
+ * matches the body, and no toggle is offered that could not translate.
+ */
+export function LocaleProvider({ children, fixed }: { children: ReactNode; fixed?: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(fixed ?? "en");
 
   useEffect(() => {
+    if (fixed) {
+      currentLocale = fixed;
+      setLocaleState(fixed);
+      if (typeof document !== "undefined") {
+        document.documentElement.lang = fixed;
+      }
+      return;
+    }
     const detected = getLocale();
     currentLocale = detected;
     setLocaleState(detected);
     if (typeof document !== "undefined") {
       document.documentElement.lang = detected;
     }
-  }, []);
+  }, [fixed]);
 
   const setLocale = useCallback((l: Locale) => {
+    // A fixed provider never switches — there is nothing translated to switch to.
+    if (fixed) return;
     currentLocale = l;
     setLocaleState(l);
     if (typeof window !== "undefined") {
@@ -603,7 +659,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     if (typeof document !== "undefined") {
       document.documentElement.lang = l;
     }
-  }, []);
+  }, [fixed]);
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale }}>
