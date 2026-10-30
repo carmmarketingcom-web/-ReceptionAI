@@ -5270,6 +5270,22 @@ for (let attempt = 1; ; attempt++) {
           }
         }
 
+        // ── Stripe webhook ──────────────────────────────────────────
+        // Stripe posts every event here. The handler — signature check, exactly-once claim,
+        // provisioning — lives in src/routes/api/stripe/webhook.ts and is delegated to
+        // untouched: the signature is an HMAC over the exact bytes Stripe sent, so the body
+        // must not be read, parsed or re-serialised before the handler sees it. (This path is
+        // not a TanStack route, so the request never reaches the SSR handler below.)
+        if (pathname === "/api/stripe/webhook" && req.method === "POST") {
+          try {
+            const { POST: stripeWebhook } = await import("./src/routes/api/stripe/webhook");
+            return await stripeWebhook({ request: req });
+          } catch (err) {
+            console.error("[Stripe Webhook] handler unavailable:", String(err).slice(0, 300));
+            return new Response(JSON.stringify({ error: "Webhook handler unavailable" }),
+              { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
         // ── Auth: Forgot Password ───────────────────────────────────
         if (pathname === "/api/auth/forgot-password" && req.method === "POST") {
           try {

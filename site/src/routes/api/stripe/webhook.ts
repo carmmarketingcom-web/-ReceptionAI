@@ -176,11 +176,21 @@ export async function POST({ request }: { request: Request }) {
     if (webhookSecret) {
       const valid = verifyStripeSignature(rawBody, signature, webhookSecret);
       if (!valid) {
+        // Logged, not silent: a 400 here is otherwise indistinguishable from a 404 in Stripe's
+        // dashboard. The signature itself is never printed.
+        console.warn(
+          `[Stripe Webhook] REJECTED: signature check failed (header ${signature ? "present" : "missing"}, ${rawBody.length} body bytes)`
+        );
         return new Response(
           JSON.stringify({ error: "Invalid signature" }),
           { status: 400, headers: { "Content-Type": "application/json" } }
         );
       }
+    } else {
+      // Without the secret nothing can be verified, so every delivery is trusted as-is. That is
+      // the only way a deploy that lands before the env var still provisions customers, but it
+      // must never be silent — anyone could POST a fake payment.
+      console.warn("[Stripe Webhook] STRIPE_WEBHOOK_SECRET is not set — signature NOT verified");
     }
 
     event = JSON.parse(rawBody) as { id?: string; type?: string; data?: { object: any } };
