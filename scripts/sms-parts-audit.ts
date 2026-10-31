@@ -98,6 +98,9 @@ const MAX_TRANSCRIPT =
   "they want someone to come out as soon as possible, preferably in the morning before they leave for work, " +
   "and asked whether the visit fee is waived if they approve the repair on the same day.";
 
+/** A transcript of the length Gemini usually returns: one brief sentence. */
+const TYPICAL_TRANSCRIPT = "Caller asked about a water heater leak and booked a visit for Tuesday at 2 PM.";
+
 interface Row { message: string; text: string }
 const rows: Row[] = [];
 const skipped: string[] = [];
@@ -159,6 +162,10 @@ add("post-call summary · ES · booking, max transcript", () => {
 });
 add("post-call summary · ES · general inquiry", () => {
   return loadSummary()({ ...SAMPLE.cs, appointmentBooked: false, appointmentIntent: false, requestedCallback: false, language: "es" }, MAX_TRANSCRIPT);
+});
+
+add("post-call summary · EN · booking, typical transcript", () => {
+  return loadSummary()({ ...SAMPLE.cs, language: "en" }, TYPICAL_TRANSCRIPT);
 });
 
 // ── Booking confirmation (voice + web) ────────────────────────────────────────
