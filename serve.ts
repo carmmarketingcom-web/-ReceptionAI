@@ -1460,6 +1460,8 @@ interface CallState {
   voicemailAlerted?: boolean;   // owner already got the voicemail SMS (never text twice)
   recordingStored?: boolean;    // a recordings row was actually written for this call
   bookingSlots?: { date: string; time: string; endTime: string }[];
+  // The slot the caller actually booked, so the owner's post-call summary can say WHEN.
+  bookedSlot?: { date: string; time: string };
   demoTurns?: number;     // demo line: how many answers the caller has heard
   demoNudged?: boolean;   // demo line: the single "take your time" nudge has played
 }
@@ -1621,6 +1623,7 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
       if (digit === "1" && cs.rescheduleApptId && cs.rescheduleNewDate && cs.rescheduleNewTime) {
         await rescheduleAppointment(cs.rescheduleApptId, cs.rescheduleNewDate, cs.rescheduleNewTime);
         cs.appointmentBooked = true;
+        cs.bookedSlot = { date: cs.rescheduleNewDate, time: cs.rescheduleNewTime };
         // Notify waitlist for the OLD date (now freed)
         if (cs.rescheduleOldDate && cs.toNumber) {
           notifyFirstWaitlistEntry(cs.orgId!, cs.rescheduleOldDate, cs.toNumber);
@@ -1698,7 +1701,7 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
           const ownerPhone = await getOwnerPhone(cs.orgId);
           if (ownerPhone && cs.toNumber) {
             await sendSms(cs.toNumber, ownerPhone,
-              `⚠️ Low rating (${rating}/5) from call with ${cs.callerFirstName || cs.callerNumber}. Please follow up.`);
+              `Low rating (${rating}/5) from call with ${cs.callerFirstName || cs.callerNumber}. Please follow up.`);
           }
         }
       }
@@ -2009,7 +2012,7 @@ async function createVoiceBooking(p: {
     });
 
     const confirmation = p.lang === "es"
-      ? `Hola ${p.name}, su cita para ${p.service} el ${p.date} a las ${p.time} está confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${p.fromNumber}.`
+      ? `Hola ${p.name}, su cita para ${p.service} el ${p.date} a las ${p.time} queda confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${p.fromNumber}.`
       : `Hi ${p.name}, your appointment for ${p.service} on ${p.date} at ${p.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${p.fromNumber}.`;
     if (p.fromNumber && p.phone) await sendSms(p.fromNumber, p.phone, confirmation);
 
@@ -2080,6 +2083,7 @@ async function handleBookingPhase(cid: string, digit: string, cs: CallState): Pr
     });
     if (result.success) {
       cs.appointmentBooked = true;
+      cs.bookedSlot = { date: slot.date, time: slot.time };
       cs.phase = "menu";
       await speakOnly(cid, es
         ? `Su cita quedó reservada para ${formatSlotSpeech(slot, "es")}. Le enviaremos un SMS de confirmación y un recordatorio. ¡Gracias! ¡Adiós!`
@@ -2153,8 +2157,8 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
       : "Sorry, we couldn't reach the team. We'll let them know and someone will reach out shortly.", cs.language);
     pendingHangups.add(cid);
     await sendSms(cs.toNumber, transferNumber, es
-      ? `🔔 Un llamador (${cs.callerNumber}) pidió hablar con usted y no pudimos transferir la llamada. Por favor devuélvale la llamada.`
-      : `🔔 A caller (${cs.callerNumber}) asked to speak with you and the transfer failed — call them back.`);
+      ? `Un llamador (${cs.callerNumber}) pidio hablar con usted y no pudimos transferir la llamada. Por favor devuelva la llamada.`
+      : `A caller (${cs.callerNumber}) asked to speak with you and the transfer failed. Call them back.`);
     return;
   }
   transferStates.set(ownerCid, {
@@ -2214,17 +2218,21 @@ async function getOwnerPhone(orgId: string): Promise<string | null> {
 
 // ── Send SMS via Telnyx ─────────────────────────────────────────────────
 async function sendSms(from: string, to: string, text: string) {
+  // Last line of defence: every outbound SMS leaves in the GSM-7 alphabet. See gsm7Safe()
+  // — one emoji or curly quote anywhere would re-encode the whole message as UCS-2 and
+  // roughly double its cost.
+  const safeText = gsm7Safe(text);
   try {
     await fetch(`${TELNYX}/messages`, {
       method: "POST", headers: th(),
       body: JSON.stringify({
         from,
         to,
-        text,
+        text: safeText,
         ...(TELNYX_CONNECTION_ID ? { messaging_profile_id: TELNYX_CONNECTION_ID } : {}),
       }),
     });
-    console.log(`[SMS] Sent to ${to}: "${text.slice(0, 80)}"`);
+    console.log(`[SMS] Sent to ${to}: "${safeText.slice(0, 80)}"`);
   } catch (err) {
     console.error("[SMS] Send failed:", String(err).slice(0, 100));
   }
@@ -2532,27 +2540,110 @@ async function runBalanceCheck(trigger: string): Promise<TelnyxBalanceSnapshot> 
   }
 }
 
+// ── GSM-7 safety net for every outbound SMS ─────────────────────────────
+// ONE character outside the GSM 03.38 default alphabet — an emoji, a curly quote, an em
+// dash, an accented á — re-encodes the WHOLE message as UCS-2, dropping capacity from 153
+// characters per part to 67 and roughly doubling what Telnyx + the carrier bill. Every
+// text we send now passes through gsm7Safe() (see sendSms), so a future copy edit that
+// adds a smart quote cannot quietly double the cost of the message.
+// Note which Spanish characters are ALREADY GSM-7 and must be left alone: ñ Ñ ¿ ¡ é à ü
+// ä ö Ç É Ä Ö Ü. Only á í ó ú (and typographic punctuation) have to be folded.
+const GSM7_BASIC = new Set<string>([
+  "@", "£", "$", "¥", "è", "é", "ù", "ì", "ò", "Ç", "\n", "Ø", "ø", "\r", "Å", "å",
+  "Δ", "_", "Φ", "Γ", "Λ", "Ω", "Π", "Ψ", "Σ", "Θ", "Ξ", "\u001B", "Æ", "æ", "ß", "É",
+  " ", "!", "\"", "#", "¤", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
+  "¡", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
+  "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "Ä", "Ö", "Ñ", "Ü", "§",
+  "¿", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
+  "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "ä", "ö", "ñ", "ü", "à",
+]);
+const GSM7_EXTENSION = new Set<string>(["\f", "^", "{", "}", "\\", "[", "]", "~", "|", "€"]);
+const GSM7_FOLD: Record<string, string> = {
+  "\u2018": "'", "\u2019": "'", "\u201A": "'", "\u201B": "'",
+  "\u201C": "\"", "\u201D": "\"", "\u201E": "\"",
+  "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-",
+  "\u2026": "...", "\u2022": "-", "\u00B7": "-", "\u00A0": " ",
+  "\u2192": ">", "\u2190": "<", "\u00AB": "\"", "\u00BB": "\"",
+  "\u2028": "\n", "\u2029": "\n",
+};
+function gsm7Safe(input: string): string {
+  let out = "";
+  for (const ch of input || "") {
+    if (GSM7_BASIC.has(ch) || GSM7_EXTENSION.has(ch)) { out += ch; continue; }
+    const fold = GSM7_FOLD[ch];
+    if (fold !== undefined) { out += fold; continue; }
+    // Accented Latin letters (á í ó ú …) fold to their base letter via NFD. Characters
+    // already in GSM-7 (ñ é à ü ¿ ¡) never reach this branch, so they are preserved.
+    const base = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (base && base !== ch && [...base].every((c) => GSM7_BASIC.has(c) || GSM7_EXTENSION.has(c))) { out += base; continue; }
+    // Anything left (emoji, arrows, box drawing) is dropped rather than doubling the bill.
+  }
+  return out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").trim();
+}
+// Cut to `max` characters on a word boundary with an ellipsis; ASCII in, ASCII out, so
+// truncation itself can never flip a GSM-7 message to UCS-2.
+function truncateWords(text: string, max: number): string {
+  const clean = (text || "").replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const budget = Math.max(0, max - 3);
+  let cut = clean.slice(0, budget);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace > budget * 0.5) cut = cut.slice(0, lastSpace);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return cut.replace(/[\s,;:.!?-]+$/, "") + "...";
+}
+// Appointment line for the summary: "Tue Nov 3, 2:00 PM". Local business time — no
+// timezone suffix, because the slot times are already the org's own wall clock.
+function formatSummaryAppt(dateStr: string | undefined, timeStr: string | undefined, es: boolean): string {
+  if (!dateStr || !timeStr) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return `${dateStr} ${timeStr}`.trim();
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (isNaN(d.getTime())) return `${dateStr} ${timeStr}`.trim();
+  const days = es ? ["dom", "lun", "mar", "mie", "jue", "vie", "sab"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = es
+    ? ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${days[d.getUTCDay()]} ${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${timeStr}`;
+}
 // ── Build SMS summary from call state ───────────────────────────────────
+// The owner's morning read AND the single biggest variable cost in the product.
+// Budget: <= 306 characters and <= 2 GSM-7 parts for a booking call whose AI transcript
+// is at its cap — scripts/sms-summary-parts.test.ts proves it against this very function.
+// Kept: who called, the outcome, when the appointment is, a capped transcript, a short link.
+// Cut: the emoji header, the DTMF debug line, the em-dash separator, the CT timestamp and
+// the long dashboard URL — each of them either forced UCS-2 or spent a part on detail the
+// dashboard already shows.
+const SUMMARY_TRANSCRIPT_MAX = 120;
 function buildCallSummary(cs: CallState, transcript?: string): string {
+  const es = cs.language === "es";
   const duration = Math.round((Date.now() - cs.startTime.getTime()) / 1000);
   const mins = Math.floor(duration / 60);
   const secs = duration % 60;
   const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-  const dtmfStr = cs.dtmfHistory.length > 0 ? cs.dtmfHistory.join(" → ") : "none";
   const callerLabel = cs.callerFirstName ? `${cs.callerFirstName} (${cs.callerNumber})` : cs.callerNumber;
-  const outcome = cs.appointmentBooked ? "Appointment booked" : cs.requestedCallback ? "Requested owner callback" : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
+  const outcome = cs.appointmentBooked
+    ? (es ? "Cita agendada" : "Appointment booked")
+    : cs.requestedCallback
+      ? (es ? "Pidio devolucion de llamada" : "Requested owner callback")
+      : cs.appointmentIntent
+        ? (es ? "Interes en cita" : "Appointment interest")
+        : (es ? "Consulta general" : "General inquiry");
+  const appt = cs.appointmentBooked
+    ? formatSummaryAppt(cs.bookedSlot?.date || cs.rescheduleNewDate, cs.bookedSlot?.time || cs.rescheduleNewTime, es)
+    : "";
+  const notes = transcript ? truncateWords(transcript, SUMMARY_TRANSCRIPT_MAX) : "";
 
-  return [
-    `📞 ReceptionAI Call Summary`,
-    `From: ${callerLabel}`,
-    `Duration: ${durationStr}`,
-    `Outcome: ${outcome}`,
-    `DTMF: ${dtmfStr}`,
-    transcript ? `AI Summary: ${transcript}` : null,
-    `Time: ${cs.startTime.toLocaleString("en-US", { timeZone: "America/Chicago" })} CT`,
-    `—`,
-    `Check your dashboard: receptionai.store/dashboard`,
-  ].filter(Boolean).join("\n");
+  return gsm7Safe([
+    es ? "ReceptionAI: resumen de llamada" : "ReceptionAI: call summary",
+    `${es ? "De" : "From"}: ${callerLabel}`,
+    `${es ? "Resultado" : "Outcome"}: ${outcome}`,
+    appt ? `${es ? "Cita" : "Appt"}: ${appt}` : null,
+    `${es ? "Duracion" : "Duration"}: ${durationStr}`,
+    notes ? `${es ? "Notas" : "Notes"}: ${notes}` : null,
+    "receptionai.store",
+  ].filter(Boolean).join("\n"));
 }
 // ── JSON response helper ───────────────────────────────────────────────
 function json(data: unknown, status = 200): Response {
@@ -3315,8 +3406,8 @@ for (let attempt = 1; ; attempt++) {
                 if (!tState.answered) {
                   // Owner missed — text owner to call the caller back
                   await sendSms(tState.businessNumber, tState.ownerPhone, tState.language === "es"
-                    ? `🔔 Un llamador (${tState.callerNumber}) pidió hablar con usted y no atendió la transferencia. Por favor devuélvale la llamada.`
-                    : `🔔 A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer — call them back.`);
+                    ? `Un llamador (${tState.callerNumber}) pidio hablar con usted y no atendio la transferencia. Por favor devuelva la llamada.`
+                    : `A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer. Call them back.`);
                   const inbound = calls.get(tState.inboundCid);
                   if (inbound) {
                     inbound.transferring = false;
@@ -3353,7 +3444,7 @@ for (let attempt = 1; ; attempt++) {
                   // Send confirmation SMS
                   await sendSms(cbState.businessNumber, cbState.callerNumber,
                     cbState.language === "es"
-                      ? `Hola, gracias por su interés. Alguien de ${cbState.orgName} lo contactará pronto.`
+                      ? `Hola, gracias por su interés. Alguien de ${cbState.orgName} se va a comunicar con usted pronto.`
                       : `Hi, thanks for your interest. Someone from ${cbState.orgName} will reach out shortly.`);
                 }
                 callbackStates.delete(cid);
@@ -3403,8 +3494,8 @@ for (let attempt = 1; ; attempt++) {
                   const orgName = cs.orgName || "our team";
                   const lang = cs.language || "en";
                   const followUp = lang === "es"
-                    ? `Hola, somos ${orgName}. Notamos que llamó y estaba interesado en agendar una cita pero no pudimos completarla. ¿Le gustaría que lo contactemos para agendar? Responda SI y lo contactaremos pronto.`
-                    : `Hi, this is ${orgName}. We noticed you called earlier and were interested in booking an appointment but we weren't able to complete it. Would you like us to reach out to schedule? Reply YES and we'll contact you shortly.`;
+                    ? `Hola, somos ${orgName}. Recibimos su llamada sobre una cita pero no pudimos completar la reserva. ¿Desea que lo contactemos para agendar? Responda SI y lo llamamos pronto.`
+                    : `Hi, this is ${orgName}. You called about booking an appointment and we could not finish it. Want us to call back to schedule? Reply YES.`;
                   setTimeout(async () => {
                     await sendSms(toNumber, callerNumber, followUp);
                   }, 15 * 60 * 1000); // 15 minutes
@@ -5160,7 +5251,7 @@ for (let attempt = 1; ; attempt++) {
                   headers: { "Content-Type": "application/json", Authorization: `Bearer ${telnyxKey}` },
                   body: JSON.stringify({
                     from: orgPhone, to: phone,
-                    text: `Hi ${name}, your appointment for ${service} on ${date} at ${time} is confirmed. We'll send a reminder before your visit. Questions? Call ${orgPhone}.`,
+                    text: gsm7Safe(`Hi ${name}, your appointment for ${service} on ${date} at ${time} is confirmed. We'll send a reminder before your visit. Questions? Call ${orgPhone}.`),
                   }),
                 }).catch(() => {});
               }
@@ -5234,7 +5325,7 @@ for (let attempt = 1; ; attempt++) {
                 const smsRes = await fetch("https://api.telnyx.com/v2/messages", {
                   method: "POST",
                   headers: { "Content-Type": "application/json", Authorization: `Bearer ${telnyxKey}` },
-                  body: JSON.stringify({ from: fromNum, to: r.recipient_phone, text: r.message_body }),
+                  body: JSON.stringify({ from: fromNum, to: r.recipient_phone, text: gsm7Safe(r.message_body) }),
                 }).catch(() => null);
                 smsOk = smsRes?.ok === true;
               }
