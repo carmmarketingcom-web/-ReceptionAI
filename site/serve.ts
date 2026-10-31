@@ -2258,13 +2258,7 @@ function isSupportEscalation(message: string): boolean {
 }
 
 async function notifyOwnerOfSupportRequest(source: string, detail: string): Promise<void> {
-  if (!process.env.TELNYX_API_KEY) {
-    console.warn("[Support] TELNYX_API_KEY not set — cannot alert owner");
-    return;
-  }
-  if (!SUPPORT_ALERT_TO || !SUPPORT_ALERT_FROM) return;
-  const text = `🚨 ReceptionAI support request\nSource: ${source}\n${detail}`;
-  await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text);
+  await sendSupportAlert(`🚨 ReceptionAI support request\nSource: ${source}\n${detail}`);
 }
 
 // ── Web-chat callback request → owner SMS alert ───────────────────────────
@@ -2309,6 +2303,231 @@ async function alertOwnerOfCallbackRequest(contact: string, message: string): Pr
     await notifyOwnerOfSupportRequest("web chat callback request", `${contact} | "${snippet}"`);
   } catch (err) {
     console.warn("[Callback] owner alert failed:", String(err).slice(0, 120));
+  }
+}
+
+// ── Telnyx prepaid balance watchdog ───────────────────────────────────────
+// Telnyx is the ONE vendor that hard-stops. Voice, SMS and number rental all
+// draw down a single prepaid balance; at $0 inbound calls fail and a paying
+// customer's line goes dead with no warning. Every other vendor (Railway,
+// Neon, Google) bills a card after the fact. This watchdog texts the owner
+// through the existing SUPPORT_ALERT_TO/FROM path (env-only — no number is
+// ever hardcoded) while there is still time to top up.
+//
+//   warn   below $50 → at most one text / 24h
+//   urgent below $20 → at most one text / 6h
+//
+// The last-fired timestamps live in `system_alert_state` (migration 0007), so
+// a redeploy or restart cannot re-spam him. If the DB is unreachable the check
+// fails OPEN and still texts: a duplicate text is far cheaper than a silent
+// dead phone line. Nothing in here may throw — it runs beside call flows,
+// webhooks and health checks, and a Telnyx API failure must never reach them.
+const TELNYX_BALANCE_WARN_BELOW = 50;
+const TELNYX_BALANCE_URGENT_BELOW = 20;
+const TELNYX_BALANCE_WARN_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const TELNYX_BALANCE_URGENT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const TELNYX_BALANCE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // ≤1 Telnyx API call per hour
+const TELNYX_BALANCE_TIMEOUT_MS = 5_000;
+
+type TelnyxBalanceSnapshot = {
+  balance: number | null; // null = unknown (no key / API failure) — never alert on unknown
+  currency: string;
+  checkedAt: string;
+  error?: string;
+};
+
+let telnyxBalanceCache: TelnyxBalanceSnapshot = { balance: null, currency: "USD", checkedAt: "" };
+let telnyxBalanceLastAttemptAt = 0; // in-memory throttle for the opportunistic trigger
+let telnyxBalanceInFlight: Promise<TelnyxBalanceSnapshot> | null = null; // dedupe concurrent triggers
+const telnyxBalanceFiredAt: Record<string, number> = {}; // in-memory mirror of the DB rows
+let alertStateTableReady: Promise<boolean> | null = null;
+
+// Owner alert on the same env-gated path as the support/callback alerts:
+// silently skips (one log line) when SUPPORT_ALERT_TO/FROM are unset, and
+// never throws.
+async function sendSupportAlert(text: string): Promise<void> {
+  try {
+    if (!process.env.TELNYX_API_KEY) {
+      console.warn("[Alert] TELNYX_API_KEY not set — owner alert skipped");
+      return;
+    }
+    if (!SUPPORT_ALERT_TO || !SUPPORT_ALERT_FROM) {
+      console.warn("[Alert] SUPPORT_ALERT_TO/FROM not set — owner alert skipped");
+      return;
+    }
+    await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text);
+  } catch (err) {
+    console.warn("[Alert] owner alert failed:", String(err).slice(0, 120));
+  }
+}
+
+// GET /v2/balance → {"data":{"balance":"17.68","available_credit":"17.68","currency":"USD"}}
+// available_credit is what can still be spent, so that is what decides when
+// calls stop; balance is only a fallback. Capped at 5s, never throws.
+async function fetchTelnyxBalance(): Promise<TelnyxBalanceSnapshot> {
+  const key = process.env.TELNYX_API_KEY || "";
+  const checkedAt = new Date().toISOString();
+  if (!key) return { balance: null, currency: "USD", checkedAt, error: "TELNYX_API_KEY not set" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TELNYX_BALANCE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${TELNYX}/balance`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) return { balance: null, currency: "USD", checkedAt, error: `HTTP ${res.status}` };
+    const body: any = await res.json();
+    const raw = body?.data?.available_credit ?? body?.data?.balance;
+    const balance = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
+    const currency = typeof body?.data?.currency === "string" ? body.data.currency : "USD";
+    if (!Number.isFinite(balance)) return { balance: null, currency, checkedAt, error: "unparseable balance" };
+    return { balance, currency, checkedAt };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { balance: null, currency: "USD", checkedAt, error: msg.slice(0, 120) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function balanceStateDb(): any {
+  const dbUrl = process.env.DATABASE_URL || "";
+  return dbUrl ? neon(dbUrl) : null;
+}
+
+// CREATE TABLE IF NOT EXISTS once per process, so the watchdog works even
+// before migration 0007 has been applied by hand.
+async function ensureAlertStateTable(sql: any): Promise<boolean> {
+  if (!alertStateTableReady) {
+    alertStateTableReady = (async () => {
+      try {
+        await sql`CREATE TABLE IF NOT EXISTS system_alert_state (
+          alert_key TEXT PRIMARY KEY,
+          last_fired_at_ms BIGINT,
+          last_level TEXT,
+          last_value TEXT
+        )`;
+        return true;
+      } catch (err) {
+        console.warn("[BalanceWatch] alert state table unavailable:", String(err).slice(0, 120));
+        alertStateTableReady = null; // retry on the next hourly check
+        return false;
+      }
+    })();
+  }
+  return alertStateTableReady;
+}
+
+// null = state unknown (no DB / DB down) → caller fails OPEN and alerts
+// 0    = never fired at this level
+// >0   = epoch ms of the last alert at this level
+async function readBalanceAlertFiredAt(level: string): Promise<number | null> {
+  const sql = balanceStateDb();
+  if (!sql) return null;
+  if (!(await ensureAlertStateTable(sql))) return null;
+  try {
+    const rows = (await sql`SELECT last_fired_at_ms FROM system_alert_state WHERE alert_key = ${"telnyx_balance." + level} LIMIT 1`) as any[];
+    const v = rows?.[0]?.last_fired_at_ms;
+    return v === undefined || v === null ? 0 : Number(v);
+  } catch {
+    return null;
+  }
+}
+
+async function writeBalanceAlertFiredAt(level: string, value: number, firedAtMs: number): Promise<void> {
+  const sql = balanceStateDb();
+  if (!sql) return;
+  if (!(await ensureAlertStateTable(sql))) return;
+  const key = "telnyx_balance." + level;
+  const money = value.toFixed(2);
+  try {
+    await sql`INSERT INTO system_alert_state (alert_key, last_fired_at_ms, last_level, last_value)
+      VALUES (${key}, ${firedAtMs}, ${level}, ${money})
+      ON CONFLICT (alert_key) DO UPDATE SET
+        last_fired_at_ms = ${firedAtMs}, last_level = ${level}, last_value = ${money}`;
+  } catch (err) {
+    console.warn("[BalanceWatch] could not persist alert state:", String(err).slice(0, 120));
+  }
+}
+
+// Balance healthy again → forget the fired timestamps so the NEXT drop alerts
+// immediately instead of waiting out the old cooldown.
+async function clearBalanceAlertState(): Promise<void> {
+  const sql = balanceStateDb();
+  if (!sql) return;
+  if (!(await ensureAlertStateTable(sql))) return;
+  try {
+    await sql`DELETE FROM system_alert_state WHERE alert_key IN (${"telnyx_balance.warn"}, ${"telnyx_balance.urgent"})`;
+  } catch {
+    /* not worth a log line every healthy hour */
+  }
+}
+
+// The watchdog itself. Throttled to one Telnyx call per hour per process, so it
+// is safe to call on every inbound request. Returns the (possibly cached)
+// snapshot and never throws.
+async function checkTelnyxBalance(trigger: string): Promise<TelnyxBalanceSnapshot> {
+  // Concurrent triggers share one check, so /api/health never reports an empty
+  // snapshot just because the request hook started the check a millisecond ago.
+  if (telnyxBalanceInFlight) return telnyxBalanceInFlight;
+  const run = runBalanceCheck(trigger).finally(() => { telnyxBalanceInFlight = null; });
+  telnyxBalanceInFlight = run;
+  return run;
+}
+
+async function runBalanceCheck(trigger: string): Promise<TelnyxBalanceSnapshot> {
+  try {
+    const now = Date.now();
+    if (telnyxBalanceLastAttemptAt && now - telnyxBalanceLastAttemptAt < TELNYX_BALANCE_CHECK_INTERVAL_MS) {
+      return telnyxBalanceCache;
+    }
+    telnyxBalanceLastAttemptAt = now;
+
+    const snap = await fetchTelnyxBalance();
+    telnyxBalanceCache = snap;
+
+    if (snap.balance === null) {
+      console.warn(`[BalanceWatch] balance unknown (${snap.error || "no data"}) — no alert sent`);
+      return snap;
+    }
+    if (snap.balance >= TELNYX_BALANCE_WARN_BELOW) {
+      telnyxBalanceFiredAt["warn"] = 0;
+      telnyxBalanceFiredAt["urgent"] = 0;
+      await clearBalanceAlertState();
+      console.log(`[BalanceWatch] Telnyx balance $${snap.balance.toFixed(2)} ${snap.currency} — ok`);
+      return snap;
+    }
+
+    const level = snap.balance < TELNYX_BALANCE_URGENT_BELOW ? "urgent" : "warn";
+    const cooldown = level === "urgent" ? TELNYX_BALANCE_URGENT_COOLDOWN_MS : TELNYX_BALANCE_WARN_COOLDOWN_MS;
+
+    const memLast = telnyxBalanceFiredAt[level] || 0;
+    if (memLast && now - memLast < cooldown) {
+      console.log(`[BalanceWatch] ${level} alert already sent ${Math.round((now - memLast) / 60000)}m ago — suppressed`);
+      return snap;
+    }
+    // Cross-restart guard: the DB remembers even if this process does not.
+    const persisted = await readBalanceAlertFiredAt(level);
+    if (persisted && now - persisted < cooldown) {
+      telnyxBalanceFiredAt[level] = persisted;
+      console.log(`[BalanceWatch] ${level} alert already sent ${Math.round((now - persisted) / 60000)}m ago (persisted) — suppressed`);
+      return snap;
+    }
+
+    const money = `$${snap.balance.toFixed(2)}`;
+    const text = level === "urgent"
+      ? `🚨 ReceptionAI: TELNYX BALANCE CRITICAL ${money} - inbound calls STOP at $0. Top up now: portal.telnyx.com > Billing > Add credit.`
+      : `⚠️ ReceptionAI: Telnyx balance low ${money} - top up soon; calls stop at $0. portal.telnyx.com > Billing.`;
+
+    await sendSupportAlert(text);
+    telnyxBalanceFiredAt[level] = now;
+    await writeBalanceAlertFiredAt(level, snap.balance, now);
+    console.log(`[BalanceWatch] ${level} alert sent for ${money} (trigger: ${trigger})`);
+    return snap;
+  } catch (err) {
+    console.warn("[BalanceWatch] check failed (ignored):", String(err).slice(0, 140));
+    return telnyxBalanceCache;
   }
 }
 
@@ -2362,6 +2581,13 @@ for (let attempt = 1; ; attempt++) {
           transferStates.clear();
           pendingCallbacks.clear();
         }
+
+        // ── Telnyx prepaid balance watchdog (opportunistic) ─────────────
+        // Nothing external is proven to hit the reminders cron in production, so
+        // the watchdog also rides real traffic. Throttled to one Telnyx call per
+        // hour inside checkTelnyxBalance(); fire-and-forget so it can never delay
+        // or fail a call flow, a webhook or a page request.
+        void checkTelnyxBalance(`request ${pathname}`).catch(() => {});
 
         if (pathname === "/api/telnyx/voice" && req.method === "POST") {
           try {
@@ -3306,6 +3532,17 @@ for (let attempt = 1; ; attempt++) {
             serverStatus.telnyx = process.env.TELNYX_API_KEY ? "configured" : "not configured";
             serverStatus.stripe = process.env.STRIPE_SECRET_KEY ? "configured" : "not configured";
             serverStatus.cronSecret = process.env.CRON_SECRET ? "set" : "not set";
+            // Telnyx prepaid balance — the only vendor that hard-stops a live call
+            // when it hits $0. Throttled to ≤1 Telnyx call/hour; null = unknown.
+            // Readable by the dashboard and any external monitor without an SMS.
+            const balanceSnap = await checkTelnyxBalance("health");
+            serverStatus.telnyxBalance = balanceSnap.balance;
+            serverStatus.telnyxBalanceCurrency = balanceSnap.currency;
+            serverStatus.telnyxBalanceCheckedAt = balanceSnap.checkedAt || null;
+            serverStatus.telnyxBalanceStatus = balanceSnap.balance === null ? "unknown"
+              : balanceSnap.balance < TELNYX_BALANCE_URGENT_BELOW ? "urgent"
+              : balanceSnap.balance < TELNYX_BALANCE_WARN_BELOW ? "low" : "ok";
+            if (balanceSnap.error) serverStatus.telnyxBalanceError = balanceSnap.error;
 
             return new Response(JSON.stringify(serverStatus),
               { status: 200, headers: { "Content-Type": "application/json" } });
@@ -4406,6 +4643,9 @@ for (let attempt = 1; ; attempt++) {
               return new Response(JSON.stringify({ error: "Unauthorized" }),
                 { status: 401, headers: { "Content-Type": "application/json" } });
             }
+            // A cron tick is a natural heartbeat: drive the balance watchdog from it
+            // too (internally throttled to ≤1 Telnyx call/hour, never awaited).
+            void checkTelnyxBalance("reminders-cron").catch(() => {});
 
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) {
