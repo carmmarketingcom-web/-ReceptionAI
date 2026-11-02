@@ -1178,7 +1178,7 @@ async function notifyFirstWaitlistEntry(orgId: string, date: string, fromNumber:
     if (!rows[0]) return false;
     const entry = rows[0];
     await sendSms(fromNumber, entry.phone,
-      `A slot just opened on ${date}! Reply YES to claim it, or visit receptionai.store to book.`);
+      `A slot just opened on ${date}! Reply YES to claim it, or visit receptionai.store to book.`, "followup");
     await sql`UPDATE contacts SET tags = tags - 'waitlist', updated_at = NOW() WHERE id = ${entry.id}`;
     console.log(`[Waitlist] Notified ${entry.phone} about slot on ${date}`);
     return true;
@@ -1341,7 +1341,7 @@ async function notifyOwnerOfVoicemail(orgId: string, callerNumber: string, fromN
     const msg = es
       ? `📞 Nuevo mensaje de voz de ${callerNumber}. Escúchelo en su panel: receptionai.store/dashboard/recordings`
       : `📞 New voicemail from ${callerNumber}. Listen on your dashboard: receptionai.store/dashboard/recordings`;
-    await sendSms(fromNumber, ownerPhone, msg);
+    await sendSms(fromNumber, ownerPhone, msg, "owner_alert");
   }
   // Also send email with recording link
   await sendEmailNotification(orgId,
@@ -1632,7 +1632,7 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
         if (cs.callerNumber && cs.toNumber) {
           await sendSms(cs.toNumber, cs.callerNumber, es
             ? `Su cita ha sido reprogramada para ${cs.rescheduleNewDate} a las ${cs.rescheduleNewTime}. ¡Gracias!`
-            : `Your appointment has been rescheduled to ${cs.rescheduleNewDate} at ${cs.rescheduleNewTime}. Thank you!`);
+            : `Your appointment has been rescheduled to ${cs.rescheduleNewDate} at ${cs.rescheduleNewTime}. Thank you!`, "confirmation");
         }
         // Start survey
         cs.phase = "survey";
@@ -1701,7 +1701,7 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
           const ownerPhone = await getOwnerPhone(cs.orgId);
           if (ownerPhone && cs.toNumber) {
             await sendSms(cs.toNumber, ownerPhone,
-              `Low rating (${rating}/5) from call with ${cs.callerFirstName || cs.callerNumber}. Please follow up.`);
+              `Low rating (${rating}/5) from call with ${cs.callerFirstName || cs.callerNumber}. Please follow up.`, "owner_alert");
           }
         }
       }
@@ -2014,7 +2014,7 @@ async function createVoiceBooking(p: {
     const confirmation = p.lang === "es"
       ? `Hola ${p.name}, su cita para ${p.service} el ${p.date} a las ${p.time} queda confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${p.fromNumber}.`
       : `Hi ${p.name}, your appointment for ${p.service} on ${p.date} at ${p.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${p.fromNumber}.`;
-    if (p.fromNumber && p.phone) await sendSms(p.fromNumber, p.phone, confirmation);
+    if (p.fromNumber && p.phone) await sendSms(p.fromNumber, p.phone, confirmation, "confirmation");
 
     return { success: true, appointmentId: apptId };
   } catch (err) {
@@ -2158,7 +2158,7 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
     pendingHangups.add(cid);
     await sendSms(cs.toNumber, transferNumber, es
       ? `Un llamador (${cs.callerNumber}) pidio hablar con usted y no pudimos transferir la llamada. Por favor devuelva la llamada.`
-      : `A caller (${cs.callerNumber}) asked to speak with you and the transfer failed. Call them back.`);
+      : `A caller (${cs.callerNumber}) asked to speak with you and the transfer failed. Call them back.`, "owner_alert");
     return;
   }
   transferStates.set(ownerCid, {
@@ -2216,14 +2216,354 @@ async function getOwnerPhone(orgId: string): Promise<string | null> {
   }
 }
 
-// ── Send SMS via Telnyx ─────────────────────────────────────────────────
-async function sendSms(from: string, to: string, text: string) {
+// ── Send SMS via Telnyx — delivery-tracked ─────────────────────────────────
+// This used to be fire-and-forget: it awaited the POST, threw the response away, and
+// logged "Sent" whatever Telnyx said. Every outbound SMS failed for a week (36 sent,
+// 36 failed, 0 delivered — Telnyx error 40010, "the sending number is not
+// 10DLC-registered") and nobody knew, because nothing recorded the outcome.
+//
+// Now the POST response is inspected, every message is written to `sms_deliveries`,
+// the Telnyx delivery webhook (message.sent / message.finalized) flips that row, and a
+// failure mails the owner — the broken channel cannot carry its own alarm.
+//
+// It still never throws and never requires a caller to check anything: existing call
+// sites behave exactly as before, they just leave a trail behind.
+type SmsKind = "summary" | "confirmation" | "reminder" | "followup" | "owner_alert" | "callback" | "other";
+type SmsDeliveryStatus = "queued" | "delivered" | "failed";
+
+interface SmsSendResult {
+  ok: boolean;              // the POST was accepted (2xx)
+  messageId: string | null; // Telnyx message id — the key the delivery webhook updates
+  status: SmsDeliveryStatus;
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  parts: number;
+  persisted: boolean;       // false = no DB, so this delivery was NOT recorded
+}
+
+// Telnyx error bodies look like {"errors":[{"code":"40010","title":"...","detail":"..."}]}
+function parseTelnyxError(raw: string): { code: string | null; message: string | null } {
+  try {
+    const body: any = JSON.parse(raw);
+    const first = Array.isArray(body?.errors) ? body.errors[0] : null;
+    const code = first?.code !== undefined && first?.code !== null ? String(first.code) : null;
+    const detail = first?.detail || first?.title || body?.message || null;
+    return { code, message: detail ? String(detail).slice(0, 300) : null };
+  } catch {
+    return { code: null, message: raw ? raw.slice(0, 300) : null };
+  }
+}
+
+// ── sms_deliveries: one row per outbound message ─────────────────────────
+// Epoch-ms timestamps and TEXT/INTEGER columns, exactly like system_alert_state
+// (migration 0007), so the same DDL and the same statements run on Postgres and on the
+// SQLite fake in scripts/verify-sms-delivery.test.ts. The server issues this
+// CREATE TABLE IF NOT EXISTS itself (migration 0008 does it properly).
+let smsDeliveriesTableReady: Promise<boolean> | null = null;
+
+function smsDeliveryDb(): any {
+  const dbUrl = process.env.DATABASE_URL || "";
+  return dbUrl ? neon(dbUrl) : null;
+}
+
+async function ensureSmsDeliveriesTable(sql: any): Promise<boolean> {
+  if (!smsDeliveriesTableReady) {
+    smsDeliveriesTableReady = (async () => {
+      try {
+        await sql`CREATE TABLE IF NOT EXISTS sms_deliveries (
+          id TEXT PRIMARY KEY,
+          telnyx_message_id TEXT UNIQUE,
+          to_number TEXT,
+          kind TEXT,
+          parts INTEGER,
+          status TEXT,
+          error_code TEXT,
+          created_at_ms BIGINT,
+          updated_at_ms BIGINT
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS sms_deliveries_created_idx ON sms_deliveries (created_at_ms)`;
+        await sql`CREATE INDEX IF NOT EXISTS sms_deliveries_status_idx ON sms_deliveries (status)`;
+        return true;
+      } catch (err) {
+        console.warn("[SMS] delivery table unavailable:", String(err).slice(0, 120));
+        smsDeliveriesTableReady = null; // retry on the next send
+        return false;
+      }
+    })();
+  }
+  return smsDeliveriesTableReady;
+}
+
+// Returns false when there was no DB or the insert failed — the caller logs that,
+// because "the row is missing" is the exact failure mode this feature exists to stop.
+async function recordSmsDelivery(row: {
+  messageId: string | null;
+  toNumber: string;
+  kind: SmsKind;
+  parts: number;
+  status: SmsDeliveryStatus;
+  errorCode: string | null;
+}): Promise<boolean> {
+  const sql = smsDeliveryDb();
+  if (!sql) return false;
+  if (!(await ensureSmsDeliveriesTable(sql))) return false;
+  const now = Date.now();
+  try {
+    await sql`INSERT INTO sms_deliveries
+      (id, telnyx_message_id, to_number, kind, parts, status, error_code, created_at_ms, updated_at_ms)
+      VALUES (${crypto.randomUUID()}, ${row.messageId}, ${row.toNumber}, ${row.kind}, ${row.parts}, ${row.status}, ${row.errorCode}, ${now}, ${now})`;
+    return true;
+  } catch (err) {
+    console.warn("[SMS] could not record delivery:", String(err).slice(0, 120));
+    return false;
+  }
+}
+
+// Telnyx status word → the three states this table stores. message.sent means "the
+// carrier has it"; message.finalized is the real delivery report.
+function mapTelnyxDeliveryStatus(raw: string, eventType: string, errorCode: string | null): SmsDeliveryStatus {
+  const s = String(raw || "").toLowerCase();
+  if (s === "delivered" || s === "delivery_acknowledged" || s === "completed") return "delivered";
+  if (s === "failed" || s === "delivery_failed" || s === "error" || s === "expired" || s === "cancelled") return "failed";
+  if (errorCode) return "failed";
+  if (eventType === "message.finalized" && s && s !== "sent" && s !== "queued" && s !== "sending") return "failed";
+  return "queued";
+}
+
+// Update the row the send created. Never downgrades a delivered message, and a queued
+// event cannot un-fail a message that already reported a carrier error.
+async function applySmsDeliveryUpdate(
+  messageId: string, status: SmsDeliveryStatus, errorCode: string | null, eventType: string,
+): Promise<boolean> {
+  const sql = smsDeliveryDb();
+  if (!sql) return false;
+  if (!(await ensureSmsDeliveriesTable(sql))) return false;
+  const now = Date.now();
+  try {
+    await sql`UPDATE sms_deliveries
+      SET status = ${status}, error_code = ${errorCode}, updated_at_ms = ${now}
+      WHERE telnyx_message_id = ${messageId}
+        AND status <> 'delivered'
+        AND NOT (status = 'failed' AND ${status} = 'queued')`;
+    console.log(`[SMS] ${eventType || "delivery"} for ${messageId}: ${status}${errorCode ? ` (${errorCode})` : ""}`);
+    return true;
+  } catch (err) {
+    console.warn("[SMS] could not update delivery:", String(err).slice(0, 120));
+    return false;
+  }
+}
+
+// ── Owner alert when outbound SMS fails — by EMAIL ─────────────────────────
+// SMS is the broken channel, so the alarm cannot ride on SMS. At most one email per
+// hour, aggregated, deduplicated through system_alert_state (alert_key
+// 'sms_delivery.failed') so a restart cannot re-spam the owner.
+const SMS_FAILURE_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+const SMS_FAILURE_ALERT_KEY = "sms_delivery.failed";
+let smsFailureAlertFiredAt = 0;                              // in-memory fast path (per process)
+let smsFailureAlertInFlight: Promise<void> | null = null;    // dedupe concurrent failures
+
+// Plain English, no blame, and a concrete next step for the codes we actually hit.
+function smsErrorExplanation(code: string | null): string {
+  if (code === "40010") {
+    return "The sending number is not 10DLC-registered, carriers are blocking it; register the brand/campaign in Telnyx.";
+  }
+  if (code === "40001") return "Telnyx did not accept the account credentials for this request.";
+  if (code === "40300") return "The sending number is not allowed to send to that destination.";
+  if (code === "40008") return "The destination number was rejected by the carrier.";
+  return "";
+}
+
+// Generic system_alert_state helpers (migration 0007's table, reused here).
+async function readAlertStateMs(key: string): Promise<number | null> {
+  const sql = balanceStateDb();
+  if (!sql) return null;
+  if (!(await ensureAlertStateTable(sql))) return null;
+  try {
+    const rows = (await sql`SELECT last_fired_at_ms FROM system_alert_state WHERE alert_key = ${key} LIMIT 1`) as any[];
+    const v = rows?.[0]?.last_fired_at_ms;
+    return v === undefined || v === null ? 0 : Number(v);
+  } catch {
+    return null;
+  }
+}
+
+async function writeAlertStateMs(key: string, firedAtMs: number, level: string, value: string): Promise<void> {
+  const sql = balanceStateDb();
+  if (!sql) return;
+  if (!(await ensureAlertStateTable(sql))) return;
+  try {
+    await sql`INSERT INTO system_alert_state (alert_key, last_fired_at_ms, last_level, last_value)
+      VALUES (${key}, ${firedAtMs}, ${level}, ${value})
+      ON CONFLICT (alert_key) DO UPDATE SET
+        last_fired_at_ms = ${firedAtMs}, last_level = ${level}, last_value = ${value}`;
+  } catch (err) {
+    console.warn("[SMS] could not persist alert state:", String(err).slice(0, 120));
+  }
+}
+
+// Who to mail. SMS_FAILURE_ALERT_EMAIL wins (env-only routing, same rule as
+// SUPPORT_ALERT_TO: no personal address in the source); otherwise the oldest
+// organization's address, which is the owner's own org on this account.
+async function smsAlertEmailRecipients(): Promise<string[]> {
+  const explicit = (process.env.SMS_FAILURE_ALERT_EMAIL || "").trim();
+  if (explicit) return [explicit];
+  const sql = smsDeliveryDb();
+  if (!sql) return [];
+  try {
+    const rows = (await sql`SELECT email FROM organizations
+      WHERE email IS NOT NULL AND email <> ''
+      ORDER BY created_at ASC LIMIT 1`) as any[];
+    const email = rows?.[0]?.email;
+    return typeof email === "string" && email.includes("@") ? [email] : [];
+  } catch {
+    return [];
+  }
+}
+
+// Failures in the alert window, grouped by error code — the "how many" in the email.
+async function aggregateSmsFailures(sinceMs: number): Promise<{ total: number; parts: number; codes: { code: string; count: number }[] }> {
+  const empty = { total: 0, parts: 0, codes: [] as { code: string; count: number }[] };
+  const sql = smsDeliveryDb();
+  if (!sql) return empty;
+  if (!(await ensureSmsDeliveriesTable(sql))) return empty;
+  try {
+    const rows = (await sql`SELECT error_code, COUNT(*) AS n, SUM(parts) AS parts FROM sms_deliveries
+      WHERE status = 'failed' AND created_at_ms >= ${sinceMs}
+      GROUP BY error_code
+      ORDER BY COUNT(*) DESC`) as any[];
+    const codes = (rows || []).map((r: any) => ({
+      code: r?.error_code === undefined || r?.error_code === null ? "unknown" : String(r.error_code),
+      count: Number(r?.n) || 0,
+    }));
+    const total = codes.reduce((a, c) => a + c.count, 0);
+    const parts = (rows || []).reduce((a: number, r: any) => a + (Number(r?.parts) || 0), 0);
+    return { total, parts, codes };
+  } catch {
+    return empty;
+  }
+}
+
+function buildSmsFailureEmail(total: number, codes: { code: string; count: number }[], failure: { errorCode: string | null; errorMessage: string | null; toNumber: string; kind: SmsKind }): { subject: string; body: string } {
+  const primary = codes[0]?.code || failure.errorCode || "unknown";
+  const explanation = smsErrorExplanation(primary === "unknown" ? failure.errorCode : primary);
+  const subject = `ReceptionAI: ${total} text message${total === 1 ? "" : "s"} did not send`;
+  const lines: string[] = [
+    `Hi,`,
+    ``,
+    `ReceptionAI tried to send ${total} text message${total === 1 ? "" : "s"} in the last hour and the carrier did not deliver ${total === 1 ? "it" : "them"}.`,
+    ``,
+    `Error code: ${primary}`,
+  ];
+  if (explanation) lines.push(explanation);
+  else if (failure.errorMessage) lines.push(failure.errorMessage);
+  lines.push(``, `Breakdown:`);
+  for (const c of codes) {
+    const exp = smsErrorExplanation(c.code);
+    lines.push(`  - ${c.code}: ${c.count} message${c.count === 1 ? "" : "s"}${exp ? ` — ${exp}` : ""}`);
+  }
+  lines.push(
+    ``,
+    `Most recent: a "${failure.kind}" message to ${failure.toNumber || "a customer"}${failure.errorMessage ? ` (${failure.errorMessage})` : ""}.`,
+    ``,
+    `Nothing else is affected — calls, bookings, the calendar and your dashboard keep working. Messages will start going out on their own once the registration is approved.`,
+    ``,
+    `You will not get another email about this for an hour.`,
+    ``,
+    `— ReceptionAI`,
+  );
+  return { subject, body: lines.join("\n") };
+}
+
+// Never throws, never blocks a call flow for longer than one email.
+async function maybeAlertSmsFailure(failure: { errorCode: string | null; errorMessage: string | null; toNumber: string; kind: SmsKind }): Promise<void> {
+  if (smsFailureAlertInFlight) { await smsFailureAlertInFlight; return; }
+  const run = (async () => {
+    try {
+      const now = Date.now();
+      if (smsFailureAlertFiredAt && now - smsFailureAlertFiredAt < SMS_FAILURE_ALERT_COOLDOWN_MS) return;
+      const persisted = await readAlertStateMs(SMS_FAILURE_ALERT_KEY);
+      if (persisted && now - persisted < SMS_FAILURE_ALERT_COOLDOWN_MS) {
+        smsFailureAlertFiredAt = persisted;
+        return;
+      }
+      const agg = await aggregateSmsFailures(now - SMS_FAILURE_ALERT_COOLDOWN_MS);
+      const codes = agg.codes.length ? agg.codes : [{ code: failure.errorCode || "unknown", count: 1 }];
+      const total = Math.max(agg.total, codes.reduce((a, c) => a + c.count, 0), 1);
+      const recipients = await smsAlertEmailRecipients();
+      if (!recipients.length) {
+        console.warn("[SMS] no owner email address — failure alert NOT sent (set SMS_FAILURE_ALERT_EMAIL)");
+        return; // do not mark it fired: the next failure tries again
+      }
+      const { subject, body } = buildSmsFailureEmail(total, codes, failure);
+      let sent = false;
+      try {
+        const { sendEmail } = await import("./src/lib/email");
+        for (const to of recipients) sent = (await sendEmail(to, subject, body)) || sent;
+      } catch (err) {
+        console.warn("[SMS] failure alert email threw:", String(err).slice(0, 140));
+      }
+      if (!sent) {
+        console.warn("[SMS] failure alert email was NOT delivered — check RESEND_API_KEY and the verified sender domain");
+        return; // leave the window open so the next failure retries
+      }
+      smsFailureAlertFiredAt = now;
+      await writeAlertStateMs(SMS_FAILURE_ALERT_KEY, now, "sms_delivery", String(total));
+      console.log(`[SMS] failure alert emailed to ${recipients.join(", ")} (${total} failed, code ${codes[0]?.code || "unknown"})`);
+    } catch (err) {
+      console.warn("[SMS] failure alert skipped:", String(err).slice(0, 140));
+    }
+  })().finally(() => { smsFailureAlertInFlight = null; });
+  smsFailureAlertInFlight = run;
+  await run;
+}
+
+// Last 24h of outbound SMS for /api/health. Never throws: a broken read reports zeros
+// and an error string, because health must always answer.
+async function smsDeliverySnapshot(): Promise<{
+  sent24h: number; delivered24h: number; failed24h: number;
+  lastErrorCode: string | null; lastErrorAt: string | null;
+}> {
+  const out = { sent24h: 0, delivered24h: 0, failed24h: 0, lastErrorCode: null as string | null, lastErrorAt: null as string | null };
+  try {
+    const sql = smsDeliveryDb();
+    if (!sql) return out;
+    if (!(await ensureSmsDeliveriesTable(sql))) return out;
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const rows = (await sql`SELECT status, COUNT(*) AS n FROM sms_deliveries
+      WHERE created_at_ms >= ${since} GROUP BY status`) as any[];
+    for (const r of rows || []) {
+      const n = Number(r?.n) || 0;
+      const s = String(r?.status || "");
+      out.sent24h += n;
+      if (s === "delivered") out.delivered24h += n;
+      else if (s === "failed") out.failed24h += n;
+    }
+    const last = (await sql`SELECT error_code, updated_at_ms FROM sms_deliveries
+      WHERE status = 'failed' ORDER BY updated_at_ms DESC LIMIT 1`) as any[];
+    const code = last?.[0]?.error_code;
+    out.lastErrorCode = code === undefined || code === null ? null : String(code);
+    const at = last?.[0]?.updated_at_ms;
+    out.lastErrorAt = at === undefined || at === null ? null : new Date(Number(at)).toISOString();
+  } catch (err) {
+    console.warn("[SMS] health snapshot failed:", String(err).slice(0, 120));
+  }
+  return out;
+}
+
+async function sendSms(from: string, to: string, text: string, kind: SmsKind = "other"): Promise<SmsSendResult> {
   // Last line of defence: every outbound SMS leaves in the GSM-7 alphabet. See gsm7Safe()
   // — one emoji or curly quote anywhere would re-encode the whole message as UCS-2 and
   // roughly double its cost.
   const safeText = gsm7Safe(text);
+  const parts = smsPartCount(safeText);
+  const base: SmsSendResult = {
+    ok: false, messageId: null, status: "failed", httpStatus: null,
+    errorCode: null, errorMessage: null, parts, persisted: false,
+  };
+  let result: SmsSendResult = base;
   try {
-    await fetch(`${TELNYX}/messages`, {
+    const res = await fetch(`${TELNYX}/messages`, {
       method: "POST", headers: th(),
       body: JSON.stringify({
         from,
@@ -2232,10 +2572,37 @@ async function sendSms(from: string, to: string, text: string) {
         ...(TELNYX_CONNECTION_ID ? { messaging_profile_id: TELNYX_CONNECTION_ID } : {}),
       }),
     });
-    console.log(`[SMS] Sent to ${to}: "${safeText.slice(0, 80)}"`);
+    const raw = await res.text().catch(() => "");
+    if (res.ok) {
+      let id: string | null = null;
+      try { id = (JSON.parse(raw)?.data?.id as string) || null; } catch { id = null; }
+      result = { ...base, ok: true, messageId: id, status: "queued", httpStatus: res.status };
+      console.log(`[SMS] Accepted by Telnyx (${kind}, ${parts} part${parts === 1 ? "" : "s"}, id ${id || "unknown"}) to ${to}`);
+    } else {
+      const err = parseTelnyxError(raw);
+      result = { ...base, httpStatus: res.status, errorCode: err.code, errorMessage: err.message };
+      console.error(`[SMS] REJECTED by Telnyx HTTP ${res.status} (${kind}) to ${to}: code ${err.code || "unknown"} — ${err.message || raw.slice(0, 160)}`);
+    }
   } catch (err) {
-    console.error("[SMS] Send failed:", String(err).slice(0, 100));
+    const msg = err instanceof Error ? err.message : String(err);
+    result = { ...base, errorMessage: msg.slice(0, 200) };
+    console.error(`[SMS] Send failed (network, ${kind}) to ${to}:`, msg.slice(0, 160));
   }
+
+  // Record it. A missing row is itself a failure worth a log line.
+  result.persisted = await recordSmsDelivery({
+    messageId: result.messageId, toNumber: to, kind, parts, status: result.status, errorCode: result.errorCode,
+  });
+  if (!result.persisted) {
+    console.warn(`[SMS] delivery NOT recorded for ${kind} to ${to} (no database?) — outcome ${result.status}`);
+  }
+
+  // A failed send must never throw into a call flow, but it must never be silent either.
+  if (!result.ok) {
+    void maybeAlertSmsFailure({ errorCode: result.errorCode, errorMessage: result.errorMessage, toNumber: to, kind })
+      .catch(() => {});
+  }
+  return result;
 }
 
 // ── Support request → owner SMS alert ─────────────────────────────────────
@@ -2364,7 +2731,7 @@ async function sendSupportAlert(text: string): Promise<void> {
       console.warn("[Alert] SUPPORT_ALERT_TO/FROM not set — owner alert skipped");
       return;
     }
-    await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text);
+    await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text, "owner_alert");
   } catch (err) {
     console.warn("[Alert] owner alert failed:", String(err).slice(0, 120));
   }
@@ -2580,6 +2947,21 @@ function gsm7Safe(input: string): string {
     // Anything left (emoji, arrows, box drawing) is dropped rather than doubling the bill.
   }
   return out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").trim();
+}
+
+// Parts the carrier will bill for a message that has ALREADY been through gsm7Safe().
+// Mirrors scripts/sms-segments.ts (the audit script) using the alphabet tables above:
+// 160 septets in a single part, 153 per part once the message is concatenated.
+function smsPartCount(text: string): number {
+  const body = text || "";
+  let septets = 0;
+  for (const ch of body) {
+    if (GSM7_EXTENSION.has(ch)) { septets += 2; continue; }
+    if (GSM7_BASIC.has(ch)) { septets += 1; continue; }
+    // Not GSM-7 at all (cannot happen after gsm7Safe) → UCS-2: 70 / 67 per part.
+    return body.length <= 70 ? 1 : Math.ceil(body.length / 67);
+  }
+  return septets <= 160 ? 1 : Math.ceil(septets / 153);
 }
 // Cut to `max` characters on a word boundary with an ellipsis; ASCII in, ASCII out, so
 // truncation itself can never flip a GSM-7 message to UCS-2.
@@ -3407,7 +3789,7 @@ for (let attempt = 1; ; attempt++) {
                   // Owner missed — text owner to call the caller back
                   await sendSms(tState.businessNumber, tState.ownerPhone, tState.language === "es"
                     ? `Un llamador (${tState.callerNumber}) pidio hablar con usted y no atendio la transferencia. Por favor devuelva la llamada.`
-                    : `A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer. Call them back.`);
+                    : `A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer. Call them back.`, "owner_alert");
                   const inbound = calls.get(tState.inboundCid);
                   if (inbound) {
                     inbound.transferring = false;
@@ -3445,7 +3827,7 @@ for (let attempt = 1; ; attempt++) {
                   await sendSms(cbState.businessNumber, cbState.callerNumber,
                     cbState.language === "es"
                       ? `Hola, gracias por su interés. Alguien de ${cbState.orgName} se va a comunicar con usted pronto.`
-                      : `Hi, thanks for your interest. Someone from ${cbState.orgName} will reach out shortly.`);
+                      : `Hi, thanks for your interest. Someone from ${cbState.orgName} will reach out shortly.`, "callback");
                 }
                 callbackStates.delete(cid);
                 calls.delete(cid);
@@ -3471,7 +3853,7 @@ for (let attempt = 1; ; attempt++) {
                 // Send SMS summary to owner
                 const ownerPhone = await getOwnerPhone(cs.orgId);
                 if (ownerPhone) {
-                  await sendSms(cs.toNumber, ownerPhone, summary);
+                  await sendSms(cs.toNumber, ownerPhone, summary, "summary");
                 }
 
                 // Send email notification
@@ -3497,7 +3879,7 @@ for (let attempt = 1; ; attempt++) {
                     ? `Hola, somos ${orgName}. Recibimos su llamada sobre una cita pero no pudimos completar la reserva. ¿Desea que lo contactemos para agendar? Responda SI y lo llamamos pronto.`
                     : `Hi, this is ${orgName}. You called about booking an appointment and we could not finish it. Want us to call back to schedule? Reply YES.`;
                   setTimeout(async () => {
-                    await sendSms(toNumber, callerNumber, followUp);
+                    await sendSms(toNumber, callerNumber, followUp, "followup");
                   }, 15 * 60 * 1000); // 15 minutes
                   console.log(`[Follow-up] Scheduled 15-min SMS to ${callerNumber} for missed appointment (${lang})`);
                 }
@@ -3562,6 +3944,39 @@ for (let attempt = 1; ; attempt++) {
         if (pathname === "/api/telnyx/sms" && req.method === "POST") {
           try {
             const p = await req.json();
+
+            // Telnyx posts TWO kinds of event here: inbound messages (message.received)
+            // and delivery reports for messages WE sent (message.sent / message.finalized).
+            // A delivery report carries payload.id — the id we stored from the send
+            // response — plus payload.to[0].status and errors[].
+            const eventType = String(p?.data?.event_type || "");
+            const evPayload = p?.data?.payload || {};
+            const isDeliveryReport = eventType !== "message.received" && (
+              eventType === "message.sent" ||
+              eventType === "message.finalized" ||
+              eventType === "message.delivery_update" ||
+              (!!evPayload?.id && Array.isArray(evPayload?.to) && String(evPayload?.direction || "").toLowerCase().startsWith("outbound"))
+            );
+            if (isDeliveryReport && typeof evPayload?.id === "string" && evPayload.id) {
+              const rawStatus = String(evPayload?.to?.[0]?.status || evPayload?.status || "");
+              const errs = Array.isArray(evPayload?.errors) ? evPayload.errors : [];
+              const errCode = errs[0]?.code !== undefined && errs[0]?.code !== null ? String(errs[0].code) : null;
+              const errDetail = errs[0]?.detail || errs[0]?.title || null;
+              const mapped = mapTelnyxDeliveryStatus(rawStatus, eventType, errCode);
+              await applySmsDeliveryUpdate(evPayload.id, mapped, mapped === "failed" ? errCode : null, eventType);
+              if (mapped === "failed") {
+                await maybeAlertSmsFailure({
+                  errorCode: errCode,
+                  errorMessage: errDetail ? String(errDetail).slice(0, 200) : null,
+                  toNumber: String(evPayload?.to?.[0]?.phone_number || ""),
+                  kind: "other",
+                });
+              }
+              return new Response(JSON.stringify({ status: "ok", delivery: mapped }), {
+                status: 200, headers: { "Content-Type": "application/json" },
+              });
+            }
+
             const from = p.data?.payload?.from?.phone_number || "";
             const to = p.data?.payload?.to?.[0]?.phone_number || "";
             const text = p.data?.payload?.text || "";
@@ -3886,6 +4301,11 @@ for (let attempt = 1; ; attempt++) {
               : balanceSnap.balance < TELNYX_BALANCE_URGENT_BELOW ? "urgent"
               : balanceSnap.balance < TELNYX_BALANCE_WARN_BELOW ? "low" : "ok";
             if (balanceSnap.error) serverStatus.telnyxBalanceError = balanceSnap.error;
+
+            // Outbound SMS delivery, last 24h. This is the channel that failed silently
+            // for a week (Telnyx 40010, not 10DLC-registered): 36 sent, 36 failed, 0
+            // delivered. Readable here so a human or a monitor sees it without an SMS.
+            serverStatus.smsDelivery = await smsDeliverySnapshot();
 
             return new Response(JSON.stringify(serverStatus),
               { status: 200, headers: { "Content-Type": "application/json" } });
@@ -5244,17 +5664,11 @@ for (let attempt = 1; ; attempt++) {
             const orgPhone = orgRow[0]?.phone_number || "";
 
             if (orgPhone && phone) {
-              const telnyxKey = process.env.TELNYX_API_KEY || "";
-              if (telnyxKey) {
-                await fetch("https://api.telnyx.com/v2/messages", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${telnyxKey}` },
-                  body: JSON.stringify({
-                    from: orgPhone, to: phone,
-                    text: gsm7Safe(`Hi ${name}, your appointment for ${service} on ${date} at ${time} is confirmed. We'll send a reminder before your visit. Questions? Call ${orgPhone}.`),
-                  }),
-                }).catch(() => {});
-              }
+              // Same wording, now delivery-tracked (fire-and-forget: the booking
+              // response must not wait on Telnyx).
+              void sendSms(orgPhone, phone,
+                `Hi ${name}, your appointment for ${service} on ${date} at ${time} is confirmed. We'll send a reminder before your visit. Questions? Call ${orgPhone}.`,
+                "confirmation").catch(() => {});
             }
 
             return new Response(JSON.stringify({
@@ -5322,12 +5736,10 @@ for (let attempt = 1; ; attempt++) {
               const telnyxKey = process.env.TELNYX_API_KEY || "";
               let smsOk = false;
               if (telnyxKey) {
-                const smsRes = await fetch("https://api.telnyx.com/v2/messages", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${telnyxKey}` },
-                  body: JSON.stringify({ from: fromNum, to: r.recipient_phone, text: gsm7Safe(r.message_body) }),
-                }).catch(() => null);
-                smsOk = smsRes?.ok === true;
+                // Routed through sendSms() so the reminder is recorded in
+                // sms_deliveries and a rejection is visible; the wording is unchanged.
+                const smsRes = await sendSms(fromNum, r.recipient_phone, r.message_body, "reminder");
+                smsOk = smsRes.ok;
               }
 
               if (smsOk || !telnyxKey) {

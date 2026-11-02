@@ -188,9 +188,12 @@ describe("both serve.ts trees carry the same SMS code", () => {
       const src = readFileSync(join(ROOT, tree), "utf8");
       expect(src).toContain("const safeText = gsm7Safe(text);");
       expect(src).toContain("text: safeText,");
-      expect(src).toContain("text: gsm7Safe(r.message_body)");
-      // The web-booking confirmation posts to Telnyx directly, so it needs its own net.
-      expect(src).toContain("text: gsm7Safe(`Hi ${name},");
+      // Reminders and the web-booking confirmation now go through sendSms() as well,
+      // so the GSM-7 net is applied once, inside sendSms(). No direct Telnyx message
+      // POST may be reintroduced that could skip it.
+      expect(src).not.toContain('fetch("https://api.telnyx.com/v2/messages"');
+      expect(src).toContain('sendSms(fromNum, r.recipient_phone, r.message_body, "reminder")');
+      expect(src).toContain('"confirmation").catch(() => {});');
       // No SMS body may reintroduce an emoji/em dash of its own.
       expect(src).not.toContain("📞 ReceptionAI Call Summary");
       expect(src).not.toContain("🔔");
