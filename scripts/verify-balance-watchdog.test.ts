@@ -49,6 +49,7 @@ const telnyx = {
   sms: [] as { to: string; from: string; text: string }[],
   balanceCalls: 0,
 };
+const resend = { emails: [] as { to: string; subject: string; body: string }[] };
 const realFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = (async (input: any, init?: any) => {
   const url = typeof input === "string" ? input : (input?.url ?? String(input));
@@ -65,6 +66,11 @@ globalThis.fetch = (async (input: any, init?: any) => {
     telnyx.sms.push({ to: body.to, from: body.from, text: body.text });
     return new Response(JSON.stringify({ data: { id: "msg_fake" } }), { status: 200 });
   }
+  if (url.includes("api.resend.com/emails")) {
+    const body = JSON.parse(init?.body || "{}");
+    resend.emails.push({ to: body.to, subject: body.subject, body: body.text });
+    return new Response(JSON.stringify({ id: "email_fake" }), { status: 200 });
+  }
   if (url.includes("127.0.0.1") || url.includes("localhost")) return realFetch(input, init);
   return new Response(JSON.stringify({ ok: true }), { status: 200 }); // no real vendor is reached
 }) as any;
@@ -75,6 +81,9 @@ let clockOffsetMs = 0;
 Date.now = () => realNow() + clockOffsetMs;
 const advance = (ms: number) => { clockOffsetMs += ms; };
 const HOUR = 60 * 60 * 1000;
+// Throwaway alert address: the watchdog emails first, and the real owner address is never
+// in the repo.
+const ALERT_EMAIL = "alerts@example.test";
 
 // ── Boot the real server ─────────────────────────────────────────────────────
 beforeAll(async () => {
@@ -84,6 +93,8 @@ beforeAll(async () => {
   process.env.TELNYX_API_KEY = "KEY_test";
   process.env.SUPPORT_ALERT_TO = "+15550000001";
   process.env.SUPPORT_ALERT_FROM = "+15550000002";
+  process.env.RESEND_API_KEY = "re_test_only";
+  process.env.SUPPORT_ALERT_EMAIL = ALERT_EMAIL;
   process.env.CRON_SECRET = "test-cron";
   process.chdir(REPO);
   await import("../serve.ts");
@@ -104,18 +115,23 @@ const health = async () => {
   return { status: res.status, body: (await res.json()) as any };
 };
 
-test("warn below $50 → one SMS, and the balance is readable from /api/health", async () => {
+test("warn below $50 → one EMAIL, no text, and the balance is readable from /api/health", async () => {
   telnyx.balance = "42.10";
+  // The warm-up health call in beforeAll already ran the watchdog once; that alert is the
+  // one this test counts (the array is not reset here on purpose).
   const { status, body } = await health();
   expect(status).toBe(200);
   expect(body.telnyxBalance).toBe(42.1);
   expect(body.telnyxBalanceStatus).toBe("low");
   expect(body.telnyxBalanceCurrency).toBe("USD");
   expect(typeof body.telnyxBalanceCheckedAt).toBe("string");
-  expect(telnyx.sms.length).toBe(1);
-  expect(telnyx.sms[0].text).toContain("Telnyx balance low $42.10");
-  expect(telnyx.sms[0].to).toBe("+15550000001");
-  expect(telnyx.sms[0].from).toBe("+15550000002");
+  // The alarm that protects live calls now travels on the channel that actually delivers.
+  expect(resend.emails.length).toBe(1);
+  expect(resend.emails[0].to).toBe(ALERT_EMAIL);
+  expect(resend.emails[0].subject).toContain("Telnyx balance low $42.10");
+  expect(resend.emails[0].body).toContain("portal.telnyx.com");
+  // Texting is off by default, so the secondary channel stayed silent.
+  expect(telnyx.sms.length).toBe(0);
 });
 
 test("second check 2h later (new hour, still inside 24h) sends nothing", async () => {
@@ -125,7 +141,7 @@ test("second check 2h later (new hour, still inside 24h) sends nothing", async (
   expect(status).toBe(200);
   expect(body.telnyxBalance).toBe(42.1);
   expect(telnyx.balanceCalls).toBe(callsBefore + 1); // it really re-asked Telnyx…
-  expect(telnyx.sms.length).toBe(1); // …and still did not text twice
+  expect(resend.emails.length).toBe(1); // …and still did not alert twice
 });
 
 test("the fired timestamp is persisted in system_alert_state (survives a restart)", async () => {
@@ -140,8 +156,8 @@ test("after 24h the same warn level may fire again", async () => {
   advance(23 * HOUR); // ~25h since the first warn
   const { body } = await health();
   expect(body.telnyxBalanceStatus).toBe("low");
-  expect(telnyx.sms.length).toBe(2);
-  expect(telnyx.sms[1].text).toContain("Telnyx balance low $42.10");
+  expect(resend.emails.length).toBe(2);
+  expect(resend.emails[1].subject).toContain("Telnyx balance low $42.10");
 });
 
 test("below $20 escalates to urgent on its own 6h cooldown", async () => {
@@ -150,8 +166,8 @@ test("below $20 escalates to urgent on its own 6h cooldown", async () => {
   const { body } = await health();
   expect(body.telnyxBalance).toBe(17.68);
   expect(body.telnyxBalanceStatus).toBe("urgent");
-  expect(telnyx.sms.length).toBe(3);
-  expect(telnyx.sms[2].text).toContain("TELNYX BALANCE CRITICAL $17.68");
+  expect(resend.emails.length).toBe(3);
+  expect(resend.emails[2].subject).toContain("CRITICAL $17.68");
 });
 
 test("a Telnyx API error is swallowed: health still 200, no SMS, no throw", async () => {
@@ -163,7 +179,7 @@ test("a Telnyx API error is swallowed: health still 200, no SMS, no throw", asyn
   expect(body.telnyxBalance).toBeNull();
   expect(body.telnyxBalanceStatus).toBe("unknown");
   expect(body.telnyxBalanceError).toContain("500");
-  expect(telnyx.sms.length).toBe(3); // nothing new was sent
+  expect(resend.emails.length).toBe(3); // nothing new was sent
 });
 
 test("the server keeps serving after the API failure (a call flow is never broken)", async () => {
@@ -186,6 +202,31 @@ test("recovering above $50 clears the state so the next drop alerts immediately"
   advance(HOUR);
   r = await health();
   expect(r.body.telnyxBalanceStatus).toBe("low");
-  expect(telnyx.sms.length).toBe(4);
-  expect(telnyx.sms[3].text).toContain("$30.00");
+  expect(resend.emails.length).toBe(4);
+  expect(resend.emails[3].subject).toContain("$30.00");
+});
+
+// ── The text is a SECONDARY channel, and only for a business that opted in ──
+test("with texting on for the platform line, the same alert also texts from the shared sender", async () => {
+  db.run(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT, email TEXT, sms_enabled INTEGER DEFAULT 0
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS phone_numbers (
+    id TEXT PRIMARY KEY, organization_id TEXT, phone_number TEXT, is_active INTEGER DEFAULT 1
+  )`);
+  db.run(`INSERT OR REPLACE INTO organizations VALUES ('org-platform', 'Carm Marketing', NULL, 1)`);
+  db.run(`INSERT OR REPLACE INTO phone_numbers VALUES ('pn-platform', 'org-platform', '+15550000002', 1)`);
+
+  telnyx.balance = "11.00"; // a fresh drop, past both cooldowns
+  advance(7 * HOUR);
+  resend.emails.length = 0;
+  telnyx.sms.length = 0;
+
+  const { body } = await health();
+  expect(body.telnyxBalanceStatus).toBe("urgent");
+  expect(resend.emails.length).toBe(1);   // email still leads
+  expect(telnyx.sms.length).toBe(1);      // the text follows, because sms_enabled is on
+  expect(telnyx.sms[0].from).toBe("+18339261247"); // the shared toll-free line
+  expect(telnyx.sms[0].to).toBe("+15550000001");
+  expect(telnyx.sms[0].text).toContain("CRITICAL");
 });
