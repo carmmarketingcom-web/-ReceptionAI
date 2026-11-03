@@ -1632,7 +1632,24 @@ async function deliverOwnerNotification(opts: {
 // Same env-only routing rule as SUPPORT_ALERT_TO: no address is ever hardcoded.
 async function platformAlertEmailRecipients(): Promise<string[]> {
   const explicit = (process.env.SUPPORT_ALERT_EMAIL || process.env.SMS_FAILURE_ALERT_EMAIL || "").trim();
-  return explicit ? explicit.split(/[,;]/).map((s) => s.trim()).filter(Boolean) : [];
+  if (explicit) return explicit.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  // Nothing configured: mail the business that owns the platform line (SUPPORT_ALERT_FROM).
+  // Derived from the database, never hardcoded — the same rule as SUPPORT_ALERT_TO.
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    const from = SUPPORT_ALERT_FROM;
+    if (!dbUrl || !from) return [];
+    const sql = neon(dbUrl);
+    const rows = await sql`
+      SELECT o.email FROM phone_numbers pn
+      JOIN organizations o ON o.id = pn.organization_id
+      WHERE pn.phone_number = ${from} AND pn.is_active = true
+      LIMIT 1`;
+    const email = (rows[0] as any)?.email;
+    return email ? [String(email)] : [];
+  } catch {
+    return [];
+  }
 }
 
 async function emailPlatformAlert(subject: string, body: string, kind: string): Promise<boolean> {
@@ -1697,7 +1714,18 @@ async function sendEmailNotification(
     }
     const sql = neon(dbUrl);
     const rows = await sql`SELECT email FROM organizations WHERE id = ${orgId} LIMIT 1`;
-    const orgEmail = (rows[0]?.email as string | undefined) || "";
+    let orgEmail = (rows[0]?.email as string | undefined) || "";
+    if (!orgEmail) {
+      // organizations.email is optional and is empty on a self-serve signup, but the person
+      // who signed up (users.email) is exactly the owner who must hear that a call happened.
+      // Without this fallback the only working notification channel would silently drop it.
+      try {
+        const ownerRows = await sql`SELECT email FROM users WHERE organization_id = ${orgId} ORDER BY created_at ASC LIMIT 1`;
+        orgEmail = (ownerRows[0]?.email as string | undefined) || "";
+      } catch {
+        /* users shape differs — fall through to the honest "no address" path */
+      }
+    }
     if (!orgEmail) {
       console.warn(`[Email] org ${String(orgId).slice(0, 8)} has no email address — "${subject.slice(0, 50)}" NOT sent`);
       return false;
