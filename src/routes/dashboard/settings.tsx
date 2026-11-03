@@ -67,6 +67,9 @@ function SettingsPage() {
   const [timezone, setTimezone] = useState("America/Chicago");
   const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
   const [smsSummaries, setSmsSummaries] = useState(true);
+  // Texting is an explicit per-business opt-in (organizations.sms_enabled, default OFF). While
+  // it is off nothing is sent by text at all — every notification goes out by email.
+  const [smsEnabled, setSmsEnabled] = useState(false);
   const [transferNumber, setTransferNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -103,6 +106,7 @@ function SettingsPage() {
       if (data.settings?.smsSummaries !== undefined) {
         setSmsSummaries(!!data.settings.smsSummaries);
       }
+      setSmsEnabled(data.organization?.smsEnabled === true);
       if (data.transferNumber) setTransferNumber(data.transferNumber);
     }
   }, [data]);
@@ -125,6 +129,7 @@ function SettingsPage() {
         timezone,
         businessHours: hoursPayload,
         smsSummaries,
+        smsEnabled,
         transferNumber: transferNumber || null,
       });
       setToast({ message: "Settings saved successfully", type: "success" });
@@ -403,21 +408,49 @@ function SettingsPage() {
 
       {/* ── Notifications ─────────────────────────────────── */}
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-lg">📧</div>
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Post-Call SMS Summaries</h2>
-            <p className="mt-0.5 text-xs text-gray-500">Get a text after every call with caller info, duration, and outcome.</p>
+            <h2 className="text-sm font-semibold text-gray-900">Notifications</h2>
+            <p className="mt-0.5 text-xs text-gray-500">You are emailed after every call, voicemail, missed call and callback request.</p>
           </div>
-          <button
-            onClick={() => setSmsSummaries(!smsSummaries)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-              smsSummaries ? "bg-indigo-600" : "bg-gray-200"
-            }`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition ${
-              smsSummaries ? "translate-x-6" : "translate-x-1"
-            }`} />
-          </button>
+        </div>
+
+        {/* Email — on for every business. It is the channel that actually delivers. */}
+        <div className="mt-4 rounded-lg bg-green-50 px-4 py-3">
+          <p className="text-sm font-medium text-gray-900">Email: on</p>
+          <p className="mt-0.5 text-xs text-gray-600">
+            {data?.organization?.email
+              ? `Sent to ${data.organization.email} — caller number, outcome, appointment time and a link to your dashboard.`
+              : "Add an email address above to start receiving call summaries."}
+          </p>
+        </div>
+
+        {/* Texting — an explicit opt-in, and honest about the carrier block. */}
+        <div className={`mt-3 rounded-lg px-4 py-3 ${smsEnabled ? "bg-indigo-50" : "bg-gray-50"}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                {smsEnabled ? "Texting: on (paid upgrade)" : "Texting: off — messages are sent by email"}
+              </p>
+              <p className="mt-0.5 text-xs text-gray-600">
+                {smsEnabled
+                  ? "We will also try to text you. Texts are not being delivered yet — our sending number is still waiting on carrier registration — so the email is the reliable copy of every message."
+                  : "Texts are not delivered yet: our sending number is still waiting on carrier registration. While this is off, nothing is sent by text and nothing is charged for it — every message arrives by email."}
+              </p>
+            </div>
+            <button
+              onClick={() => setSmsEnabled(!smsEnabled)}
+              aria-label="Toggle text notifications"
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                smsEnabled ? "bg-indigo-600" : "bg-gray-200"
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition ${
+                smsEnabled ? "translate-x-6" : "translate-x-1"
+              }`} />
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,0 +1,15 @@
+-- 0009 — texting is an explicit per-business opt-in (default OFF)
+--
+-- Why this exists: carriers block every outbound text this account sends (Telnyx error
+-- 40010 — the sending number is not 10DLC-registered; 0 of 39 messages have ever been
+-- delivered). Everything text-based was built and deployed but silent, so a business owner
+-- was never told that a call happened. Owner direction 2026-11-03: "let's do the email for
+-- now, and if the customer wants the text, that could be an upgrade."
+--
+-- email is now the primary notification channel and is sent unconditionally. A text is only
+-- attempted for a business that has opted in here, so no money is spent on a message the
+-- carrier throws away. The SMS code path is untouched — it becomes the paid upgrade.
+--
+-- DEFAULT false is the honest state: a brand-new business gets email, and nothing is sent
+-- by text until someone deliberately turns it on (Settings → Notifications).
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN NOT NULL DEFAULT false;

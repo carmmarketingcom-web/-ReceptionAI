@@ -311,6 +311,14 @@ interface OrgSettings {
      * "add your mobile" banner still applies, never rendered to callers or on the marketing site.
      */
     phone?: string | null;
+    /**
+     * Texting is an explicit per-business opt-in (organizations.sms_enabled, DEFAULT false).
+     * False means no text is attempted at all — notifications go out by email only — so the
+     * settings page can state the honest channel instead of implying texts work.
+     */
+    smsEnabled?: boolean;
+    /** The business's own address — where every owner notification is emailed. */
+    email?: string | null;
   };
   /**
    * The business's own line(s), straight from `phone_numbers` (org-scoped). Empty means the
