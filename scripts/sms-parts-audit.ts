@@ -192,7 +192,10 @@ add("transfer dial-failed alert · EN", () => evalTemplate(grabLiteral("asked to
 add("transfer dial-failed alert · ES", () => evalTemplate(grabLiteral("no pudimos transferir la llamada")));
 add("callback alert to caller · EN", () => evalTemplate(grabLiteral("thanks for your interest. Someone from")));
 add("callback alert to caller · ES", () => evalTemplate(grabLiteral("gracias por su interés. Alguien de")));
-add("low-rating owner alert · EN", () => evalTemplate(grabLiteral("Low rating (")));
+// The body interpolates a label built one line above it (`Name (+1...)`), so the scope
+// supplies a representative one — the literal itself only names the variable.
+add("low-rating owner alert · EN", () =>
+  evalTemplate(grabLiteral("Low rating ("), { callerLabel: "Maria (+18135551234)" }));
 add("waitlist slot opened · EN", () => evalTemplate(grabLiteral("A slot just opened on")));
 add("reschedule confirmation · EN", () => evalTemplate(grabLiteral("Your appointment has been rescheduled to")));
 add("reschedule confirmation · ES", () => evalTemplate(grabLiteral("Su cita ha sido reprogramada")));

@@ -1176,7 +1176,7 @@ async function notifyFirstWaitlistEntry(orgId: string, date: string, fromNumber:
     `;
     if (!rows[0]) return false;
     const entry = rows[0];
-    await sendSms(fromNumber, entry.phone,
+    await sendSms(smsSenderForOrg(fromNumber), entry.phone,
       `A slot just opened on ${date}! Reply YES to claim it, or visit receptionai.store to book.`, "followup");
     await sql`UPDATE contacts SET tags = tags - 'waitlist', updated_at = NOW() WHERE id = ${entry.id}`;
     console.log(`[Waitlist] Notified ${entry.phone} about slot on ${date}`);
@@ -1606,7 +1606,7 @@ async function deliverOwnerNotification(opts: {
       const to = opts.smsTo || (opts.orgId ? await getOwnerPhone(opts.orgId) : null);
       if (to) {
         smsAttempted = true;
-        const res = await sendSms(opts.smsFrom as string, to, opts.smsText as string, opts.smsKind || "owner_alert");
+        const res = await sendSms(smsSenderForOrg(opts.smsFrom), to, opts.smsText as string, opts.smsKind || "owner_alert");
         smsOk = res.ok;
         if (!res.ok) {
           console.warn(
@@ -1667,6 +1667,61 @@ async function emailPlatformAlert(subject: string, body: string, kind: string): 
     console.warn("[Alert] platform alert email failed:", String(err).slice(0, 140));
     return false;
   }
+}
+
+// The organization that owns the platform line (SUPPORT_ALERT_FROM). Its sms_enabled flag
+// decides whether a platform alert may ALSO be texted; email never depends on it.
+async function platformAlertOrgId(): Promise<string | null> {
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    const from = SUPPORT_ALERT_FROM;
+    if (!dbUrl || !from) return null;
+    const sql = neon(dbUrl);
+    const rows = await sql`
+      SELECT pn.organization_id FROM phone_numbers pn
+      WHERE pn.phone_number = ${from} AND pn.is_active = true
+      LIMIT 1`;
+    const id = (rows[0] as any)?.organization_id;
+    return id ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+// One platform alert (ReceptionAI's own owner), email first and text only on opt-in.
+// Email is the channel that actually delivers, so it is attempted unconditionally; the text
+// is a bonus for a business that turned texting on. Never throws: this runs beside call
+// flows, webhooks and health checks.
+async function deliverPlatformAlert(opts: {
+  subject: string;
+  emailBody: string;
+  kind: string;
+  smsText?: string;
+  smsKind?: SmsKind;
+}): Promise<{ emailed: boolean; smsAttempted: boolean; smsOk: boolean }> {
+  let emailed = false;
+  let smsAttempted = false;
+  let smsOk = false;
+  try {
+    emailed = await emailPlatformAlert(opts.subject, opts.emailBody, opts.kind);
+  } catch (err) {
+    console.warn("[Alert] platform alert email failed:", String(err).slice(0, 140));
+  }
+  try {
+    if (opts.smsText && SUPPORT_ALERT_TO) {
+      const orgId = await platformAlertOrgId();
+      if (await smsEnabledForOrg(orgId)) {
+        smsAttempted = true;
+        const res = await sendSms(notificationSmsSender(), SUPPORT_ALERT_TO, opts.smsText, opts.smsKind || "owner_alert");
+        smsOk = res.ok;
+      } else {
+        console.log(`[Alert] texting is off for this business — "${opts.subject.slice(0, 60)}" went out by email only`);
+      }
+    }
+  } catch (err) {
+    console.warn("[Alert] platform alert text failed:", String(err).slice(0, 140));
+  }
+  return { emailed, smsAttempted, smsOk };
 }
 
 // ── Email subject/body for a finished call ──────────────────────────────────
@@ -1949,7 +2004,7 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
         }
         // Send SMS confirmation
         if (cs.callerNumber && cs.toNumber) {
-          await sendSms(cs.toNumber, cs.callerNumber, es
+          await sendSms(smsSenderForOrg(cs.toNumber), cs.callerNumber, es
             ? `Su cita ha sido reprogramada para ${cs.rescheduleNewDate} a las ${cs.rescheduleNewTime}. ¡Gracias!`
             : `Your appointment has been rescheduled to ${cs.rescheduleNewDate} at ${cs.rescheduleNewTime}. Thank you!`, "confirmation");
         }
@@ -2019,8 +2074,13 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
           // Notify owner for poor ratings
           const ownerPhone = await getOwnerPhone(cs.orgId);
           if (ownerPhone && cs.toNumber) {
-            await sendSms(cs.toNumber, ownerPhone,
-              `Low rating (${rating}/5) from call with ${cs.callerFirstName || cs.callerNumber}. Please follow up.`, "owner_alert");
+            // Always the number, never just the first name: with the shared toll-free sender a
+            // reply goes to ReceptionAI, so the number in the body is how the owner calls back.
+            const callerLabel = cs.callerFirstName
+              ? `${cs.callerFirstName} (${cs.callerNumber})`
+              : cs.callerNumber;
+            await sendSms(smsSenderForOrg(cs.toNumber), ownerPhone,
+              `Low rating (${rating}/5) from ${callerLabel}. Please follow up.`, "owner_alert");
           }
         }
       }
@@ -2336,7 +2396,7 @@ async function createVoiceBooking(p: {
     // Booking confirmations are texts too: skipped entirely unless this business opted into
     // texting, so no money is spent on a message the carrier would throw away.
     if (p.fromNumber && p.phone && (await smsEnabledForOrg(p.orgId))) {
-      await sendSms(p.fromNumber, p.phone, confirmation, "confirmation");
+      await sendSms(smsSenderForOrg(p.fromNumber), p.phone, confirmation, "confirmation");
     }
 
     return { success: true, appointmentId: apptId };
@@ -2893,6 +2953,24 @@ async function smsDeliverySnapshot(): Promise<{
   return out;
 }
 
+// ── Notification sender: ONE shared toll-free line ──────────────────────────
+// Owner decision 2026-11-03: texting is a paid upgrade and every notification leaves from
+// ReceptionAI's single toll-free number, never from a business's own local line. A caller
+// who replies to the 833 reaches us, not the customer — which is exactly why every
+// owner-facing body below carries the caller's phone number so the owner can call back.
+// Voice is untouched: a business's own number still rings, books and transfers calls.
+const SHARED_SMS_SENDER_FALLBACK = "+18339261247";
+function notificationSmsSender(): string {
+  const configured = (process.env.TELNYX_SMS_SENDER || "").trim();
+  return configured || SHARED_SMS_SENDER_FALLBACK;
+}
+// The per-org line plumbing is kept on purpose: a dedicated local number per business is a
+// planned higher tier. Until it ships, smsSenderForOrg() answers with the shared sender, so
+// this one function is the only place that has to change when that flips.
+function smsSenderForOrg(_orgLine?: string | null): string {
+  return notificationSmsSender();
+}
+
 async function sendSms(from: string, to: string, text: string, kind: SmsKind = "other"): Promise<SmsSendResult> {
   // Last line of defence: every outbound SMS leaves in the GSM-7 alphabet. See gsm7Safe()
   // — one emoji or curly quote anywhere would re-encode the whole message as UCS-2 and
@@ -3036,16 +3114,22 @@ async function alertOwnerOfCallbackRequest(contact: string, message: string): Pr
 // Telnyx is the ONE vendor that hard-stops. Voice, SMS and number rental all
 // draw down a single prepaid balance; at $0 inbound calls fail and a paying
 // customer's line goes dead with no warning. Every other vendor (Railway,
-// Neon, Google) bills a card after the fact. This watchdog texts the owner
-// through the existing SUPPORT_ALERT_TO/FROM path (env-only — no number is
-// ever hardcoded) while there is still time to top up.
+// Neon, Google) bills a card after the fact.
 //
-//   warn   below $50 → at most one text / 24h
-//   urgent below $20 → at most one text / 6h
+// This watchdog used to alert by TEXT ONLY, and every one of those texts was
+// rejected by the carrier (error 40010/40002): the one alarm protecting live
+// calls never reached anyone. Email is now the PRIMARY channel — it is the
+// channel that works — sent through the same SUPPORT_ALERT_TO/FROM path
+// (env-only, no address or number is ever hardcoded). The text is kept as an
+// optional secondary, and only for a platform line whose business opted into
+// texting (organizations.sms_enabled).
+//
+//   warn   below $50 → at most one alert / 24h
+//   urgent below $20 → at most one alert / 6h
 //
 // The last-fired timestamps live in `system_alert_state` (migration 0007), so
 // a redeploy or restart cannot re-spam him. If the DB is unreachable the check
-// fails OPEN and still texts: a duplicate text is far cheaper than a silent
+// fails OPEN and still alerts: a duplicate alert is far cheaper than a silent
 // dead phone line. Nothing in here may throw — it runs beside call flows,
 // webhooks and health checks, and a Telnyx API failure must never reach them.
 const TELNYX_BALANCE_WARN_BELOW = 50;
@@ -3081,7 +3165,7 @@ async function sendSupportAlert(text: string): Promise<void> {
       console.warn("[Alert] SUPPORT_ALERT_TO/FROM not set — owner alert skipped");
       return;
     }
-    await sendSms(SUPPORT_ALERT_FROM, SUPPORT_ALERT_TO, text, "owner_alert");
+    await sendSms(notificationSmsSender(), SUPPORT_ALERT_TO, text, "owner_alert");
   } catch (err) {
     console.warn("[Alert] owner alert failed:", String(err).slice(0, 120));
   }
@@ -3242,14 +3326,40 @@ async function runBalanceCheck(trigger: string): Promise<TelnyxBalanceSnapshot> 
     }
 
     const money = `$${snap.balance.toFixed(2)}`;
-    const text = level === "urgent"
-      ? `🚨 ReceptionAI: TELNYX BALANCE CRITICAL ${money} - inbound calls STOP at $0. Top up now: portal.telnyx.com > Billing > Add credit.`
-      : `⚠️ ReceptionAI: Telnyx balance low ${money} - top up soon; calls stop at $0. portal.telnyx.com > Billing.`;
+    // Emoji are deliberately gone from the text: gsm7Safe() strips them anyway, so they were
+    // costing characters in a body that could never arrive.
+    const smsText = level === "urgent"
+      ? `ReceptionAI: TELNYX BALANCE CRITICAL ${money} - inbound calls STOP at $0. Top up: portal.telnyx.com > Billing > Add credit.`
+      : `ReceptionAI: Telnyx balance low ${money} - top up soon; calls stop at $0. portal.telnyx.com > Billing.`;
+    const subject = level === "urgent"
+      ? `ReceptionAI: Telnyx balance CRITICAL ${money} - calls stop at $0`
+      : `ReceptionAI: Telnyx balance low ${money} - top up soon`;
+    const emailBody = [
+      level === "urgent"
+        ? `Telnyx available credit is ${money}. Inbound calls STOP when it reaches $0.`
+        : `Telnyx available credit is ${money}. Calls stop at $0.`,
+      ``,
+      `Top up: portal.telnyx.com > Billing > Add credit.`,
+      ``,
+      `Level: ${level} · checked ${snap.checkedAt} · trigger: ${trigger} · currency: ${snap.currency}`,
+      ``,
+      `- ReceptionAI balance watchdog`,
+    ].join("\n");
 
-    await sendSupportAlert(text);
+    const alertRes = await deliverPlatformAlert({
+      subject,
+      emailBody,
+      kind: "balance_alert",
+      smsText,
+      smsKind: "owner_alert",
+    });
     telnyxBalanceFiredAt[level] = now;
     await writeBalanceAlertFiredAt(level, snap.balance, now);
-    console.log(`[BalanceWatch] ${level} alert sent for ${money} (trigger: ${trigger})`);
+    console.log(
+      `[BalanceWatch] ${level} alert for ${money} (trigger: ${trigger}): ` +
+      `email ${alertRes.emailed ? "sent" : "NOT sent"}` +
+      `${alertRes.smsAttempted ? `, text ${alertRes.smsOk ? "accepted" : "failed"}` : ", texting off"}`,
+    );
     return snap;
   } catch (err) {
     console.warn("[BalanceWatch] check failed (ignored):", String(err).slice(0, 140));
@@ -3376,6 +3486,37 @@ function buildCallSummary(cs: CallState, transcript?: string): string {
     notes ? `${es ? "Notas" : "Notes"}: ${notes}` : null,
     "receptionai.store",
   ].filter(Boolean).join("\n"));
+}
+// ── JSON response helper ───────────────────────────────────────────────
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+// ── Auth helper for dashboard API routes ────────────────────────────────
+async function requireOrgAuth(
+  req: Request
+): Promise<{ organizationId: string; userId: string; role: string } | Response> {
+  const authHeader = req.headers.get("Authorization") || "";
+  const t = authHeader.replace("Bearer ", "");
+  if (!t) return json({ error: "Authentication required" }, 401);
+  const { jwtVerify } = await import("jose");
+  const secKey = process.env.JWT_SECRET!;
+  let payload: any;
+  try {
+    const r = await jwtVerify(t, new TextEncoder().encode(secKey));
+    payload = r.payload;
+  } catch {
+    return json({ error: "Invalid token" }, 401);
+  }
+  const organizationId = payload.organizationId as string;
+  if (!organizationId) return json({ error: "No organization" }, 400);
+  return {
+    organizationId,
+    userId: (payload.userId as string) || "",
+    role: (payload.role as string) || "agent",
+  };
 }
 const freePort = `for _ in $(seq 1 25); do pids=$(lsof -t -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true); if [ -z "$pids" ]; then exit 0; fi; kill $pids 2>/dev/null || true; sleep 0.2; done`;
 
@@ -3940,7 +4081,7 @@ for (let attempt = 1; ; attempt++) {
                 const cbState = callbackStates.get(cid);
                 if (cbState && cbState.answered && cbState.callerNumber && cbState.businessNumber && (await smsEnabledForOrg(cbState.orgId))) {
                   // Send confirmation SMS (opt-in only)
-                  await sendSms(cbState.businessNumber, cbState.callerNumber,
+                  await sendSms(smsSenderForOrg(cbState.businessNumber), cbState.callerNumber,
                     cbState.language === "es"
                       ? `Hola, gracias por su interés. Alguien de ${cbState.orgName} se va a comunicar con usted pronto.`
                       : `Hi, thanks for your interest. Someone from ${cbState.orgName} will reach out shortly.`, "callback");
@@ -4008,7 +4149,7 @@ for (let attempt = 1; ; attempt++) {
                       console.log(`[Follow-up] texting off for this business — follow-up to ${callerNumber} skipped`);
                       return;
                     }
-                    await sendSms(toNumber, callerNumber, followUp, "followup");
+                    await sendSms(smsSenderForOrg(toNumber), callerNumber, followUp, "followup");
                   }, 15 * 60 * 1000); // 15 minutes
                   console.log(`[Follow-up] Scheduled 15-min SMS to ${callerNumber} for missed appointment (${lang})`);
                 }
@@ -5069,6 +5210,106 @@ for (let attempt = 1; ; attempt++) {
         }
 
         // ── Contacts API ─────────────────────────────────────────────
+        if (pathname === "/api/settings" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const orgRows = await sql`SELECT * FROM organizations WHERE id = ${organizationId} LIMIT 1`;
+            const org = orgRows[0] || null;
+            const hours = await sql`SELECT * FROM business_hours WHERE organization_id = ${organizationId} ORDER BY day_of_week::int ASC`;
+            const settingsRows = await sql`SELECT key, value FROM organization_settings WHERE organization_id = ${organizationId}`;
+            const settings: Record<string, unknown> = {};
+            for (const s of settingsRows as any[]) settings[s.key] = s.value;
+            // The business's own line(s) — the number the dashboard shows and the owner hands
+            // to customers. Org-scoped, never another org's number. An empty list is a real
+            // answer: the number is still being provisioned, and the UI says so rather than
+            // inventing one. (organizations.phone is the owner's personal mobile — never here.)
+            const numberRows = await sql`
+              SELECT phone_number, is_active FROM phone_numbers
+              WHERE organization_id = ${organizationId}
+              ORDER BY created_at ASC
+            `;
+            return json({
+              organization: org ? {
+                id: org.id, name: org.name, slug: org.slug, timezone: org.timezone,
+                locale: org.locale, industry: org.industry, email: org.email, phone: org.phone,
+                website: org.website, addressLine1: org.address_line1, city: org.city,
+                state: org.state, postalCode: org.postal_code, transferNumber: org.transfer_number,
+                // Texting is an explicit per-business opt-in (migration 0009, DEFAULT false).
+                // Read-only here beyond the toggle in Settings: the honest state, not a promise.
+                smsEnabled: org.sms_enabled === true || org.sms_enabled === "1" || org.sms_enabled === 1,
+              } : null,
+              phoneNumbers: (numberRows as any[]).map((p: any) => ({
+                phoneNumber: p.phone_number,
+                isActive: p.is_active === true || p.is_active === "1",
+              })),
+              businessHours: (hours as any[]).map((h: any) => ({
+                dayOfWeek: h.day_of_week, openTime: h.open_time, closeTime: h.close_time, isClosed: h.is_closed,
+              })),
+              settings,
+            });
+          } catch (err) {
+            console.error("[Settings API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch settings" }, 500);
+          }
+        }
+        if (pathname === "/api/settings" && req.method === "PUT") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const body = (await req.json().catch(() => ({}))) as Record<string, any>;
+            // Org fields
+            if (typeof body.name === "string") await sql`UPDATE organizations SET name = ${body.name}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.industry === "string") await sql`UPDATE organizations SET industry = ${body.industry}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.timezone === "string") await sql`UPDATE organizations SET timezone = ${body.timezone}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.locale === "string") await sql`UPDATE organizations SET locale = ${body.locale}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.phone === "string") await sql`UPDATE organizations SET phone = ${body.phone}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.email === "string") await sql`UPDATE organizations SET email = ${body.email}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.website === "string") await sql`UPDATE organizations SET website = ${body.website}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.transferNumber === "string" || body.transferNumber === null) await sql`UPDATE organizations SET transfer_number = ${body.transferNumber}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.smsEnabled === "boolean") await sql`UPDATE organizations SET sms_enabled = ${body.smsEnabled}, updated_at = NOW() WHERE id = ${organizationId}`;
+            // Business hours upsert
+            if (Array.isArray(body.businessHours)) {
+              for (const bh of body.businessHours) {
+                const dow = String(bh?.dayOfWeek ?? "");
+                if (!/^[0-6]$/.test(dow)) continue;
+                const openTime = bh?.openTime || null;
+                const closeTime = bh?.closeTime || null;
+                const isClosed = !!bh?.isClosed;
+                await sql`
+                  INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed, created_at, updated_at)
+                  VALUES (gen_random_uuid(), ${organizationId}, ${dow}, ${openTime}, ${closeTime}, ${isClosed}, NOW(), NOW())
+                  ON CONFLICT (organization_id, day_of_week)
+                  DO UPDATE SET open_time = EXCLUDED.open_time, close_time = EXCLUDED.close_time, is_closed = EXCLUDED.is_closed, updated_at = NOW()
+                `;
+              }
+            }
+            // Free-form settings keys (smsSummaries, services, etc.)
+            const reserved = ["name", "timezone", "locale", "email", "phone", "website", "industry", "addressLine1", "addressLine2", "city", "state", "postalCode", "businessHours", "transferNumber", "smsEnabled"];
+            for (const [key, value] of Object.entries(body)) {
+              if (reserved.includes(key) || value === undefined) continue;
+              await sql`
+                INSERT INTO organization_settings (id, organization_id, key, value, created_at, updated_at)
+                VALUES (gen_random_uuid(), ${organizationId}, ${key}, ${JSON.stringify(value)}::jsonb, NOW(), NOW())
+                ON CONFLICT (organization_id, key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+              `;
+            }
+            return json({ success: true });
+          } catch (err) {
+            console.error("[Settings PUT]", String(err).slice(0, 200));
+            return json({ error: "Failed to update settings" }, 500);
+          }
+        }
+        // ── Billing API ──────────────────────────────────────────────
         if (pathname === "/api/contacts" && req.method === "GET") {
           try {
             const authHeader = req.headers.get("Authorization") || "";
@@ -5503,7 +5744,7 @@ for (let attempt = 1; ; attempt++) {
             if (orgPhone && phone) {
               // Same wording, now delivery-tracked (fire-and-forget: the booking
               // response must not wait on Telnyx).
-              void sendSms(orgPhone, phone,
+              void sendSms(smsSenderForOrg(orgPhone), phone,
                 `Hi ${name}, your appointment for ${service} on ${date} at ${time} is confirmed. We'll send a reminder before your visit. Questions? Call ${orgPhone}.`,
                 "confirmation").catch(() => {});
             }
@@ -5576,7 +5817,7 @@ for (let attempt = 1; ; attempt++) {
               if (remindersOn) {
                 // Routed through sendSms() so the reminder is recorded in
                 // sms_deliveries and a rejection is visible; the wording is unchanged.
-                const smsRes = await sendSms(fromNum, r.recipient_phone, r.message_body, "reminder");
+                const smsRes = await sendSms(smsSenderForOrg(fromNum), r.recipient_phone, r.message_body, "reminder");
                 smsOk = smsRes.ok;
               }
 

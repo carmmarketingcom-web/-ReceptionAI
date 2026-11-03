@@ -227,6 +227,10 @@ test("with texting on and a 40010 rejection, one text is attempted and the owner
   // The opt-in was honoured: exactly one attempt.
   expect(telnyx.sms.length).toBe(1);
   expect(telnyx.sms[0].to).toBe("+15550000009"); // organizations.phone, via getOwnerPhone()
+  // …and it left from ReceptionAI's ONE shared toll-free line, not from the business's own
+  // number (owner decision 2026-11-03). A reply reaches us, so the body must name the caller.
+  expect(telnyx.sms[0].from).toBe("+18339261247");
+  expect(telnyx.sms[0].text).toContain(CALLER);
 
   // The rejection did not silence the event: the summary email is there for this call.
   const summaries = emailFor(CALLER);
@@ -283,4 +287,19 @@ test("/api/health reports the email block", async () => {
   // The SMS block is untouched by all of this.
   expect(body.smsDelivery).toBeTruthy();
   expect(typeof body.smsDelivery.sent24h).toBe("number");
+});
+
+// ── 5. The shared sender is env-configurable, with the 833 as the constant fallback ──
+test("TELNYX_SMS_SENDER overrides the shared toll-free sender", async () => {
+  process.env.TELNYX_SMS_SENDER = "+15550009999";
+  db.run("UPDATE organizations SET sms_enabled = 1 WHERE id = 'org-1'");
+  telnyx.sms.length = 0;
+
+  await runCall("sender-env");
+
+  expect(telnyx.sms.length).toBe(1);
+  expect(telnyx.sms[0].from).toBe("+15550009999");
+
+  delete process.env.TELNYX_SMS_SENDER;
+  db.run("UPDATE organizations SET sms_enabled = 0 WHERE id = 'org-1'");
 });

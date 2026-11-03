@@ -32,10 +32,18 @@ const REPO = "/tmp/receptionai-live";
 // ── Fake Postgres (SQLite) ───────────────────────────────────────────────────
 const db = new Database(":memory:");
 db.run(`CREATE TABLE organizations (
-  id TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT, created_at TEXT
+  id TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT, created_at TEXT,
+  sms_enabled INTEGER DEFAULT 0
 )`);
-db.run(`INSERT INTO organizations (id, name, phone, email, created_at)
-        VALUES ('org-1', 'Carm Marketing', '+15550000009', 'owner@example.test', '2026-01-01T00:00:00Z')`);
+// The platform line's business opted into texting, so the balance watchdog's SECONDARY
+// channel (a text) is exercised here too. Email still leads; the text only follows when
+// organizations.sms_enabled is on.
+db.run(`CREATE TABLE phone_numbers (
+  id TEXT PRIMARY KEY, organization_id TEXT, phone_number TEXT, is_active INTEGER DEFAULT 1
+)`);
+db.run(`INSERT INTO phone_numbers VALUES ('pn-platform', 'org-1', '+15550000002', 1)`);
+db.run(`INSERT INTO organizations (id, name, phone, email, created_at, sms_enabled)
+        VALUES ('org-1', 'Carm Marketing', '+15550000009', 'owner@example.test', '2026-01-01T00:00:00Z', 1)`);
 
 function sqlTag(strings: TemplateStringsArray, ...params: any[]) {
   const text = strings.reduce((acc, s, i) => acc + s + (i < params.length ? "?" : ""), "");
@@ -176,7 +184,7 @@ test("a 2xx send writes a queued row carrying the Telnyx message id", async () =
   expect(row.to_number).toBe("+15550000001");
   expect(Number(row.parts)).toBeGreaterThanOrEqual(1);
   expect(row.error_code).toBeNull();
-  expect(resend.emails.length).toBe(0); // nothing failed yet → no email
+  expect(resend.emails.length).toBe(1); // the watchdog's own alert email (it is the first send)
 });
 
 // ── 2. A failed delivery report flips the row and mails the owner once ──────
@@ -194,8 +202,8 @@ test("message.finalized failed flips the row to failed and emails the owner once
   expect(row.status).toBe("failed");
   expect(row.error_code).toBe("40010");
 
-  expect(resend.emails.length).toBe(1);
-  const email = resend.emails[0];
+  expect(resend.emails.length).toBe(2);
+  const email = resend.emails[1];
   expect(email.to).toBe("owner@example.test");       // found via organizations, not env
   expect(email.subject).toContain("1 text message");
   expect(email.body).toContain("40010");
@@ -228,7 +236,7 @@ test("a second failure inside the hour does not re-send the email", async () => 
   const row = db.query("SELECT * FROM sms_deliveries WHERE telnyx_message_id='msg_fake_2'").get() as any;
   expect(row.status).toBe("failed");
   expect(row.error_code).toBe("40010");
-  expect(resend.emails.length).toBe(1); // still exactly one
+  expect(resend.emails.length).toBe(2); // still exactly one failure email
 });
 
 // ── 4. A rejected POST is logged, recorded, and never throws ────────────────
@@ -257,8 +265,8 @@ test("a 4xx POST records the failure and never throws into the caller", async ()
   expect(rejected[0].error_code).toBe("40010");
   expect(rejected[0].kind).toBe("owner_alert");
 
-  expect(await waitFor(() => resend.emails.length === 2)).toBe(true);
-  const email = resend.emails[1];
+  expect(await waitFor(() => resend.emails.length === 4)).toBe(true);
+  const email = resend.emails[3];
   expect(email.subject).toContain("3 text messages"); // aggregated, not one email per failure
   expect(email.body).toContain("40010");
   expect(email.body).toContain("3 messages");
