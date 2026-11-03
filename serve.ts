@@ -1336,19 +1336,28 @@ async function saveVoicemailRecording(
 
 async function notifyOwnerOfVoicemail(orgId: string, callerNumber: string, fromNumber: string, lang: string, recordingUrl?: string): Promise<void> {
   const es = lang === "es";
-  const ownerPhone = await getOwnerPhone(orgId);
-  if (ownerPhone && fromNumber) {
-    const msg = es
-      ? `📞 Nuevo mensaje de voz de ${callerNumber}. Escúchelo en su panel: receptionai.store/dashboard/recordings`
-      : `📞 New voicemail from ${callerNumber}. Listen on your dashboard: receptionai.store/dashboard/recordings`;
-    await sendSms(fromNumber, ownerPhone, msg, "owner_alert");
-  }
-  // Also send email with recording link
-  await sendEmailNotification(orgId,
-    es ? `📞 Nuevo mensaje de voz de ${callerNumber}` : `📞 New voicemail from ${callerNumber}`,
+  // Email is unconditional (the owner always learns a message was left); the text only goes
+  // out when this business opted into texting. A rejected text falls back to the email.
+  const emailBody = [
     es
-      ? `Tiene un nuevo mensaje de voz de ${callerNumber}.\n\nEscúchelo aquí: receptionai.store/dashboard/recordings`
-      : `You have a new voicemail from ${callerNumber}.\n\nListen here: receptionai.store/dashboard/recordings`);
+      ? `Tiene un nuevo mensaje de voz de ${callerNumber}.`
+      : `You have a new voicemail from ${callerNumber}.`,
+    "",
+    es
+      ? `Escúchelo aquí: ${DASHBOARD_NOTIFY_URL}/recordings`
+      : `Listen here: ${DASHBOARD_NOTIFY_URL}/recordings`,
+  ].join("\n");
+  await deliverOwnerNotification({
+    orgId,
+    smsFrom: fromNumber,
+    smsText: es
+      ? `📞 Nuevo mensaje de voz de ${callerNumber}. Escúchelo en su panel: receptionai.store/dashboard/recordings`
+      : `📞 New voicemail from ${callerNumber}. Listen on your dashboard: receptionai.store/dashboard/recordings`,
+    smsKind: "owner_alert",
+    emailSubject: es ? `Nuevo mensaje de voz de ${callerNumber}` : `New voicemail from ${callerNumber}`,
+    emailBody,
+    emailKind: "voicemail",
+  });
 }
 
 // ── After-hours check ──────────────────────────────────────────────────────
@@ -1399,21 +1408,304 @@ async function generateCallTranscript(cs: CallState): Promise<string> {
   } catch { return ""; }
 }
 
-// ── Send email notification ─────────────────────────────────────────────────
-async function sendEmailNotification(orgId: string, subject: string, body: string): Promise<void> {
+// ── Notification delivery: email first, SMS on opt-in ────────────────────────
+// Owner direction 2026-11-03: "let's do the email for now, and if the customer wants the
+// text, that could be an upgrade." Carriers block every text we send (Telnyx error 40010 —
+// the sending number is not 10DLC-registered; 0 of 39 messages have ever been delivered), so
+// email is the only channel that actually reaches a business owner today.
+//
+// Rules this block enforces:
+//   • every owner notification goes out by email, unconditionally;
+//   • a text is attempted ONLY for a business that opted in (organizations.sms_enabled,
+//     migration 0009, DEFAULT false) — no money is spent on a message that cannot arrive;
+//   • when a text IS attempted and fails, the email is the fallback, so the owner still
+//     learns that a call happened. Nothing here may throw into a call flow.
+const DASHBOARD_NOTIFY_URL = "https://www.receptionai.store/dashboard";
+
+// ── email_deliveries: one row per outbound email ─────────────────────────────
+// Same shape as sms_deliveries (migration 0008) — epoch-ms and TEXT/INTEGER columns — so the
+// same DDL runs on Postgres and on the SQLite fake used by the tests. The server issues the
+// CREATE TABLE itself as well, so /api/health can report email health before migration 0010
+// is applied by hand.
+let emailDeliveriesTableReady: Promise<boolean> | null = null;
+
+function emailDeliveryDb(): any {
+  const dbUrl = process.env.DATABASE_URL || "";
+  return dbUrl ? neon(dbUrl) : null;
+}
+
+async function ensureEmailDeliveriesTable(sql: any): Promise<boolean> {
+  if (!emailDeliveriesTableReady) {
+    emailDeliveriesTableReady = (async () => {
+      try {
+        await sql`CREATE TABLE IF NOT EXISTS email_deliveries (
+          id TEXT PRIMARY KEY,
+          to_email TEXT,
+          subject TEXT,
+          kind TEXT,
+          org_id TEXT,
+          status TEXT,
+          error TEXT,
+          created_at_ms BIGINT,
+          updated_at_ms BIGINT
+        )`;
+        await sql`CREATE INDEX IF NOT EXISTS email_deliveries_created_idx ON email_deliveries (created_at_ms)`;
+        return true;
+      } catch (err) {
+        console.warn("[Email] delivery table unavailable:", String(err).slice(0, 120));
+        emailDeliveriesTableReady = null; // retry on the next send
+        return false;
+      }
+    })();
+  }
+  return emailDeliveriesTableReady;
+}
+
+// False when there was no DB or the insert failed — the caller logs that, because a missing
+// row means the channel that is now the only one has no trail behind it.
+async function recordEmailDelivery(row: {
+  toEmail: string;
+  subject: string;
+  kind: string;
+  orgId: string | null;
+  status: "sent" | "failed";
+  error: string | null;
+}): Promise<boolean> {
+  const sql = emailDeliveryDb();
+  if (!sql) return false;
+  if (!(await ensureEmailDeliveriesTable(sql))) return false;
+  const now = Date.now();
+  try {
+    await sql`INSERT INTO email_deliveries
+      (id, to_email, subject, kind, org_id, status, error, created_at_ms, updated_at_ms)
+      VALUES (${crypto.randomUUID()}, ${row.toEmail}, ${row.subject.slice(0, 200)}, ${row.kind},
+              ${row.orgId}, ${row.status}, ${row.error}, ${now}, ${now})`;
+    return true;
+  } catch (err) {
+    console.warn("[Email] could not record delivery:", String(err).slice(0, 120));
+    return false;
+  }
+}
+
+// The single place an email actually leaves the process. Returns true only when the provider
+// accepted it — sendEmail() itself returns false (never throws) for a rejection or a missing
+// RESEND_API_KEY, so a caller can never report a send that did not happen.
+async function deliverEmail(
+  toEmail: string,
+  subject: string,
+  body: string,
+  kind: string,
+  orgId: string | null,
+): Promise<boolean> {
+  let ok = false;
+  let error: string | null = null;
+  try {
+    // The real Resend wrapper is ./src/lib/email — correct from BOTH serve.ts trees, because
+    // site/serve.ts has its own src/. The previous parent-directory specifier resolved to /lib/email,
+    // which does not exist, so every post-call summary and voicemail email threw here and
+    // was swallowed by the catch below: the owner was never told about a call.
+    const { sendEmail } = await import("./src/lib/email");
+    ok = await sendEmail(toEmail, subject, body);
+    if (!ok) error = "provider rejected the message or RESEND_API_KEY is unset";
+  } catch (err) {
+    error = String(err).slice(0, 200);
+  }
+  const persisted = await recordEmailDelivery({ toEmail, subject, kind, orgId, status: ok ? "sent" : "failed", error });
+  if (ok) {
+    console.log(`[Email] Sent "${subject.slice(0, 50)}" to ${toEmail} (${kind})`);
+  } else {
+    console.error(`[Email] NOT SENT "${subject.slice(0, 50)}" to ${toEmail} (${kind}): ${error}`);
+  }
+  if (!persisted) console.warn(`[Email] delivery NOT recorded for ${kind} to ${toEmail} (no database?)`);
+  return ok;
+}
+
+// Last 24h of email for /api/health. Never throws: a broken read reports zeros, because the
+// health endpoint must always answer — and email is now the only notification channel.
+async function emailDeliverySnapshot(): Promise<{
+  provider: string;
+  sent24h: number;
+  failed24h: number;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastError: string | null;
+}> {
+  const out = {
+    provider: process.env.RESEND_API_KEY ? "resend" : "not configured",
+    sent24h: 0,
+    failed24h: 0,
+    lastSuccessAt: null as string | null,
+    lastFailureAt: null as string | null,
+    lastError: null as string | null,
+  };
+  try {
+    const sql = emailDeliveryDb();
+    if (!sql) return out;
+    if (!(await ensureEmailDeliveriesTable(sql))) return out;
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const rows = (await sql`SELECT status, COUNT(*) AS n FROM email_deliveries
+      WHERE created_at_ms >= ${since} GROUP BY status`) as any[];
+    for (const r of rows || []) {
+      const n = Number(r?.n) || 0;
+      const s = String(r?.status || "");
+      if (s === "sent") out.sent24h += n;
+      else if (s === "failed") out.failed24h += n;
+    }
+    const okRow = (await sql`SELECT updated_at_ms FROM email_deliveries
+      WHERE status = 'sent' ORDER BY updated_at_ms DESC LIMIT 1`) as any[];
+    const okAt = okRow?.[0]?.updated_at_ms;
+    out.lastSuccessAt = okAt === undefined || okAt === null ? null : new Date(Number(okAt)).toISOString();
+    const badRow = (await sql`SELECT error, updated_at_ms FROM email_deliveries
+      WHERE status = 'failed' ORDER BY updated_at_ms DESC LIMIT 1`) as any[];
+    const badAt = badRow?.[0]?.updated_at_ms;
+    out.lastFailureAt = badAt === undefined || badAt === null ? null : new Date(Number(badAt)).toISOString();
+    const err = badRow?.[0]?.error;
+    out.lastError = err === undefined || err === null ? null : String(err).slice(0, 200);
+  } catch (err) {
+    console.warn("[Email] health snapshot failed:", String(err).slice(0, 120));
+  }
+  return out;
+}
+
+// ── Is texting switched on for this business? ────────────────────────────────
+// organizations.sms_enabled (migration 0009) defaults to false, and any lookup failure also
+// answers false: with the sending number not 10DLC-registered, a text is money spent on a
+// message the carrier throws away.
+async function smsEnabledForOrg(orgId: string | null | undefined): Promise<boolean> {
+  if (!orgId) return false;
   try {
     const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl) return;
+    if (!dbUrl) return false;
+    const sql = neon(dbUrl);
+    const rows = await sql`SELECT sms_enabled FROM organizations WHERE id = ${orgId} LIMIT 1`;
+    const v = (rows[0] as any)?.sms_enabled;
+    return v === true || v === 1 || v === "1" || v === "true";
+  } catch (err) {
+    console.warn("[SMS] sms_enabled lookup failed — treating texting as OFF:", String(err).slice(0, 120));
+    return false;
+  }
+}
+
+// ── One owner notification, email always, text only on opt-in ────────────────
+// Every owner-facing event (call summary, voicemail, missed call, callback request, transfer)
+// goes through here, so the channels can never drift apart again.
+async function deliverOwnerNotification(opts: {
+  orgId: string | null;
+  smsFrom?: string | null;   // the business line a text would be sent from
+  smsTo?: string | null;     // defaults to organizations.phone via getOwnerPhone()
+  smsText?: string;
+  smsKind?: SmsKind;
+  emailSubject: string;
+  emailBody: string;
+  emailKind?: string;
+}): Promise<{ emailed: boolean; smsAttempted: boolean; smsOk: boolean }> {
+  let smsAttempted = false;
+  let smsOk = false;
+  try {
+    const wantSms = !!opts.smsFrom && !!opts.smsText && (await smsEnabledForOrg(opts.orgId));
+    if (wantSms) {
+      const to = opts.smsTo || (opts.orgId ? await getOwnerPhone(opts.orgId) : null);
+      if (to) {
+        smsAttempted = true;
+        const res = await sendSms(opts.smsFrom as string, to, opts.smsText as string, opts.smsKind || "owner_alert");
+        smsOk = res.ok;
+        if (!res.ok) {
+          console.warn(
+            `[Notify] text to the owner failed (${res.errorCode || res.httpStatus || "no code"}) — ` +
+            `the email for this event is the fallback`,
+          );
+        }
+      }
+    } else if (opts.smsText) {
+      console.log(`[Notify] texting off for this business — "${opts.emailSubject.slice(0, 50)}" goes out by email only`);
+    }
+  } catch (err) {
+    console.warn("[Notify] SMS leg failed:", String(err).slice(0, 140));
+  }
+  // Email is sent whatever happened above. It is the channel that works, and it is the
+  // fallback when an opted-in text is rejected.
+  const emailed = await sendEmailNotification(opts.orgId, opts.emailSubject, opts.emailBody, opts.emailKind || opts.smsKind || "notification");
+  return { emailed, smsAttempted, smsOk };
+}
+
+// ── Platform alerts (ReceptionAI's own owner, not a customer business) ──────
+// Same env-only routing rule as SUPPORT_ALERT_TO: no address is ever hardcoded.
+async function platformAlertEmailRecipients(): Promise<string[]> {
+  const explicit = (process.env.SUPPORT_ALERT_EMAIL || process.env.SMS_FAILURE_ALERT_EMAIL || "").trim();
+  return explicit ? explicit.split(/[,;]/).map((s) => s.trim()).filter(Boolean) : [];
+}
+
+async function emailPlatformAlert(subject: string, body: string, kind: string): Promise<boolean> {
+  try {
+    const recipients = await platformAlertEmailRecipients();
+    if (!recipients.length) {
+      console.warn("[Alert] no SUPPORT_ALERT_EMAIL set — platform alert email NOT sent");
+      return false;
+    }
+    let sent = false;
+    for (const to of recipients) {
+      sent = (await deliverEmail(to, subject, body, kind, null)) || sent;
+    }
+    return sent;
+  } catch (err) {
+    console.warn("[Alert] platform alert email failed:", String(err).slice(0, 140));
+    return false;
+  }
+}
+
+// ── Email subject/body for a finished call ──────────────────────────────────
+// The body is the existing bilingual buildCallSummary() text plus a dashboard link, so the
+// email and the text can never disagree about who called, what happened, or when the
+// appointment is.
+function callEmailSubject(cs: CallState, missed: boolean): string {
+  const es = cs.language === "es";
+  const label = cs.callerFirstName ? `${cs.callerFirstName} (${cs.callerNumber})` : cs.callerNumber;
+  if (missed) return es ? `Llamada perdida de ${label}` : `Missed call from ${label}`;
+  const outcome = cs.appointmentBooked
+    ? (es ? "cita agendada" : "appointment booked")
+    : cs.requestedCallback
+      ? (es ? "pidió que lo llamen" : "asked you to call back")
+      : cs.appointmentIntent
+        ? (es ? "preguntó por una cita" : "asked about an appointment")
+        : (es ? "consulta general" : "general inquiry");
+  return es ? `Llamada de ${label} — ${outcome}` : `Call from ${label} — ${outcome}`;
+}
+
+function callEmailBody(cs: CallState, summary: string): string {
+  const es = cs.language === "es";
+  return [
+    summary,
+    "",
+    `${es ? "Abrir su panel" : "Open your dashboard"}: ${DASHBOARD_NOTIFY_URL}`,
+  ].join("\n");
+}
+
+// ── Send email notification (the business owner) ─────────────────────────────
+// Returns true only when the provider accepted the message, so a caller can never report a
+// send that did not happen. Recipient is organizations.email — the business's own address.
+async function sendEmailNotification(
+  orgId: string | null,
+  subject: string,
+  body: string,
+  kind = "notification",
+): Promise<boolean> {
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      console.warn(`[Email] no DATABASE_URL — "${subject.slice(0, 50)}" NOT sent`);
+      return false;
+    }
     const sql = neon(dbUrl);
     const rows = await sql`SELECT email FROM organizations WHERE id = ${orgId} LIMIT 1`;
-    const orgEmail = rows[0]?.email as string | undefined;
-    if (!orgEmail) return;
-
-    const { sendEmail } = await import("../lib/email");
-    await sendEmail(orgEmail, subject, body);
-    console.log(`[Email] Sent to ${orgEmail}: "${subject.slice(0, 50)}"`);
+    const orgEmail = (rows[0]?.email as string | undefined) || "";
+    if (!orgEmail) {
+      console.warn(`[Email] org ${String(orgId).slice(0, 8)} has no email address — "${subject.slice(0, 50)}" NOT sent`);
+      return false;
+    }
+    return await deliverEmail(orgEmail, subject, body, kind, orgId);
   } catch (err) {
-    console.error("[Email] send failed:", String(err).slice(0, 100));
+    console.error("[Email] send failed:", String(err).slice(0, 160));
+    return false;
   }
 }
 
@@ -1513,9 +1805,9 @@ function armHangup(cid: string, delayMs = 1500): void {
   }, delayMs));
 }
 const pendingHangups = new Set<string>();
-const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string }>(); // outbound cid → callback info
-const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean }>(); // outbound cid → active callback state
-const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean }>(); // outbound owner-leg cid → transfer info
+const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; orgId: string | null }>(); // outbound cid → callback info
+const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean; orgId: string | null }>(); // outbound cid → active callback state
+const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null }>(); // outbound owner-leg cid → transfer info
 
 // ── Reschedule flow handler ────────────────────────────────────────────────
 async function handleReschedulePhase(cid: string, digit: string, cs: CallState): Promise<void> {
@@ -2014,7 +2306,11 @@ async function createVoiceBooking(p: {
     const confirmation = p.lang === "es"
       ? `Hola ${p.name}, su cita para ${p.service} el ${p.date} a las ${p.time} queda confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${p.fromNumber}.`
       : `Hi ${p.name}, your appointment for ${p.service} on ${p.date} at ${p.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${p.fromNumber}.`;
-    if (p.fromNumber && p.phone) await sendSms(p.fromNumber, p.phone, confirmation, "confirmation");
+    // Booking confirmations are texts too: skipped entirely unless this business opted into
+    // texting, so no money is spent on a message the carrier would throw away.
+    if (p.fromNumber && p.phone && (await smsEnabledForOrg(p.orgId))) {
+      await sendSms(p.fromNumber, p.phone, confirmation, "confirmation");
+    }
 
     return { success: true, appointmentId: apptId };
   } catch (err) {
@@ -2123,6 +2419,7 @@ function scheduleCallback(cs: CallState): void {
         language: lang,
         callerNumber: cs.callerNumber,
         businessNumber: cs.toNumber,
+        orgId: cs.orgId,
       });
       console.log(`[Callback] Scheduled callback to ${cs.callerNumber} (cid: ${outboundCid.slice(-8)})`);
     }
@@ -2156,9 +2453,26 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
       ? "Lo siento, no pudimos comunicarnos con el equipo. Le avisaremos y alguien lo contactará pronto."
       : "Sorry, we couldn't reach the team. We'll let them know and someone will reach out shortly.", cs.language);
     pendingHangups.add(cid);
-    await sendSms(cs.toNumber, transferNumber, es
-      ? `Un llamador (${cs.callerNumber}) pidio hablar con usted y no pudimos transferir la llamada. Por favor devuelva la llamada.`
-      : `A caller (${cs.callerNumber}) asked to speak with you and the transfer failed. Call them back.`, "owner_alert");
+    await deliverOwnerNotification({
+      orgId: cs.orgId,
+      smsFrom: cs.toNumber,
+      smsTo: transferNumber,
+      smsText: es
+        ? `Un llamador (${cs.callerNumber}) pidio hablar con usted y no pudimos transferir la llamada. Por favor devuelva la llamada.`
+        : `A caller (${cs.callerNumber}) asked to speak with you and the transfer failed. Call them back.`,
+      smsKind: "owner_alert",
+      emailSubject: es
+        ? `Un llamador quiere hablar con usted: ${cs.callerNumber}`
+        : `A caller wants to speak with you: ${cs.callerNumber}`,
+      emailBody: [
+        es
+          ? `Un llamador (${cs.callerNumber}) pidio hablar con usted y no pudimos transferir la llamada. Por favor devuelva la llamada.`
+          : `A caller (${cs.callerNumber}) asked to speak with you and the transfer failed. Call them back.`,
+        "",
+        `${es ? "Abrir su panel" : "Open your dashboard"}: ${DASHBOARD_NOTIFY_URL}`,
+      ].join("\n"),
+      emailKind: "transfer_alert",
+    });
     return;
   }
   transferStates.set(ownerCid, {
@@ -2168,6 +2482,7 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
     businessNumber: cs.toNumber,
     language: cs.language,
     answered: false,
+    orgId: cs.orgId,
   });
   console.log(`[Transfer] Dialed owner ${transferNumber} (leg ${ownerCid.slice(-8)}) for caller ${cs.callerNumber}`);
 }
@@ -2635,6 +2950,14 @@ function isSupportEscalation(message: string): boolean {
 
 async function notifyOwnerOfSupportRequest(source: string, detail: string): Promise<void> {
   await sendSupportAlert(`🚨 ReceptionAI support request\nSource: ${source}\n${detail}`);
+  // The text is blocked by the carrier today, so the same alert also goes out by email.
+  // Address is env-only (SUPPORT_ALERT_EMAIL, falling back to SMS_FAILURE_ALERT_EMAIL) —
+  // never hardcoded, exactly like SUPPORT_ALERT_TO.
+  await emailPlatformAlert(
+    `ReceptionAI: ${source}`,
+    [`ReceptionAI support request`, ``, `Source: ${source}`, detail, ``, `— ReceptionAI`].join("\n"),
+    "support_alert",
+  );
 }
 
 // ── Web-chat callback request → owner SMS alert ───────────────────────────
@@ -3787,9 +4110,26 @@ for (let attempt = 1; ; attempt++) {
               if (tState) {
                 if (!tState.answered) {
                   // Owner missed — text owner to call the caller back
-                  await sendSms(tState.businessNumber, tState.ownerPhone, tState.language === "es"
-                    ? `Un llamador (${tState.callerNumber}) pidio hablar con usted y no atendio la transferencia. Por favor devuelva la llamada.`
-                    : `A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer. Call them back.`, "owner_alert");
+                  await deliverOwnerNotification({
+                    orgId: tState.orgId,
+                    smsFrom: tState.businessNumber,
+                    smsTo: tState.ownerPhone,
+                    smsText: tState.language === "es"
+                      ? `Un llamador (${tState.callerNumber}) pidio hablar con usted y no atendio la transferencia. Por favor devuelva la llamada.`
+                      : `A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer. Call them back.`,
+                    smsKind: "owner_alert",
+                    emailSubject: tState.language === "es"
+                      ? `Llamada perdida de un cliente que queria hablar con usted: ${tState.callerNumber}`
+                      : `Missed transfer: a caller wanted to speak with you (${tState.callerNumber})`,
+                    emailBody: [
+                      tState.language === "es"
+                        ? `Un llamador (${tState.callerNumber}) pidio hablar con usted y no atendio la transferencia. Por favor devuelva la llamada.`
+                        : `A caller (${tState.callerNumber}) asked to speak with you and you missed the transfer. Call them back.`,
+                      "",
+                      `${tState.language === "es" ? "Abrir su panel" : "Open your dashboard"}: ${DASHBOARD_NOTIFY_URL}`,
+                    ].join("\n"),
+                    emailKind: "transfer_alert",
+                  });
                   const inbound = calls.get(tState.inboundCid);
                   if (inbound) {
                     inbound.transferring = false;
@@ -3822,8 +4162,8 @@ for (let attempt = 1; ; attempt++) {
               // Clean up callback state if it was a callback call
               if (callbackStates.has(cid)) {
                 const cbState = callbackStates.get(cid);
-                if (cbState && cbState.answered && cbState.callerNumber && cbState.businessNumber) {
-                  // Send confirmation SMS
+                if (cbState && cbState.answered && cbState.callerNumber && cbState.businessNumber && (await smsEnabledForOrg(cbState.orgId))) {
+                  // Send confirmation SMS (opt-in only)
                   await sendSms(cbState.businessNumber, cbState.callerNumber,
                     cbState.language === "es"
                       ? `Hola, gracias por su interés. Alguien de ${cbState.orgName} se va a comunicar con usted pronto.`
@@ -3850,16 +4190,24 @@ for (let attempt = 1; ; attempt++) {
                 const summary = buildCallSummary(cs, transcript);
                 const outcome = cs.appointmentBooked ? "Appointment booked" : cs.requestedCallback ? "Requested owner callback" : cs.appointmentIntent ? "Appointment interest" : "General inquiry";
 
-                // Send SMS summary to owner
-                const ownerPhone = await getOwnerPhone(cs.orgId);
-                if (ownerPhone) {
-                  await sendSms(cs.toNumber, ownerPhone, summary, "summary");
-                }
-
-                // Send email notification
-                await sendEmailNotification(cs.orgId,
-                  `📞 Call from ${cs.callerFirstName || cs.callerNumber} — ${outcome}`,
-                  summary);
+                // Owner notification: email always, text only if this business opted in.
+                // A missed call gets its own subject so the owner sees it in the inbox list
+                // without opening the message — the body is the same bilingual summary.
+                const missedCall = !cs.answered && cs.dtmfHistory.length === 0;
+                const notifyRes = await deliverOwnerNotification({
+                  orgId: cs.orgId,
+                  smsFrom: cs.toNumber,
+                  smsText: summary,
+                  smsKind: "summary",
+                  emailSubject: callEmailSubject(cs, missedCall),
+                  emailBody: callEmailBody(cs, summary),
+                  emailKind: missedCall ? "missed_call" : "summary",
+                });
+                console.log(
+                  `[Notify] ${missedCall ? "missed call" : "call"} ${cs.callerNumber} (${outcome}): ` +
+                  `email ${notifyRes.emailed ? "sent" : "NOT sent"}` +
+                  `${notifyRes.smsAttempted ? `, text ${notifyRes.smsOk ? "accepted" : "failed"}` : ", texting off"}`,
+                );
 
                 // ── Missed call auto-callback ────────────────────
                 // Check: not answered, no DTMF interaction, not already sent callback, has caller number
@@ -3878,7 +4226,12 @@ for (let attempt = 1; ; attempt++) {
                   const followUp = lang === "es"
                     ? `Hola, somos ${orgName}. Recibimos su llamada sobre una cita pero no pudimos completar la reserva. ¿Desea que lo contactemos para agendar? Responda SI y lo llamamos pronto.`
                     : `Hi, this is ${orgName}. You called about booking an appointment and we could not finish it. Want us to call back to schedule? Reply YES.`;
+                  const followUpOrgId = cs.orgId;
                   setTimeout(async () => {
+                    if (!(await smsEnabledForOrg(followUpOrgId))) {
+                      console.log(`[Follow-up] texting off for this business — follow-up to ${callerNumber} skipped`);
+                      return;
+                    }
                     await sendSms(toNumber, callerNumber, followUp, "followup");
                   }, 15 * 60 * 1000); // 15 minutes
                   console.log(`[Follow-up] Scheduled 15-min SMS to ${callerNumber} for missed appointment (${lang})`);
@@ -4306,6 +4659,11 @@ for (let attempt = 1; ; attempt++) {
             // for a week (Telnyx 40010, not 10DLC-registered): 36 sent, 36 failed, 0
             // delivered. Readable here so a human or a monitor sees it without an SMS.
             serverStatus.smsDelivery = await smsDeliverySnapshot();
+
+            // Email is now the PRIMARY notification channel — the only one that reaches an
+            // owner while the sending number is not 10DLC-registered. A silent mail failure
+            // would mean nobody is told a call happened, so it is reported right here.
+            serverStatus.email = await emailDeliverySnapshot();
 
             return new Response(JSON.stringify(serverStatus),
               { status: 200, headers: { "Content-Type": "application/json" } });
@@ -4967,6 +5325,9 @@ for (let attempt = 1; ; attempt++) {
                 locale: org.locale, industry: org.industry, email: org.email, phone: org.phone,
                 website: org.website, addressLine1: org.address_line1, city: org.city,
                 state: org.state, postalCode: org.postal_code, transferNumber: org.transfer_number,
+                // Texting is an explicit per-business opt-in (migration 0009, DEFAULT false).
+                // Read-only here beyond the toggle in Settings: the honest state, not a promise.
+                smsEnabled: org.sms_enabled === true || org.sms_enabled === "1" || org.sms_enabled === 1,
               } : null,
               phoneNumbers: (numberRows as any[]).map((p: any) => ({
                 phoneNumber: p.phone_number,
@@ -5000,6 +5361,7 @@ for (let attempt = 1; ; attempt++) {
             if (typeof body.email === "string") await sql`UPDATE organizations SET email = ${body.email}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.website === "string") await sql`UPDATE organizations SET website = ${body.website}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.transferNumber === "string" || body.transferNumber === null) await sql`UPDATE organizations SET transfer_number = ${body.transferNumber}, updated_at = NOW() WHERE id = ${organizationId}`;
+            if (typeof body.smsEnabled === "boolean") await sql`UPDATE organizations SET sms_enabled = ${body.smsEnabled}, updated_at = NOW() WHERE id = ${organizationId}`;
             // Business hours upsert
             if (Array.isArray(body.businessHours)) {
               for (const bh of body.businessHours) {
@@ -5017,7 +5379,7 @@ for (let attempt = 1; ; attempt++) {
               }
             }
             // Free-form settings keys (smsSummaries, services, etc.)
-            const reserved = ["name", "timezone", "locale", "email", "phone", "website", "industry", "addressLine1", "addressLine2", "city", "state", "postalCode", "businessHours", "transferNumber"];
+            const reserved = ["name", "timezone", "locale", "email", "phone", "website", "industry", "addressLine1", "addressLine2", "city", "state", "postalCode", "businessHours", "transferNumber", "smsEnabled"];
             for (const [key, value] of Object.entries(body)) {
               if (reserved.includes(key) || value === undefined) continue;
               await sql`
@@ -5734,15 +6096,16 @@ for (let attempt = 1; ; attempt++) {
               }
 
               const telnyxKey = process.env.TELNYX_API_KEY || "";
+              const remindersOn = telnyxKey ? await smsEnabledForOrg(r.organization_id) : false;
               let smsOk = false;
-              if (telnyxKey) {
+              if (remindersOn) {
                 // Routed through sendSms() so the reminder is recorded in
                 // sms_deliveries and a rejection is visible; the wording is unchanged.
                 const smsRes = await sendSms(fromNum, r.recipient_phone, r.message_body, "reminder");
                 smsOk = smsRes.ok;
               }
 
-              if (smsOk || !telnyxKey) {
+              if (smsOk || !remindersOn) {
                 await sql`UPDATE appointment_reminders SET status='sent', sent_at=NOW(), updated_at=NOW() WHERE id=${r.reminder_id}`;
                 await sql`UPDATE appointments SET reminder_sent_at=NOW(), reminder_sent_count=COALESCE(NULLIF(reminder_sent_count,'0')::int+1,1)::text, updated_at=NOW() WHERE id=${r.appointment_id}`;
                 sent++;
@@ -6085,7 +6448,7 @@ for (let attempt = 1; ; attempt++) {
             console.log(`[Password Reset] URL: ${resetUrl}`);
 
             // Send asynchronously — don't block response
-            const { sendEmail } = await import("../../lib/email");
+            const { sendEmail } = await import("./src/lib/email");
             sendEmail(email, "Reset your ReceptionAI password",
               `Click this link to reset your password:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.`);
 
