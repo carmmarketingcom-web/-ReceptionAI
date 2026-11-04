@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { login } from "../lib/auth";
 
 export const Route = createFileRoute("/login")({
@@ -11,8 +11,8 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"login" | "register">("login");
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Prefilled from /login?email=… — the post-payment fallback sends the customer here with
   // their address already typed in, so they never have to retype it.
@@ -21,6 +21,18 @@ function LoginPage() {
     const prefill = new URLSearchParams(window.location.search).get("email");
     if (prefill) setEmail(prefill);
   }, []);
+
+  // Native submit handler — React onSubmit doesn't fire on some mobile browsers
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    const handler = (e: Event) => {
+      e.preventDefault();
+      handleLogin();
+    };
+    form.addEventListener("submit", handler);
+    return () => form.removeEventListener("submit", handler);
+  }, [email, password]);
 
   const handleLogin = async () => {
     setError("");
@@ -39,24 +51,14 @@ function LoginPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (mode === "login") {
-      await handleLogin();
-    } else {
-      // Registration mode — route to the signup page flow.
-      router.navigate({ to: "/signup" });
-    }
-  };
-
   return (
     <div className="flex min-h-dvh bg-gray-50">
       {/* Left panel — branding */}
       <div className="hidden flex-1 flex-col justify-between bg-gradient-to-br from-indigo-600 to-purple-700 p-12 text-white lg:flex">
         <div>
           <Link to="/" className="flex items-center">
-                        <img src="/images/logo.png" alt="ReceptionAI" className="h-9 w-auto brightness-0 invert" width={800} height={450} />
-                      </Link>
+            <img src="/images/logo.png" alt="ReceptionAI" className="h-9 w-auto brightness-0 invert" width={800} height={450} />
+          </Link>
         </div>
         <div className="max-w-md">
           <h2 className="text-2xl font-semibold leading-snug">Everything your receptionist handled, in one place.</h2>
@@ -87,13 +89,13 @@ function LoginPage() {
         </div>
         <div className="flex items-center gap-6 text-sm text-indigo-200">
           <span>© 2026 ReceptionAI</span>
-          <a href="#" className="hover:text-white">Privacy</a>
-          <a href="#" className="hover:text-white">Terms</a>
+          <a href="/privacy" className="hover:text-white">Privacy</a>
+          <a href="/terms" className="hover:text-white">Terms</a>
         </div>
       </div>
 
       {/* Right panel — form */}
-      <div className="flex flex-1 items-center justify-center px-6 py-12" style={{ colorScheme: "light" }}>
+      <div className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
           {/* Logo for mobile */}
           <div className="mb-10 flex justify-center lg:hidden">
@@ -101,26 +103,18 @@ function LoginPage() {
           </div>
 
           <div className="mb-8 text-center lg:text-left">
-            <h1 className="text-2xl font-bold text-gray-900">
-              {mode === "login" ? "Welcome back" : "Create your account"}
-            </h1>
-            <p className="mt-2 text-sm text-gray-500">
-              {mode === "login"
-                ? "Sign in to your ReceptionAI dashboard."
-                : "Get started today."}
-            </p>
+            <h1 className="text-2xl font-bold text-gray-900">Welcome back</h1>
+            <p className="mt-2 text-sm text-gray-500">Sign in to your ReceptionAI dashboard.</p>
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </div>
+            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form ref={formRef} className="space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Business Email
+                Email
               </label>
               <input
                 id="email"
@@ -128,8 +122,8 @@ function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    placeholder="you@company.com"
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="you@company.com"
               />
             </div>
             <div>
@@ -142,54 +136,31 @@ function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    placeholder="Enter your password"
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Enter your password"
               />
             </div>
 
-            {mode === "login" && (
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                  <span className="text-sm text-gray-600">Remember me</span>
-                </label>
-                <Link to="/forgot-password" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">
-                  Forgot password?
-                </Link>
-              </div>
-            )}
+            <div className="flex items-center justify-between">
+              <Link to="/forgot-password" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">
+                Forgot password?
+              </Link>
+            </div>
 
             <button
               type="submit"
               disabled={loading}
               className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
             >
-              {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
+              {loading ? "Signing in..." : "Sign In"}
             </button>
           </form>
 
           <p className="mt-6 text-center text-sm text-gray-500">
-            {mode === "login" ? (
-              <>
-                Don't have an account?{" "}
-                <button
-                  onClick={() => setMode("register")}
-                  className="font-medium text-indigo-600 hover:text-indigo-700"
-                >
-                  Start today
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button
-                  onClick={() => setMode("login")}
-                  className="font-medium text-indigo-600 hover:text-indigo-700"
-                >
-                  Sign in
-                </button>
-              </>
-            )}
+            Don't have an account?{" "}
+            <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-700">
+              Start today
+            </Link>
           </p>
         </div>
       </div>
