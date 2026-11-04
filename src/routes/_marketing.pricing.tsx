@@ -82,6 +82,8 @@ const addOns = [
   { nameKey: "pricing.addon2.name", priceKey: "pricing.addon2.price" },
   { nameKey: "pricing.addon3.name", priceKey: "pricing.addon3.price" },
   { nameKey: "pricing.addon4.name", priceKey: "pricing.addon4.price" },
+  // Texting: built, off by default, not included in any plan and not yet priced.
+  { nameKey: "pricing.addon5.name", priceKey: "pricing.addon5.price" },
 ];
 
 export default function PricingPage() {
@@ -196,6 +198,31 @@ export default function PricingPage() {
                 </Link>
               </div>
             ))}
+          </div>
+
+          {/* What every plan includes — the notification channel, stated plainly.
+              Email is the only channel that ships today; texting is an add-on. */}
+          <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <svg
+                className="mt-0.5 h-5 w-5 flex-shrink-0 text-indigo-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{t("pricing.notifications.title")}</p>
+                <p className="mt-1 text-sm leading-relaxed text-gray-600">{t("pricing.notifications.body")}</p>
+                <p className="mt-2 text-sm leading-relaxed text-gray-500">{t("pricing.notifications.textNote")}</p>
+              </div>
+            </div>
           </div>
 
           {/* Plain billing note — sits directly under the three plan buttons */}

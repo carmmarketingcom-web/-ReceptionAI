@@ -117,7 +117,7 @@ function HowItWorksSection() {
     {
       step: "02",
       title: "AI books the job",
-      desc: "Appointment goes on your calendar. You get an SMS summary with caller info, what they need, and when they're booked.",
+      desc: "Appointment goes on your calendar. You get an email summary with caller info, what they need, and when they're booked.",
     },
     {
       step: "03",
@@ -162,7 +162,7 @@ function FaqSection() {
   const faqs = [
     {
       q: "What about emergency calls at 2 AM?",
-      a: "The AI answers at 2 AM, takes the details and books the visit. If the caller wants you now, press 3 bridges the call straight to your phone — and if you can't pick up, they get a text back so the call doesn't just end.",
+      a: "The AI answers at 2 AM, takes the details and books the visit. If the caller wants you now, press 3 bridges the call straight to your phone — and if you can't pick up, they can leave a voicemail and you get it by email, so the call doesn't just end.",
     },
     {
       q: "Will my customers know it's a robot?",

@@ -100,7 +100,7 @@ function SignupPage() {
   };
 
   const plans = [
-    { value: "starter", label: "Starter — $99/mo", desc: "1 line, 500 AI-minutes, SMS + web chat" },
+    { value: "starter", label: "Starter — $99/mo", desc: "1 line, 500 AI-minutes, email notifications + web chat" },
     { value: "growth", label: "Growth — $199/mo", desc: "2 lines, 2,000 AI-minutes, WhatsApp + analytics" },
     { value: "scale", label: "Scale — $399/mo", desc: "Unlimited lines, 10K+ minutes, custom AI, priority support" },
   ];
@@ -114,7 +114,7 @@ function SignupPage() {
   const planDetails: Record<string, { icon: string; features: string[] }> = {
     starter: {
       icon: "phone",
-      features: ["1 phone line", "500 AI-minutes/mo", "SMS + Web Chat", "Built-in Calendar"],
+      features: ["1 phone line", "500 AI-minutes/mo", "Email notifications + Web Chat", "Built-in Calendar"],
     },
     growth: {
       icon: "globe",

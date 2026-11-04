@@ -12,7 +12,7 @@ const demoScript = [
   { speaker: "ai", text: "Thanks David! Let me check available slots for tomorrow...", highlight: "availability" },
   { speaker: "ai", text: "Great, I have an opening at 10 AM tomorrow morning. Does that work?" },
   { speaker: "caller", text: "Perfect, book it!" },
-  { speaker: "ai", text: "Done! Your appointment is confirmed for tomorrow at 10 AM. You'll receive an SMS reminder. Is there anything else?", highlight: "booking" },
+  { speaker: "ai", text: "Done! Your appointment is confirmed for tomorrow at 10 AM. You'll receive an email reminder. Is there anything else?", highlight: "booking" },
   { speaker: "caller", text: "No, that's all. Thanks!" },
   { speaker: "ai", text: "You're welcome, David! Have a great day." },
 ];
@@ -33,7 +33,7 @@ function DemoPage() {
   const features = [
     { id: "call-handling", title: "24/7 Call Answering", desc: "Never miss a lead — AI answers instantly, day or night", icon: "📞" },
     { id: "availability", title: "Smart Scheduling", desc: "Checks your calendar and books automatically", icon: "📅" },
-    { id: "booking", title: "Instant Confirmations", desc: "Sends SMS confirmations & reminders", icon: "✅" },
+    { id: "booking", title: "Instant Confirmations", desc: "Sends email confirmations & reminders", icon: "✅" },
   ];
 
   // Highlight sync: each message with a highlight sets it, then clears after 3s
@@ -288,7 +288,7 @@ function DemoPage() {
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">⏰</span>
               <h4 className="mt-2 font-semibold text-gray-900">Auto-Confirmations</h4>
-              <p className="mt-1 text-xs text-gray-500">SMS confirmation sent instantly after booking</p>
+              <p className="mt-1 text-xs text-gray-500">Email confirmation sent instantly after booking</p>
             </div>
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">🔔</span>
@@ -297,8 +297,8 @@ function DemoPage() {
             </div>
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">📱</span>
-              <h4 className="mt-2 font-semibold text-gray-900">Post-Call SMS</h4>
-              <p className="mt-1 text-xs text-gray-500">Owner gets a text summary after every call — no dashboard needed</p>
+              <h4 className="mt-2 font-semibold text-gray-900">Post-Call Email</h4>
+              <p className="mt-1 text-xs text-gray-500">Owner gets an email summary after every call — no dashboard needed</p>
             </div>
           </div>
         </div>
@@ -323,21 +323,21 @@ function DemoPage() {
               {
                 icon: "📅",
                 title: "Books on the call, from your real calendar",
-                body: "It reads live availability — your hours, your holidays, appointments already booked and a 15-minute buffer — books the slot, then texts the caller a confirmation.",
+                body: "It reads live availability — your hours, your holidays, appointments already booked and a 15-minute buffer — books the slot, then emails the caller a confirmation.",
               },
               {
                 icon: "🔔",
                 title: "Reminders that go out on their own",
-                body: "A text 24 hours before the appointment and again 2 hours before, in the caller's language.",
+                body: "An email 24 hours before the appointment and again 2 hours before, in the caller's language.",
               },
               {
                 icon: "🧑‍💼",
                 title: "Press 3 and the call rings your phone",
-                body: "Ask for a person and the call is bridged to you. If you can't pick up, the caller gets a text back so the conversation doesn't just end.",
+                body: "Ask for a person and the call is bridged to you. If you can't pick up, the caller can leave a voicemail and you get it by email, so the conversation doesn't just end.",
               },
               {
                 icon: "📱",
-                title: "A summary text after every call",
+                title: "An email summary after every call",
                 body: "Caller, duration, outcome and what they wanted — sent to your phone, no dashboard login needed.",
               },
               {
@@ -378,7 +378,7 @@ function DemoPage() {
             {[
               { icon: "🤖", title: "AI Call Answering", desc: "24/7 inbound call handling with natural conversation" },
               { icon: "📅", title: "Auto Scheduling", desc: "Books appointments automatically on your built-in calendar" },
-              { icon: "💬", title: "Multi-Channel", desc: "Voice, SMS and web chat. WhatsApp and Facebook are in development." },
+              { icon: "💬", title: "Multi-Channel", desc: "Voice, web chat and email notifications. Text alerts are an optional add-on. WhatsApp and Facebook are in development." },
               { icon: "🌐", title: "Bilingual", desc: "English & Spanish — seamless switching" },
               { icon: "🔄", title: "Human Handoff", desc: "Smart escalation when needed" },
               { icon: "📊", title: "Analytics", desc: "Track calls, bookings, and missed opportunities" },

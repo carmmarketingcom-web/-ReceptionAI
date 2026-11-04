@@ -8,8 +8,8 @@ export const Route = createFileRoute("/_marketing/about")({
 const shipped = [
   "Answers calls 24/7, including nights, weekends and holidays — in English and Spanish.",
   "Books appointments during the call, against your real availability: your hours, your holidays, appointments already booked, and a 15-minute buffer.",
-  "Texts the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
-  "Texts you a summary after every call: who called, how long it ran, and what happened.",
+  "Emails the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
+  "Emails you a summary after every call: who called, how long it ran, and what happened.",
   "Transfers to you or your team when the caller asks for a person.",
   "Answers website chat in English and Spanish, with the same information as the phone line.",
   "Includes a built-in calendar, so there is nothing to connect before your first booking.",
@@ -21,7 +21,7 @@ const shipped = [
 const comingSoon = [
   {
     name: "WhatsApp messaging",
-    body: "The AI answers WhatsApp messages the same way it answers calls and texts.",
+    body: "The AI answers WhatsApp messages the same way it answers calls and web chats.",
   },
   {
     name: "Facebook Messenger",
@@ -68,8 +68,8 @@ function AboutPage() {
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-400">
             ReceptionAI is an AI receptionist for small service businesses. It answers your calls 24/7 in English and
-            Spanish, books appointments against live availability, texts the caller a confirmation and reminders, and
-            texts you a summary after every call.
+            Spanish, books appointments against live availability, emails the caller a confirmation and reminders, and
+            emails you a summary after every call.
           </p>
         </div>
       </section>
@@ -90,7 +90,7 @@ function AboutPage() {
             </p>
             <p>
               ReceptionAI exists so that call gets answered: the caller's name and number are taken, the appointment is
-              booked into your calendar while they are still on the line, and you get a text telling you what happened.
+              booked into your calendar while they are still on the line, and you get an email telling you what happened.
             </p>
           </div>
         </div>

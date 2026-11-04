@@ -207,12 +207,12 @@ function HeroSection() {
 
           {/* Right: Living phone showcase — 16s self-playing product loop (CSS-first).
               Replaces the old hero raster PNG; strings come from APP_DEMO / VOICE_STEPS /
-              SMS_THREAD / OWNER_SUMMARY above, so nothing on screen is invented. */}
+              EMAIL_THREAD / OWNER_SUMMARY above, so nothing on screen is invented. */}
           <div className="flex-1 flex justify-center lg:justify-end">
             <PhoneShowcase
               app={APP_DEMO}
               bookedLine={VOICE_STEPS[3].text}
-              confirmationSms={SMS_THREAD[0].body}
+              confirmationEmail={EMAIL_THREAD[0].body}
               ownerSummary={OWNER_SUMMARY}
             />
           </div>
@@ -322,9 +322,9 @@ function MissedCallCalculator() {
      slot offer (startVoiceBooking) .............. serve.ts:1040-1050
      booked confirmation (voice) ................. serve.ts:1085-1086
      slot speech format (formatSlotSpeech) ....... serve.ts:883-893
-     booking SMS confirmation .................... serve.ts:1013 (EN) / 1012 (ES)
-     reminder SMS (24h / 2h) ..................... serve.ts:905-912
-     abandoned-booking follow-up SMS ............. serve.ts:1944-1945
+     booking confirmation email .................. serve.ts:1013 (EN) / 1012 (ES)
+     reminder email (24h / 2h) ................... serve.ts:905-912
+     abandoned-booking follow-up ................. serve.ts:1944-1945
      owner post-call summary (buildCallSummary) .. serve.ts:1257-1276
    Values in {{braces}} are runtime interpolations — the sample caller, org,
    service and times are illustrative; the wording around them is verbatim. */
@@ -340,25 +340,25 @@ const APP_DEMO = {
 
 /* `key` is a dictionary key for the step label. `text` is verbatim product
    output and is deliberately not translated: it is what the phone literally
-   says, and the Spanish SMS sample sits beside it in the same card. */
+   says, and the Spanish email sample sits beside it in the same card. */
 const VOICE_STEPS = [
   { key: "home.see.step.answered", text: `Welcome! For English, press 1. Para español, presione 2.` },
   { key: "home.see.step.menu", text: `Hello, you've reached ${APP_DEMO.org}. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.` },
   { key: "home.see.step.availability", text: `Here are the next available times. Option 1: ${APP_DEMO.day} at ${APP_DEMO.time}. Option 2: ${APP_DEMO.day} at 2:00 PM. Press 1, 2, 3, or 4 to book, or 9 to speak with the team.` },
-  { key: "home.see.step.booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll text you a confirmation and a reminder. Thank you! Goodbye!` },
+  { key: "home.see.step.booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll email you a confirmation and a reminder. Thank you! Goodbye!` },
 ];
 
-const SMS_THREAD = [
+const EMAIL_THREAD = [
   {
-    label: "home.see.sms.booking",
+    label: "home.see.email.booking",
     body: `Hi ${APP_DEMO.caller}, your appointment for ${APP_DEMO.service} on Tue, Nov 4 at ${APP_DEMO.time} is confirmed. We'll send a reminder before your visit. Questions? Call ${APP_DEMO.phone}.`,
   },
   {
-    label: "home.see.sms.reminder",
+    label: "home.see.email.reminder",
     body: `Hi ${APP_DEMO.caller}, reminder: you have an appointment at ${APP_DEMO.org} for ${APP_DEMO.service} tomorrow (Tue, Nov 4) at ${APP_DEMO.time}.`,
   },
   {
-    label: "home.see.sms.abandoned",
+    label: "home.see.email.abandoned",
     body: `Hi, this is ${APP_DEMO.org}. We noticed you called earlier and were interested in booking an appointment but we weren't able to complete it. Would you like us to reach out to schedule? Reply YES and we'll contact you shortly.`,
   },
 ];
@@ -378,7 +378,7 @@ const OWNER_CHIPS = [
   "home.see.chip.dtmf",
 ];
 
-const SMS_THREAD_ES = `Hola ${APP_DEMO.caller}, su cita para ${APP_DEMO.service} el Tue, Nov 4 a las ${APP_DEMO.time} está confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${APP_DEMO.phone}.`;
+const EMAIL_THREAD_ES = `Hola ${APP_DEMO.caller}, su cita para ${APP_DEMO.service} el Tue, Nov 4 a las ${APP_DEMO.time} está confirmada. Le enviaremos un recordatorio antes de su visita. ¿Preguntas? Llame al ${APP_DEMO.phone}.`;
 
 const OWNER_SUMMARY = [
   "📞 ReceptionAI Call Summary",
@@ -444,7 +444,7 @@ function SeeItWorking() {
             </div>
           </Reveal>
 
-          {/* ── Card 2: the texts the customer gets ── */}
+          {/* ── Card 2: the emails the customer gets ── */}
           <Reveal delay={120}>
             <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-sm">
               <div className="flex items-center gap-3">
@@ -452,31 +452,31 @@ function SeeItWorking() {
                   <Icon name="sms" className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">{t("home.see.sms.label")}</p>
-                  <h3 className="text-sm font-bold text-white sm:text-base">{t("home.see.sms.title")}</h3>
+                  <p className="text-[11px] font-semibold uppercase tracking-[.14em] text-indigo-300/80">{t("home.see.email.label")}</p>
+                  <h3 className="text-sm font-bold text-white sm:text-base">{t("home.see.email.title")}</h3>
                 </div>
               </div>
 
               <div className="mt-5 space-y-3">
-                {SMS_THREAD.map((sms) => (
-                  <div key={sms.label}>
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t(sms.label)}</p>
+                {EMAIL_THREAD.map((mail) => (
+                  <div key={mail.label}>
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t(mail.label)}</p>
                     <p className="rounded-2xl rounded-tl-md bg-indigo-600/90 px-3.5 py-2.5 text-xs leading-relaxed text-white shadow-lg shadow-indigo-950/30">
-                      {sms.body}
+                      {mail.body}
                     </p>
                   </div>
                 ))}
                 <div>
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t("home.see.sms.spanish")}</p>
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[.14em] text-indigo-300/70">{t("home.see.email.spanish")}</p>
                   <p className="rounded-2xl rounded-tl-md bg-indigo-600/60 px-3.5 py-2.5 text-xs leading-relaxed text-white/90 shadow-lg shadow-indigo-950/30">
-                    {SMS_THREAD_ES}
+                    {EMAIL_THREAD_ES}
                   </p>
                 </div>
               </div>
             </div>
           </Reveal>
 
-          {/* ── Card 3: the text the owner gets ── */}
+          {/* ── Card 3: the email the owner gets ── */}
           <Reveal delay={240}>
             <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-sm">
               <div className="flex items-center gap-3">
@@ -756,7 +756,7 @@ function SocialProof() {
             <div className="rounded-2xl bg-[#141416] p-5 ring-1 ring-white/10">
               <div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-500">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                {t("home.social.smsToOwner")}
+                {t("home.social.emailToOwner")}
               </div>
               <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-gray-200">
                 {exampleSummary}

@@ -44,8 +44,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "home.hero.line1": { en: "Never miss", es: "Nunca pierdas" },
   "home.hero.highlight": { en: "another customer call.", es: "otra llamada de cliente." },
   "home.hero.subtitle": {
-    en: "Every call answered. Every appointment booked. Every caller texted back — in English and Spanish, at 2am on a Sunday.",
-    es: "Cada llamada contestada. Cada cita agendada. Cada llamante recibe un mensaje de texto de vuelta — en inglés y español, a las 2 de la mañana un domingo.",
+    en: "Every call answered. Every appointment booked. Every owner notified by email — in English and Spanish, at 2am on a Sunday.",
+    es: "Cada llamada contestada. Cada cita agendada. Cada dueño avisado por correo — en inglés y español, a las 2 de la mañana un domingo.",
   },
   "home.hero.price": { en: "$99 a month.", es: "$99 al mes." },
   "home.hero.cta": { en: "Hear the live demo", es: "Escucha la demo en vivo" },
@@ -60,8 +60,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "home.value.1": { en: "Answers after hours and while you're on a job", es: "Contesta fuera de horario y mientras estás en un trabajo" },
   "home.value.2": { en: "Takes the caller's name and number", es: "Toma el nombre y el número de quien llama" },
   "home.value.3": { en: "Books straight into your calendar", es: "Agenda directo en tu calendario" },
-  "home.value.4": { en: "Texts the caller a confirmation and reminders", es: "Le manda al llamante una confirmación y recordatorios por texto" },
-  "home.value.5": { en: "Texts you a summary after every call", es: "Te manda un resumen después de cada llamada" },
+  "home.value.4": { en: "Emails the caller a confirmation and reminders", es: "Le manda al llamante una confirmación y recordatorios por correo" },
+  "home.value.5": { en: "Emails you a summary after every call", es: "Te manda un resumen por correo después de cada llamada" },
   "home.value.6": { en: "English and Spanish", es: "Inglés y español" },
   "home.value.7": { en: "Transfers to you when it matters", es: "Te transfiere la llamada cuando hace falta" },
   /* The only figure on the page that is not ours. The source and its date travel
@@ -110,10 +110,10 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "On your built-in calendar. No Google account needed. Just set your hours.",
     es: "En tu calendario integrado. No necesitas cuenta de Google. Solo configura tus horarios.",
   },
-  "home.how.step3.title": { en: "You get an SMS summary after every call", es: "Recibes un resumen por SMS después de cada llamada" },
+  "home.how.step3.title": { en: "You get an email summary after every call", es: "Recibes un resumen por correo después de cada llamada" },
   "home.how.step3.desc": {
-    en: "Caller info, duration, and outcome — straight to your phone. No dashboard required.",
-    es: "Datos del llamante, duración y resultado — directo a tu teléfono. No necesitas abrir el panel.",
+    en: "Caller info, duration, and outcome — straight to your inbox. No dashboard required.",
+    es: "Datos del llamante, duración y resultado — directo a tu correo. No necesitas abrir el panel.",
   },
 
   /* ─── Home — Built for trades ─── */
@@ -148,15 +148,15 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "AI reads your calendar and books appointments automatically. Sends confirmations, reminders, and follow-ups.",
     es: "La IA lee tu calendario y agenda citas automáticamente. Envía confirmaciones, recordatorios y seguimientos.",
   },
-  "feature.multichannel.title": { en: "Calls, Texts & Web Chat", es: "Llamadas, Textos y Chat Web" },
+  "feature.multichannel.title": { en: "Calls, Web Chat & Email", es: "Llamadas, Chat Web y Correo" },
   "feature.multichannel.desc": {
-    en: "Calls, texts and web chat handled in one place. The unified inbox for WhatsApp and Facebook messages is in development.",
-    es: "Llamadas, mensajes de texto y chat web atendidos en un solo lugar. La bandeja de entrada unificada para mensajes de WhatsApp y Facebook está en desarrollo.",
+    en: "Calls and web chat handled in one place, and every call emailed to you. The unified inbox for WhatsApp and Facebook messages is in development.",
+    es: "Llamadas y chat web atendidos en un solo lugar, y cada llamada te llega por correo. La bandeja de entrada unificada para mensajes de WhatsApp y Facebook está en desarrollo.",
   },
   "feature.human.title": { en: "Human Handoff When Needed", es: "Transferencia a Humanos Cuando Sea Necesario" },
   "feature.human.desc": {
-    en: "Callers press 3 to reach you on a live call, and web-chat requests for a person text your phone. Sentiment-based escalation is coming.",
-    es: "Los llamantes presionan 3 para comunicarse contigo en una llamada en vivo, y las solicitudes de una persona en el chat web llegan a tu teléfono por mensaje de texto. La escalación automática según el sentimiento aún está en desarrollo.",
+    en: "Callers press 3 to reach you on a live call, and web-chat requests for a person email you right away. Sentiment-based escalation is coming.",
+    es: "Los llamantes presionan 3 para comunicarse contigo en una llamada en vivo, y las solicitudes de una persona en el chat web te llegan por correo de inmediato. La escalación automática según el sentimiento aún está en desarrollo.",
   },
   "feature.analytics.title": { en: "Call Outcomes & Missed Calls", es: "Resultados de Llamadas y Llamadas Perdidas" },
   "feature.analytics.desc": {
@@ -179,8 +179,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "home.setup.step3.title": { en: "You Focus on Work", es: "Tú te Enfocas en el Trabajo" },
   "home.setup.step3.desc": {
-    en: "Get SMS summaries after every call. See everything in your dashboard. Only step in when you want to.",
-    es: "Recibe resúmenes por SMS después de cada llamada. Ve todo en tu panel. Interviene solo cuando quieras.",
+    en: "Get an email summary after every call. See everything in your dashboard. Only step in when you want to.",
+    es: "Recibe un resumen por correo después de cada llamada. Ve todo en tu panel. Interviene solo cuando quieras.",
   },
 
   /* ─── Home — What actually happens (no testimonials exist — see index.tsx) ─── */
@@ -205,13 +205,13 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "home.faq.q2": { en: "What about emergencies? Burst pipe. No heat.", es: "¿Y las emergencias? Tubería rota. Sin calefacción." },
   "home.faq.a2": {
-    en: "Press 3 at any time and the call is bridged straight to you or your team. If nobody picks up, the caller gets a text back — so an urgent call never just ends.",
-    es: "Presiona 3 en cualquier momento y la llamada se conecta directamente contigo o con tu equipo. Si nadie contesta, el llamante recibe un mensaje de texto de vuelta — así una llamada urgente nunca se queda sin respuesta.",
+    en: "Press 3 at any time and the call is bridged straight to you or your team. If nobody picks up, the caller can leave a voicemail and you get it by email — so an urgent call never just ends.",
+    es: "Presiona 3 en cualquier momento y la llamada se conecta directamente contigo o con tu equipo. Si nadie contesta, el llamante puede dejar un mensaje de voz y a ti te llega por correo — así una llamada urgente nunca se queda sin respuesta.",
   },
   "home.faq.q3": { en: "What if it gets something wrong?", es: "¿Qué pasa si se equivoca?" },
   "home.faq.a3": {
-    en: "You get an SMS after every call with the caller's number, what they asked, and what happened. If something needs your attention, you'll know within seconds. And we're always improving the AI — your feedback makes it smarter.",
-    es: "Recibes un SMS después de cada llamada con el número del llamante, lo que pidió y lo que sucedió. Si algo necesita tu atención, lo sabrás en segundos. Y siempre estamos mejorando la IA — tus comentarios la hacen más inteligente.",
+    en: "You get an email after every call with the caller's number, what they asked, and what happened. If something needs your attention, you'll know within seconds. And we're always improving the AI — your feedback makes it smarter.",
+    es: "Recibes un correo después de cada llamada con el número del llamante, lo que pidió y lo que sucedió. Si algo necesita tu atención, lo sabrás en segundos. Y siempre estamos mejorando la IA — tus comentarios la hacen más inteligente.",
   },
 
   /* ─── Home — Final CTA ─── */
@@ -258,13 +258,13 @@ export const translations: Record<string, { en: string; es: string }> = {
   /* ─── Home — See it working ─── */
   /* The quoted scripts and messages stay in the language the product actually
      sends them in: the wording inside the quotation marks is verbatim product
-     output, not marketing copy. The Spanish SMS sample sits right beside it. */
+     output, not marketing copy. The Spanish email sample sits right beside it. */
   "home.see.badge": { en: "See it working", es: "Míralo funcionando" },
   "home.see.title1": { en: "See it working — what your", es: "Míralo funcionando — lo que" },
   "home.see.title2": { en: "customers experience", es: "viven tus clientes" },
   "home.see.subtitle": {
-    en: "Real call scripts and real text messages. The wording below is what our receptionist actually says on the phone and sends by SMS — sample names and times are placeholders.",
-    es: "Guiones de llamada y mensajes de texto reales. El texto de abajo es lo que nuestra recepcionista dice de verdad en el teléfono y envía por SMS — los nombres y las horas son ejemplos.",
+    en: "Real call scripts and real email messages. The wording below is what our receptionist actually says on the phone and sends by email — sample names and times are placeholders.",
+    es: "Guiones de llamada y mensajes de correo reales. El texto de abajo es lo que nuestra recepcionista dice de verdad en el teléfono y envía por correo — los nombres y las horas son ejemplos.",
   },
   "home.see.call.label": { en: "On the phone", es: "En el teléfono" },
   "home.see.call.title": { en: "A call lands at 7 PM on a Saturday", es: "Entra una llamada un sábado a las 7 PM" },
@@ -272,26 +272,26 @@ export const translations: Record<string, { en: string; es: string }> = {
   "home.see.pill2": { en: "Press 1 to book", es: "Presiona 1 para agendar" },
   "home.see.pill3": { en: "Slots offered", es: "Horarios ofrecidos" },
   "home.see.pill4": { en: "Confirmed ✓", es: "Confirmada ✓" },
-  "home.see.pill5": { en: "SMS sent", es: "SMS enviado" },
+  "home.see.pill5": { en: "Email sent", es: "Correo enviado" },
   "home.see.step.answered": { en: "Answered", es: "Contestada" },
   "home.see.step.menu": { en: "Menu", es: "Menú" },
   "home.see.step.availability": { en: "Availability", es: "Disponibilidad" },
   "home.see.step.booked": { en: "Booked", es: "Agendada" },
-  "home.see.sms.label": { en: "By text", es: "Por mensaje de texto" },
-  "home.see.sms.title": { en: "What your customer's phone shows", es: "Lo que ve el teléfono de tu cliente" },
-  "home.see.sms.booking": { en: "Booking confirmation", es: "Confirmación de la cita" },
-  "home.see.sms.reminder": { en: "Reminder — 24 hours before", es: "Recordatorio — 24 horas antes" },
-  "home.see.sms.abandoned": { en: "Call ended with interest but no booking", es: "La llamada terminó con interés pero sin cita" },
-  "home.see.sms.spanish": { en: "Same messages in Spanish", es: "Los mismos mensajes en español" },
-  "home.see.owner.label": { en: "To your phone", es: "A tu teléfono" },
+  "home.see.email.label": { en: "By email", es: "Por correo" },
+  "home.see.email.title": { en: "What your customer's inbox shows", es: "Lo que ve el buzón de tu cliente" },
+  "home.see.email.booking": { en: "Booking confirmation", es: "Confirmación de la cita" },
+  "home.see.email.reminder": { en: "Reminder — 24 hours before", es: "Recordatorio — 24 horas antes" },
+  "home.see.email.abandoned": { en: "Call ended with interest but no booking", es: "La llamada terminó con interés pero sin cita" },
+  "home.see.email.spanish": { en: "Same emails in Spanish", es: "Los mismos correos en español" },
+  "home.see.owner.label": { en: "To your inbox", es: "A tu correo" },
   "home.see.owner.title": { en: "The summary after every call", es: "El resumen después de cada llamada" },
   "home.see.chip.caller": { en: "Caller", es: "Llamante" },
   "home.see.chip.duration": { en: "Duration", es: "Duración" },
   "home.see.chip.outcome": { en: "Outcome", es: "Resultado" },
   "home.see.chip.dtmf": { en: "DTMF", es: "DTMF" },
   "home.see.owner.note": {
-    en: "Texted to the owner's phone number on file — no dashboard needed to know what happened.",
-    es: "Se envía al número del dueño que está registrado — no necesitas abrir el panel para saber qué pasó.",
+    en: "Emailed to the owner's address on file — no dashboard needed to know what happened.",
+    es: "Se envía al correo del dueño que está registrado — no necesitas abrir el panel para saber qué pasó.",
   },
   "home.see.owner.link": { en: "See what each plan includes", es: "Mira qué incluye cada plan" },
 
@@ -313,21 +313,21 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "home.social.card2.title": { en: "Books the appointment on the call", es: "Agenda la cita durante la llamada" },
   "home.social.card2.body": {
-    en: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then texts the caller a confirmation and reminders 24 hours and 2 hours ahead.",
-    es: "Revisa tu disponibilidad real — tus horarios, tus feriados, las citas que ya tienes y un margen de 15 minutos — agenda el horario y luego le manda al llamante una confirmación y recordatorios 24 horas y 2 horas antes.",
+    en: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then emails the caller a confirmation and reminders 24 hours and 2 hours ahead.",
+    es: "Revisa tu disponibilidad real — tus horarios, tus feriados, las citas que ya tienes y un margen de 15 minutos — agenda el horario y luego le manda al llamante una confirmación y recordatorios por correo 24 horas y 2 horas antes.",
   },
-  "home.social.card3.title": { en: "Texts you a summary after every call", es: "Te manda un resumen después de cada llamada" },
+  "home.social.card3.title": { en: "Emails you a summary after every call", es: "Te manda un resumen por correo después de cada llamada" },
   "home.social.card3.body": {
-    en: "Who called, how long it ran, what the outcome was and what they asked for. It arrives on your phone, so you don't have to open the dashboard to know what happened.",
-    es: "Quién llamó, cuánto duró, cuál fue el resultado y qué pidió. Llega a tu teléfono, así no tienes que abrir el panel para saber qué pasó.",
+    en: "Who called, how long it ran, what the outcome was and what they asked for. It arrives in your inbox, so you don't have to open the dashboard to know what happened.",
+    es: "Quién llamó, cuánto duró, cuál fue el resultado y qué pidió. Llega a tu correo, así no tienes que abrir el panel para saber qué pasó.",
   },
   "home.social.example": { en: "Example", es: "Ejemplo" },
-  "home.social.exampleTitle": { en: "What lands on your phone after a call", es: "Lo que llega a tu teléfono después de una llamada" },
+  "home.social.exampleTitle": { en: "What lands in your inbox after a call", es: "Lo que llega a tu correo después de una llamada" },
   "home.social.exampleBody": {
-    en: "The owner's summary text, in the format ReceptionAI sends it. The message shown here is a sample of that format — it is not a real customer's call.",
-    es: "El mensaje de resumen del dueño, en el formato en que ReceptionAI lo envía. El mensaje que ves aquí es una muestra de ese formato — no es la llamada de un cliente real.",
+    en: "The owner's summary email, in the format ReceptionAI sends it. The message shown here is a sample of that format — it is not a real customer's call.",
+    es: "El correo de resumen del dueño, en el formato en que ReceptionAI lo envía. El mensaje que ves aquí es una muestra de ese formato — no es la llamada de un cliente real.",
   },
-  "home.social.smsToOwner": { en: "SMS · to the business owner", es: "SMS · al dueño del negocio" },
+  "home.social.emailToOwner": { en: "Email · to the business owner", es: "Correo · al dueño del negocio" },
 
   /* ─── Pricing ─── */
   "pricing.badge": { en: "Pricing", es: "Precios" },
@@ -340,6 +340,18 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.perMonth": { en: "/month", es: "/mes" },
   "pricing.popular": { en: "Most Popular", es: "Más Popular" },
   "pricing.cta": { en: "Start Today", es: "Comenzar Hoy" },
+  "pricing.notifications.title": {
+    en: "Included in every plan: email notifications",
+    es: "Incluido en todos los planes: notificaciones por correo",
+  },
+  "pricing.notifications.body": {
+    en: "Every call and web chat emails you automatically, in the caller's language (English or Spanish): the post-call summary, missed-call alerts, voicemail alerts with the recording, and web-chat callback requests. No extra charge.",
+    es: "Cada llamada y cada chat web te llegan por correo automáticamente, en el idioma del cliente (inglés o español): el resumen después de la llamada, los avisos de llamadas perdidas, los avisos de mensajes de voz con la grabación y las solicitudes de devolución de llamada del chat web. Sin costo adicional.",
+  },
+  "pricing.notifications.textNote": {
+    en: "Text (SMS) alerts are an optional add-on for any plan — pricing on request.",
+    es: "Los avisos por mensaje de texto (SMS) son un complemento opcional para cualquier plan — precio a consultar.",
+  },
   "pricing.billingNote": {
     en: "Simple monthly pricing. You're charged for your first month at checkout and billed monthly after that. Cancel anytime.",
     es: "Precios mensuales simples. Se te cobra el primer mes al finalizar la compra y se te factura mensualmente después. Cancela cuando quieras.",
@@ -366,7 +378,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "pricing.starter.feature1": { en: "1 phone line", es: "1 línea telefónica" },
   "pricing.starter.feature2": { en: "500 AI-minutes/month", es: "500 minutos de IA/mes" },
-  "pricing.starter.feature3": { en: "SMS & web chat", es: "SMS y chat web" },
+  "pricing.starter.feature3": { en: "Email notifications & web chat", es: "Notificaciones por correo y chat web" },
   "pricing.starter.feature4": { en: "Basic calendar sync", es: "Sincronización básica de calendario" },
   "pricing.starter.feature5": { en: "English & Spanish support", es: "Soporte en inglés y español" },
   "pricing.starter.feature6": { en: "Email support", es: "Soporte por correo electrónico" },
@@ -463,8 +475,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "pricing.soon.whatsapp.name": { en: "WhatsApp messaging", es: "Mensajería por WhatsApp" },
   "pricing.soon.whatsapp.body": {
-    en: "The AI answers WhatsApp messages the same way it answers calls and texts.",
-    es: "La IA responde los mensajes de WhatsApp igual que responde las llamadas y los mensajes de texto.",
+    en: "The AI answers WhatsApp messages the same way it answers calls and web chats.",
+    es: "La IA responde los mensajes de WhatsApp igual que responde las llamadas y los chats web.",
   },
   "pricing.soon.facebook.name": { en: "Facebook Messenger", es: "Facebook Messenger" },
   "pricing.soon.facebook.body": {
@@ -480,8 +492,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   /* ─── Pricing — Add-ons ─── */
   "pricing.addons.title": { en: "Optional Add-ons", es: "Complementos Opcionales" },
   "pricing.addons.subtitle": {
-    en: "Customize your plan with these extras.",
-    es: "Personaliza tu plan con estos extras.",
+    en: "Customize your plan with these extras. Text alerts are an add-on, not part of any plan.",
+    es: "Personaliza tu plan con estos extras. Los avisos por texto son un complemento, no forman parte de ningún plan.",
   },
   "pricing.addon1.name": { en: "Extra phone number", es: "Número telefónico adicional" },
   "pricing.addon1.price": { en: "$15/mo", es: "$15/mes" },
@@ -491,12 +503,18 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.addon3.price": { en: "$500 one-time", es: "$500 pago único" },
   "pricing.addon4.name": { en: "HIPAA compliance add-on", es: "Complemento de cumplimiento HIPAA" },
   "pricing.addon4.price": { en: "$50/mo", es: "$50/mes" },
+  /* Texting is built but off by default and unpriced — shown as an add-on, never as included */
+  "pricing.addon5.name": {
+    en: "Text (SMS) alerts — optional add-on",
+    es: "Avisos por mensaje de texto (SMS) — complemento opcional",
+  },
+  "pricing.addon5.price": { en: "Pricing on request", es: "Precio a consultar" },
 
   /* ─── Pricing / FAQ — shared number Q&As ─── */
   "faq.number.q": { en: "Can I use my existing phone number?", es: "¿Puedo usar mi número de teléfono actual?" },
   "faq.number.a": {
-    en: "Yes, but our honest recommendation is to start with a new ReceptionAI number. You're live in minutes, every call is recorded and summarized straight to your phone, and your existing number keeps working for outbound calls, existing customers, and emergencies. Porting your number to us is possible, but we don't recommend it: it typically takes 1–4 weeks with your current carrier, can briefly interrupt service if anything slips, and adds friction you don't need on day one. If you still want to port, we'll handle it with you directly — you send a recent bill and sign a letter of authorization, we submit the port, and we update you at every step. Talk to our team and we'll guide you through it.",
-    es: "Sí, pero nuestra recomendación honesta es empezar con un número nuevo de ReceptionAI. Estás en funcionamiento en minutos, cada llamada se graba y se resume directo a tu teléfono, y tu número actual sigue funcionando para llamadas salientes, clientes existentes y emergencias. Portar tu número a nosotros es posible, pero no lo recomendamos: normalmente toma de 1 a 4 semanas con tu operador actual, puede interrumpir brevemente el servicio si algo falla, y agrega fricción que no necesitas el primer día. Si aun así quieres portar, lo manejamos contigo directamente: nos envías una factura reciente y firmas una carta de autorización, nosotros enviamos la solicitud de portabilidad y te actualizamos en cada paso. Habla con nuestro equipo y te guiaremos.",
+    en: "Yes, but our honest recommendation is to start with a new ReceptionAI number. You're live in minutes, every call is recorded and summarized straight to your inbox, and your existing number keeps working for outbound calls, existing customers, and emergencies. Porting your number to us is possible, but we don't recommend it: it typically takes 1–4 weeks with your current carrier, can briefly interrupt service if anything slips, and adds friction you don't need on day one. If you still want to port, we'll handle it with you directly — you send a recent bill and sign a letter of authorization, we submit the port, and we update you at every step. Talk to our team and we'll guide you through it.",
+    es: "Sí, pero nuestra recomendación honesta es empezar con un número nuevo de ReceptionAI. Estás en funcionamiento en minutos, cada llamada se graba y se resume directo a tu correo, y tu número actual sigue funcionando para llamadas salientes, clientes existentes y emergencias. Portar tu número a nosotros es posible, pero no lo recomendamos: normalmente toma de 1 a 4 semanas con tu operador actual, puede interrumpir brevemente el servicio si algo falla, y agrega fricción que no necesitas el primer día. Si aun así quieres portar, lo manejamos contigo directamente: nos envías una factura reciente y firmas una carta de autorización, nosotros enviamos la solicitud de portabilidad y te actualizamos en cada paso. Habla con nuestro equipo y te guiaremos.",
   },
   "faq.forward.q": { en: "Can I keep my old number without porting?", es: "¿Puedo conservar mi número anterior sin portarlo?" },
   "faq.forward.a": {
@@ -625,8 +643,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "faq.list.q5": { en: "Does the AI speak Spanish?", es: "¿La IA habla español?" },
   "faq.list.a5": {
-    en: "Yes! ReceptionAI handles calls, texts, and web chats in both English and Spanish. Callers can switch languages at any time.",
-    es: "¡Sí! ReceptionAI maneja llamadas, mensajes de texto y chats web tanto en inglés como en español. Los llamantes pueden cambiar de idioma en cualquier momento.",
+    en: "Yes! ReceptionAI handles calls and web chats in both English and Spanish, and the owner notifications go out in the caller's language. Callers can switch languages at any time.",
+    es: "¡Sí! ReceptionAI maneja llamadas y chats web tanto en inglés como en español, y las notificaciones al dueño llegan en el idioma del cliente. Los llamantes pueden cambiar de idioma en cualquier momento.",
   },
   "faq.list.q6": { en: "What happens if the AI can't handle a call?", es: "¿Qué pasa si la IA no puede manejar una llamada?" },
   "faq.list.a6": {
