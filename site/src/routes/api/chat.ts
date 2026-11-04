@@ -131,8 +131,8 @@ function smartReply(message: string, lang: string): string {
   }
   if (has("hours", "hour", "business hours", "open", "abierto", "abren", "horario", "horarios", "24/7", "24-7", "what time", "a que hora")) {
     return isEs
-      ? "La recepcionista IA contesta 24/7, sin horario de oficina: llamadas, chat web y textos de día y de noche en inglés y español. Las citas siguen el horario que configures en el calendario."
-      : "The AI receptionist answers 24/7 — there are no business hours. Calls, web chat and texts are handled day and night in English and Spanish, and bookings follow the hours you set.";
+      ? "La recepcionista IA contesta 24/7, sin horario de oficina: llamadas y chat web de día y de noche en inglés y español. Las citas siguen el horario que configures en el calendario."
+      : "The AI receptionist answers 24/7 — there are no business hours. Calls and web chat are handled day and night in English and Spanish, and bookings follow the hours you set.";
   }
   // Coming-soon sits ABOVE services: "funciones"/"features" is a services keyword.
   if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
