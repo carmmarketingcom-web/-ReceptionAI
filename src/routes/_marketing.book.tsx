@@ -286,7 +286,7 @@ export default function BookPage() {
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl">✅</div>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">Demo Scheduled!</h1>
-                  <p className="mt-2 text-sm text-gray-600">You'll receive an SMS confirmation shortly. We look forward to showing you ReceptionAI.</p>
+                  <p className="mt-2 text-sm text-gray-600">You'll receive an email confirmation shortly. We look forward to showing you ReceptionAI.</p>
                 </div>
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm text-left space-y-2">
                   <div className="flex justify-between text-sm"><span className="text-gray-500">Date</span><span className="font-medium text-gray-900">{date}</span></div>

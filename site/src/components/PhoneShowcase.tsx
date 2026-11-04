@@ -7,7 +7,7 @@ import { useEffect, useRef } from "react";
    Motion is CSS-first and phase-locked to ONE 16s master clock (see the
    `.phone-stage` block in src/styles/app.css):
      idle → incoming call → answered + booked → call-ended chip →
-     confirmation SMS → repeat-caller greeting → owner summary → loop reset.
+     confirmation email → repeat-caller greeting → owner summary → loop reset.
 
    The effect below is the only JavaScript. It never touches React state, so
    the component renders once and never re-renders: it writes the custom
@@ -16,7 +16,7 @@ import { useEffect, useRef } from "react";
    the static "after the call" frame is what renders.
 
    Every string is product copy passed in from the page's own constants
-   (APP_DEMO / VOICE_STEPS / SMS_THREAD / OWNER_SUMMARY). Nothing is invented.
+   (APP_DEMO / VOICE_STEPS / EMAIL_THREAD / OWNER_SUMMARY). Nothing is invented.
    The whole phone is decorative: aria-hidden, nothing focusable, no audio.
    ──────────────────────────────────────────────────────────────────────────── */
 
@@ -33,8 +33,8 @@ type Props = {
   app: PhoneShowcaseApp;
   /** VOICE_STEPS[3].text — the AI's booking line, verbatim. */
   bookedLine: string;
-  /** SMS_THREAD[0].body — the booking-confirmation SMS, verbatim. */
-  confirmationSms: string;
+  /** EMAIL_THREAD[0].body — the booking-confirmation email, verbatim. */
+  confirmationEmail: string;
   /** OWNER_SUMMARY — lines [0..3] are shown on the summary card. */
   ownerSummary: string[];
 };
@@ -85,12 +85,11 @@ function Chrome({ org }: { org: string }) {
   );
 }
 
-function SmsBubble({ text }: { text: string }) {
+function EmailCard({ text }: { text: string }) {
   return (
-    <div className="flex justify-end">
-      <p className="max-w-[92%] rounded-2xl rounded-tl-md bg-indigo-600/90 px-3 py-2.5 text-[11px] leading-relaxed text-white shadow-lg shadow-indigo-950/40">
-        {text}
-      </p>
+    <div className="rounded-xl border border-white/10 bg-gray-800/80 px-3 py-2.5 shadow-lg shadow-indigo-950/40">
+      <p className="mb-1 text-[9px] font-bold uppercase tracking-[.14em] text-indigo-300">Email · to the customer</p>
+      <p className="text-[10.5px] leading-relaxed text-gray-200">{text}</p>
     </div>
   );
 }
@@ -102,12 +101,12 @@ function OwnerCard({ lines }: { lines: string[] }) {
       {lines.slice(1, 4).map((line) => (
         <p key={line}>{line}</p>
       ))}
-      <p className="mt-1.5 text-[10px] font-semibold text-green-400">Texted to your phone</p>
+      <p className="mt-1.5 text-[10px] font-semibold text-green-400">Emailed to your inbox</p>
     </div>
   );
 }
 
-export default function PhoneShowcase({ app, bookedLine, confirmationSms, ownerSummary }: Props) {
+export default function PhoneShowcase({ app, bookedLine, confirmationEmail, ownerSummary }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -259,7 +258,7 @@ export default function PhoneShowcase({ app, bookedLine, confirmationSms, ownerS
                           </span>
                         </div>
                         <div className="mt-6">
-                          <SmsBubble text={confirmationSms} />
+                          <EmailCard text={confirmationEmail} />
                         </div>
                         <div className="mt-4">
                           <OwnerCard lines={ownerSummary} />
@@ -333,7 +332,7 @@ export default function PhoneShowcase({ app, bookedLine, confirmationSms, ownerS
                     </div>
 
                     <div className="beat s-sms">
-                      <SmsBubble text={confirmationSms} />
+                      <EmailCard text={confirmationEmail} />
                     </div>
 
                     <div className="beat s-welcome">
@@ -341,7 +340,9 @@ export default function PhoneShowcase({ app, bookedLine, confirmationSms, ownerS
                         <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
                         {REPEAT_TAG}
                       </span>
-                      <SmsBubble text={`Welcome back, ${app.caller}!`} />
+                      <p className="text-center text-[11px] leading-relaxed text-gray-300">
+                        &ldquo;Welcome back, {app.caller}!&rdquo;
+                      </p>
                     </div>
 
                     <div className="beat s-owner">

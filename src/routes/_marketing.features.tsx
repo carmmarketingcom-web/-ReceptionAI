@@ -99,12 +99,12 @@ const liveFeatures = [
   {
     icon: "clock",
     title: "Confirmations & Reminders",
-    desc: "A completed booking sends an SMS confirmation, then reminders 24 hours and 2 hours before the appointment.",
+    desc: "A completed booking emails the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
   },
   {
     icon: "sms",
-    title: "Post-Call Summary to Your Phone",
-    desc: "After a call, the owner gets an SMS with the caller's number, what they needed, and what happened on the call.",
+    title: "Post-Call Summary to Your Inbox",
+    desc: "After a call, the owner gets an email with the caller's number, what they needed, and what happened on the call.",
   },
   {
     icon: "chart",
@@ -142,8 +142,8 @@ const roadmapFeatures: {
     title: "Omnichannel Inbox",
     status: "partial",
     plan: "growth",
-    desc: "One inbox where every conversation — call, text, chat, message — lands in the same thread with the same customer.",
-    note: "Live: calls, SMS, and web chat. Unified multi-channel inbox: coming.",
+    desc: "One inbox where every conversation — call, chat, email — lands in the same thread with the same customer.",
+    note: "Live: calls, web chat and email notifications. Text alerts are an optional add-on, not part of any plan. Unified multi-channel inbox: coming.",
   },
   {
     icon: "chart",
