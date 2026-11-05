@@ -33,7 +33,7 @@ async function seed() {
       features: [
         "1 phone line",
         "500 AI minutes/month",
-        "SMS & web chat",
+        "Email notifications & web chat",
         "Basic calendar sync",
         "Email notifications",
         "English & Spanish",

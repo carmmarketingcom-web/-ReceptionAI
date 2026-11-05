@@ -10,14 +10,12 @@ export const Route = createFileRoute("/dashboard/conversations")({
 const mockConversations: ConversationItem[] = [
   { id: "C-1001", customerName: "Maria Garcia", customerInitials: "MG", channel: "call", summary: "Booked AC repair appointment for tomorrow 2pm", status: "completed", duration: "3m 42s", timestamp: "2 min ago", date: "Today" },
   { id: "C-1002", customerName: "John Smith", customerInitials: "JS", channel: "chat", summary: "Asked about pricing - Growth plan interest", status: "active", duration: "8m 15s", timestamp: "15 min ago", date: "Today" },
-  { id: "C-1003", customerName: "Robert Chen", customerInitials: "RC", channel: "sms", summary: "Rescheduled appointment to Friday 10am", status: "completed", duration: "1m 05s", timestamp: "32 min ago", date: "Today" },
   { id: "C-1004", customerName: "Sarah Johnson", customerInitials: "SJ", channel: "call", summary: "Transferred to technician - complex electrical issue", status: "transferred", duration: "5m 20s", timestamp: "1 hour ago", date: "Today" },
   { id: "C-1005", customerName: "Carlos Mendez", customerInitials: "CM", channel: "call", summary: "Missed - voicemail left (Spanish)", status: "missed", duration: "0m 30s", timestamp: "2 hours ago", date: "Today" },
   { id: "C-1006", customerName: "Emily Davis", customerInitials: "ED", channel: "whatsapp", summary: "Requested quote for plumbing service", status: "active", duration: "4m 10s", timestamp: "3 hours ago", date: "Today" },
   { id: "C-1007", customerName: "James Wilson", customerInitials: "JW", channel: "call", summary: "Booked electrical inspection for Monday", status: "completed", duration: "2m 55s", timestamp: "4 hours ago", date: "Today" },
   { id: "C-1008", customerName: "Lisa Park", customerInitials: "LP", channel: "chat", summary: "Dental cleaning appointment confirmed", status: "completed", duration: "6m 30s", timestamp: "5 hours ago", date: "Today" },
   { id: "C-1009", customerName: "David Brown", customerInitials: "DB", channel: "call", summary: "Inquired about emergency HVAC service", status: "transferred", duration: "4m 15s", timestamp: "Yesterday", date: "Yesterday" },
-  { id: "C-1010", customerName: "Ana Rodriguez", customerInitials: "AR", channel: "sms", summary: "Confirmed vet appointment for pet checkup", status: "completed", duration: "0m 45s", timestamp: "Yesterday", date: "Yesterday" },
 ];
 
 function mapApiConversation(c: ConversationItem): ConversationItem {
@@ -36,6 +34,8 @@ function mapApiConversation(c: ConversationItem): ConversationItem {
   };
 }
 
+// Channel rendering only. "sms" exists so a real text conversation still renders its
+// icon — texting is an optional add-on and is off by default, so no filter offers it.
 const channelIcons: Record<string, string> = {
   call: "📞",
   sms: "✉️",
@@ -50,7 +50,7 @@ const statusColors: Record<string, string> = {
   missed: "bg-red-100 text-red-700",
 };
 
-const channelOptions = ["all", "call", "sms", "chat", "whatsapp"];
+const channelOptions = ["all", "call", "chat", "whatsapp"];
 const statusOptions = ["all", "completed", "active", "transferred", "missed"];
 
 function ConversationsPage() {

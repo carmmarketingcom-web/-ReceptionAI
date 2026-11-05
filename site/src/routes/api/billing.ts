@@ -23,11 +23,10 @@ const PLANS = [
     priceAnnual: 79,
     includedPhoneLines: 1,
     includedAiMinutes: 500,
-    includedSmsMessages: 200,
     features: [
       "1 phone line",
       "500 AI-minutes/month",
-      "SMS & web chat",
+      "Email notifications & web chat",
       "Basic calendar sync",
       "English & Spanish support",
       "Email support",
@@ -44,7 +43,6 @@ const PLANS = [
     priceAnnual: 159,
     includedPhoneLines: 2,
     includedAiMinutes: 2000,
-    includedSmsMessages: 1000,
     features: [
       "2 phone lines",
       "2,000 AI-minutes/month",
@@ -66,7 +64,6 @@ const PLANS = [
     priceAnnual: 319,
     includedPhoneLines: 5,
     includedAiMinutes: 10000,
-    includedSmsMessages: 5000,
     features: [
       "Unlimited phone lines (5+ add-on)",
       "10,000+ AI-minutes/month",
@@ -144,9 +141,6 @@ async function handleGetSubscription(request: Request) {
           phoneLinesUsed: 1,
           phoneLinesLimit: 2,
           phoneLinesPercent: 50,
-          smsUsed: 342,
-          smsLimit: 1000,
-          smsPercent: 34,
         },
         plans: PLANS,
         invoices: [
@@ -183,7 +177,6 @@ async function handleGetSubscription(request: Request) {
       planPriceMonthly: subscriptionPlans.priceMonthlyCents,
       planAiMinutes: subscriptionPlans.includedAiMinutes,
       planPhoneLines: subscriptionPlans.includedPhoneLines,
-      planSmsMessages: subscriptionPlans.includedSmsMessages,
     })
     .from(subscriptions)
     .leftJoin(subscriptionPlans, eq(subscriptions.planId, subscriptionPlans.id))
@@ -206,10 +199,6 @@ async function handleGetSubscription(request: Request) {
 
   const aiMinutesUsed = usageRows
     .filter((r) => r.recordType === "ai_minutes")
-    .reduce((sum, r) => sum + Number(r.quantity), 0);
-
-  const smsUsed = usageRows
-    .filter((r) => r.recordType === "sms_outbound" || r.recordType === "sms_inbound")
     .reduce((sum, r) => sum + Number(r.quantity), 0);
 
   return new Response(
@@ -241,11 +230,6 @@ async function handleGetSubscription(request: Request) {
         phoneLinesPercent: subscription?.planPhoneLines
           ? Math.round((1 / subscription.planPhoneLines) * 100)
           : 100,
-        smsUsed,
-        smsLimit: subscription?.planSmsMessages || 200,
-        smsPercent: subscription?.planSmsMessages
-          ? Math.round((smsUsed / subscription.planSmsMessages) * 100)
-          : 0,
       },
       plans: PLANS,
       invoices: [],

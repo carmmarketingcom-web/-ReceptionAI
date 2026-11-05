@@ -301,7 +301,11 @@ function HealthPage() {
                 <p className="text-xs text-amber-600">Port in progress — may take 5-10 days</p>
               )}
               <div className="mt-1 flex gap-3 text-xs text-gray-400">
-                <span>{h.phoneStatus.smsEnabled ? "SMS ✓" : "SMS ✗"}</span>
+                <span>
+                  {h.phoneStatus.smsEnabled
+                    ? "Text alerts: on (optional add-on) — not delivering yet"
+                    : "Text alerts: off (optional add-on)"}
+                </span>
                 <span>{h.phoneStatus.voiceEnabled ? "Voice ✓" : "Voice ✗"}</span>
               </div>
             </>
