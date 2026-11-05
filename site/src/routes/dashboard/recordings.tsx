@@ -30,8 +30,8 @@ function RecordingsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Call Recordings</h1>
         <p className="mt-1 text-sm text-gray-500">
           Voicemail messages left on your business line. The audio is stored as soon as a caller
-          finishes leaving a message, and the owner gets a text alert. Transcripts are not
-          generated yet, so a message shows its audio and duration only.
+          finishes leaving a message, and the owner is emailed an alert with the recording.
+          Transcripts are not generated yet, so a message shows its audio and duration only.
         </p>
       </div>
 
@@ -63,7 +63,7 @@ function RecordingsPage() {
           <p className="text-sm font-semibold text-gray-700">No voicemails yet</p>
           <p className="mt-1 text-sm text-gray-500">
             When a caller leaves a message (option 9 on your line), the audio is saved here and
-            you get a text alert. Nothing appears until a real message is left — this page shows
+            you get an email alert with the recording. Nothing appears until a real message is left — this page shows
             no sample rows. Calls that ended before the caller engaged appear on the Missed Calls
             page with their ring time and callback status.
           </p>

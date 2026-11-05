@@ -462,7 +462,7 @@ async function migrate() {
   // Seed subscription plans
   await sql`INSERT INTO subscription_plans (name, display_name, description, price_monthly_cents, price_annual_cents, included_phone_lines, included_ai_minutes, features, sort_order, is_active)
   VALUES 
-    ('starter', 'Starter', 'Perfect for solopreneurs. 1 phone line, 500 AI-minutes, SMS & web chat.', 9900, 95040, 1, 500, '["1 phone line", "500 AI-minutes/month", "SMS & web chat", "Basic calendar sync", "English & Spanish", "Email support"]', 1, true),
+    ('starter', 'Starter', 'Perfect for solopreneurs. 1 phone line, 500 AI-minutes, email notifications & web chat.', 9900, 95040, 1, 500, '["1 phone line", "500 AI-minutes/month", "Email notifications & web chat", "Basic calendar sync", "English & Spanish", "Email support"]', 1, true),
     ('growth', 'Growth', 'Ideal for growing teams. 2 lines, 2,000 AI-minutes, WhatsApp & Facebook.', 19900, 191040, 2, 2000, '["2 phone lines", "2,000 AI-minutes/month", "WhatsApp & Facebook", "Advanced analytics", "Team management", "Priority support"]', 2, true),
     ('scale', 'Scale', 'For high-volume businesses. Unlimited lines, custom AI, priority support.', 39900, 383040, 999, 10000, '["Unlimited phone lines", "10,000+ AI-minutes/month", "Custom AI responses", "All channels", "Dedicated manager", "24/7 priority support"]', 3, true)
   ON CONFLICT (name) DO NOTHING`;

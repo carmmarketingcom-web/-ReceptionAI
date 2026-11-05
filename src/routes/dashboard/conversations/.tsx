@@ -23,7 +23,7 @@ const mockMessages: Record<string, { name: string; initials: string; channel: st
       { role: "customer", content: "123 Oak Street, apartment 4B.", time: "2:44 PM" },
       { role: "ai", content: "Great, I have an appointment available tomorrow at 2:00 PM. Does that work?", time: "2:44 PM" },
       { role: "customer", content: "Yes, that works perfectly.", time: "2:44 PM" },
-      { role: "ai", content: "Perfect! I've booked your AC repair for tomorrow at 2:00 PM. You'll receive a confirmation via SMS. Is there anything else I can help with?", time: "2:44 PM" },
+      { role: "ai", content: "Perfect! I've booked your AC repair for tomorrow at 2:00 PM. You'll get a confirmation by email. Is there anything else I can help with?", time: "2:44 PM" },
       { role: "customer", content: "No, that's all. Thank you!", time: "2:45 PM" },
       { role: "ai", content: "You're welcome! Have a great day.", time: "2:45 PM" },
     ],
@@ -68,7 +68,7 @@ function ConversationDetailPage() {
         initials: conv.customerInitials || (conv.customerName
           ? conv.customerName.split(" ").map((n: string) => n[0]).join("").toUpperCase()
           : "??"),
-        channel: conv.channel === "chat" ? "💬 Chat" : conv.channel === "sms" ? "✉️ SMS" : "📞 Call",
+        channel: conv.channel === "chat" ? "💬 Chat" : conv.channel === "sms" ? "✉️ Text (optional add-on)" : "📞 Call",
         phone: conv.customerPhone || "-",
         email: "-",
         status: conv.status || "completed",

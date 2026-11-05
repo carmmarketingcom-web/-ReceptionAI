@@ -20,7 +20,7 @@ type Days = 7 | 30 | 90;
 
 const CHANNEL_LABELS: Record<string, string> = {
   call: "Phone calls",
-  sms: "SMS",
+  sms: "Text messages (optional add-on)",
   web_chat: "Web chat",
   whatsapp: "WhatsApp",
   facebook: "Facebook",
@@ -364,7 +364,7 @@ function AnalyticsPage() {
             {/* Channel + language — both real conversation columns/metadata */}
             <BreakdownCard
               title="By Channel"
-              subtitle="Every conversation in this range, by channel"
+              subtitle="Every conversation in this range, by channel. Text messages are an optional add-on and only appear for businesses that have it on."
               rows={analytics.channels.map((c) => ({
                 label: CHANNEL_LABELS[c.channel] || c.channel,
                 count: c.count,

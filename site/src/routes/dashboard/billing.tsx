@@ -15,11 +15,10 @@ const plans = [
     priceNum: 99,
     aiMinutes: 500,
     phoneLines: 1,
-    smsMessages: 200,
     features: [
       "1 phone line",
       "500 AI-minutes/month",
-      "SMS & web chat",
+      "Email notifications & web chat",
       "Basic calendar sync",
       "English & Spanish",
     ],
@@ -33,7 +32,6 @@ const plans = [
     priceNum: 199,
     aiMinutes: 2000,
     phoneLines: 2,
-    smsMessages: 1000,
     features: [
       "2 phone lines",
       "2,000 AI-minutes/month",
@@ -53,7 +51,6 @@ const plans = [
     priceNum: 399,
     aiMinutes: 10000,
     phoneLines: 5,
-    smsMessages: 5000,
     features: [
       "5+ phone lines",
       "10,000+ AI-minutes/month",
@@ -259,19 +256,16 @@ function BillingPage() {
           </div>
           <div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-700">SMS messages</span>
-              <span className="font-medium text-gray-900">
-                342 / {activePlanData?.smsMessages?.toLocaleString() || "1,000"}
-              </span>
-            </div>
-            <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-gray-100">
-              <div
-                className="h-full rounded-full bg-green-500 transition-all"
-                style={{ width: "34%" }}
-              />
+              <span className="text-gray-700">Email notifications</span>
+              <span className="font-medium text-gray-900">Included in every plan</span>
             </div>
             <p className="mt-1 text-xs text-gray-400">
-              34% of monthly limit used
+              Every call summary, missed call, voicemail alert and web-chat callback is emailed to
+              you automatically, in the caller's language — no extra charge, nothing to count.
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Text (SMS) alerts are an optional add-on, not part of any plan. They are not priced
+              here and not delivered yet.
             </p>
           </div>
           <div>
