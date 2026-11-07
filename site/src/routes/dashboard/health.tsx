@@ -1,47 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
+import { normalizeOrgHealth } from "../../lib/org-health";
 
 export const Route = createFileRoute("/dashboard/health")({
   component: HealthPage,
 });
 
 // ─── Types ──────────────────────────────────────────────────────────
-
-interface PhoneStatus {
-  provisioned: boolean;
-  number: string | null;
-  status: string;
-  smsEnabled: boolean;
-  voiceEnabled: boolean;
-}
-
-interface LastCall {
-  found: boolean;
-  callerNumber?: string;
-  time?: string;
-  duration?: number;
-  outcome?: string;
-}
-
-interface WebhookStatus {
-  configured: boolean;
-  lastReceived: string | null;
-  recent: boolean;
-}
-
-interface ScheduleStatus {
-  upcoming: number;
-}
-
-interface HealthData {
-  phoneStatus: PhoneStatus;
-  lastCall: LastCall;
-  webhookStatus: WebhookStatus;
-  scheduleStatus: ScheduleStatus;
-  allOk: boolean;
-  tips: string[];
-  checkedAt: string;
-}
 
 interface TestResult {
   success: boolean;
@@ -53,58 +18,56 @@ interface TestResult {
 
 // ─── Status Badge ───────────────────────────────────────────────────
 
-function StatusDot({ ok, warn }: { ok: boolean; warn?: boolean }) {
-  return (
-    <span
-      className={`inline-block h-3 w-3 rounded-full ${
-        ok ? "bg-green-500" : warn ? "bg-amber-500" : "bg-red-500"
-      }`}
-    />
-  );
+function StatusDot({ state }: { state: "ok" | "warn" | "bad" | "unknown" }) {
+  const colour =
+    state === "ok"
+      ? "bg-green-500"
+      : state === "warn"
+        ? "bg-amber-500"
+        : state === "bad"
+          ? "bg-red-500"
+          : "bg-gray-300";
+  return <span className={`inline-block h-3 w-3 rounded-full ${colour}`} title={state} />;
 }
 
-function StatusLabel({ ok, warn, okText, badText, warnText }: {
-  ok: boolean;
-  warn?: boolean;
-  okText: string;
-  badText: string;
-  warnText?: string;
-}) {
-  return (
-    <span className={`text-sm font-medium ${ok ? "text-green-700" : warn ? "text-amber-700" : "text-red-700"}`}>
-      {ok ? okText : warn && warnText ? warnText : badText}
-    </span>
-  );
+function StatusLabel({ state, text }: { state: "ok" | "warn" | "bad" | "unknown"; text: string }) {
+  const colour =
+    state === "ok"
+      ? "text-green-700"
+      : state === "warn"
+        ? "text-amber-700"
+        : state === "bad"
+          ? "text-red-700"
+          : "text-gray-500";
+  return <span className={`text-sm font-medium ${colour}`}>{text}</span>;
 }
 
 // ─── Card ───────────────────────────────────────────────────────────
 
 function StatusCard({
   title,
-  ok,
-  warn,
+  state,
   children,
   tip,
 }: {
   title: string;
-  ok: boolean;
-  warn?: boolean;
+  state: "ok" | "warn" | "bad" | "unknown";
   children: React.ReactNode;
   tip?: string;
 }) {
+  const border =
+    state === "ok"
+      ? "border-green-200"
+      : state === "warn"
+        ? "border-amber-200 bg-amber-50/30"
+        : state === "bad"
+          ? "border-red-200 bg-red-50/30"
+          : "border-gray-200";
   return (
-    <div
-      className={`rounded-xl border bg-white p-5 shadow-sm ${
-        ok
-          ? "border-green-200"
-          : warn
-            ? "border-amber-200 bg-amber-50/30"
-            : "border-red-200 bg-red-50/30"
-      }`}
-    >
+    <div className={`rounded-xl border bg-white p-5 shadow-sm ${border}`}>
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        <StatusDot ok={ok} warn={warn} />
+        <StatusDot state={state} />
       </div>
       <div className="space-y-1.5 text-sm text-gray-600">{children}</div>
       {tip && (
@@ -119,25 +82,28 @@ function StatusCard({
 // ─── Page ────────────────────────────────────────────────────────────
 
 function HealthPage() {
-  const [health, setHealth] = useState<HealthData | null>(null);
+  // The payload is always a fully-populated object: normalizeOrgHealth() fills in every
+  // field, so a missing or renamed value can only ever render as "not checked" — it can
+  // never throw and leave a customer looking at a blank page.
+  const [health, setHealth] = useState(() => normalizeOrgHealth(null));
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [testRunning, setTestRunning] = useState(false);
-  const [checkedAt, setCheckedAt] = useState<string | null>(null);
 
   const fetchHealth = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const token = localStorage.getItem("receptionai_token");
-      const res = await fetch("/api/health", {
+      const res = await fetch("/api/health/org", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("Failed to fetch health data");
-      const data = (await res.json()) as HealthData;
-      setHealth(data);
-      setCheckedAt(data.checkedAt);
+      if (!res.ok) throw new Error(`Health check failed (${res.status})`);
+      const data = await res.json();
+      setHealth(normalizeOrgHealth(data));
+      setLoaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -175,9 +141,16 @@ function HealthPage() {
     }
   };
 
-  // ── Loading ───────────────────────────────────────────────────────
+  const h = health;
+  const phone = h.phoneStatus;
+  const hook = h.webhookStatus;
+  const texting = h.texting;
+  const call = h.lastCall;
 
-  if (loading && !health) {
+  const formattedTime = h.checkedAt ? new Date(h.checkedAt).toLocaleTimeString() : "";
+
+  // ── Loading (first paint only) ─────────────────────────────────────
+  if (loading && !loaded && !error) {
     return (
       <div className="flex items-center justify-center py-20">
         <svg className="h-8 w-8 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24">
@@ -189,9 +162,8 @@ function HealthPage() {
     );
   }
 
-  // ── Error ─────────────────────────────────────────────────────────
-
-  if (error && !health) {
+  // ── Error, nothing to show ─────────────────────────────────────────
+  if (error && !loaded) {
     return (
       <div className="space-y-6">
         <div>
@@ -212,12 +184,16 @@ function HealthPage() {
     );
   }
 
-  if (!health) return null;
+  // ── States ─────────────────────────────────────────────────────────
+  const phoneState: "ok" | "warn" | "bad" = !phone.provisioned ? "bad" : phone.status === "inactive" ? "warn" : "ok";
+  const callState: "ok" | "bad" = call.found ? "ok" : "bad";
+  const hookState: "ok" | "warn" | "bad" | "unknown" =
+    !hook.known ? "unknown" : hook.configured === true ? "ok" : hook.lastReceived ? "warn" : "bad";
 
-  const h = health;
-  const formattedTime = checkedAt
-    ? new Date(checkedAt).toLocaleTimeString()
-    : "";
+  const issues = h.tips.length;
+  const unknownCount = h.unknowns.length;
+
+  const bannerState: "ok" | "warn" = h.allOk ? "ok" : "warn";
 
   return (
     <div className="space-y-6">
@@ -241,17 +217,30 @@ function HealthPage() {
         </button>
       </div>
 
+      {/* Incomplete payload — shown instead of a blank page or a false green tick */}
+      {h.missing.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-medium text-amber-900">
+            Some checks did not come back from the server
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            Missing: {h.missing.join(", ")}. Anything we could not read is shown as
+            &ldquo;not checked&rdquo; below rather than as a green tick.
+          </p>
+        </div>
+      )}
+
       {/* Overall Status Banner */}
       <div
         className={`rounded-xl p-5 ${
-          h.allOk
+          bannerState === "ok"
             ? "border border-green-200 bg-green-50"
             : "border border-amber-200 bg-amber-50"
         }`}
       >
         <div className="flex items-center gap-3">
-          <span className={`flex h-10 w-10 items-center justify-center rounded-full ${h.allOk ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-            {h.allOk ? (
+          <span className={`flex h-10 w-10 items-center justify-center rounded-full ${bannerState === "ok" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+            {bannerState === "ok" ? (
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
@@ -266,9 +255,11 @@ function HealthPage() {
               {h.allOk ? "All systems operational" : "Some attention needed"}
             </p>
             <p className="text-sm text-gray-600">
-              {h.allOk
-                ? "Your ReceptionAI system is working correctly."
-                : `${h.tips.length} issue${h.tips.length > 1 ? "s" : ""} found.`}
+              {!h.allOk
+                ? `${issues} issue${issues === 1 ? "" : "s"} found.`
+                : unknownCount > 0
+                  ? `Everything we could check is healthy. ${unknownCount} check${unknownCount === 1 ? "" : "s"} could not be verified from our side.`
+                  : "Your ReceptionAI system is working correctly."}
             </p>
           </div>
         </div>
@@ -279,34 +270,25 @@ function HealthPage() {
         {/* Phone Number */}
         <StatusCard
           title="Phone Number"
-          ok={h.phoneStatus.provisioned}
-          warn={h.phoneStatus.status === "pending_port"}
+          state={phoneState}
           tip={
-            h.phoneStatus.provisioned
+            phone.provisioned
               ? undefined
-              : "No phone number is provisioned. Your Stripe subscription may not have completed, or provisioning may have failed. Contact support if this persists."
+              : "No phone number is provisioned for this account. If you just subscribed, provisioning may still be running. Contact support if this persists."
           }
         >
-          {h.phoneStatus.provisioned ? (
+          {phone.provisioned ? (
             <>
               <p>
                 <StatusLabel
-                  ok={true}
-                  okText="Live"
-                  badText=""
+                  state={phone.status === "inactive" ? "warn" : "ok"}
+                  text={phone.status === "inactive" ? "Inactive" : "Live"}
                 />
               </p>
-              <p className="font-mono text-xs">{h.phoneStatus.number}</p>
-              {h.phoneStatus.status === "pending_port" && (
-                <p className="text-xs text-amber-600">Port in progress — may take 5-10 days</p>
-              )}
+              <p className="font-mono text-xs">{phone.number || "Number not recorded"}</p>
               <div className="mt-1 flex gap-3 text-xs text-gray-400">
-                <span>
-                  {h.phoneStatus.smsEnabled
-                    ? "Text alerts: on (optional add-on) — not delivering yet"
-                    : "Text alerts: off (optional add-on)"}
-                </span>
-                <span>{h.phoneStatus.voiceEnabled ? "Voice ✓" : "Voice ✗"}</span>
+                <span>{phone.voiceEnabled ? "Voice ✓" : "Voice ✗"}</span>
+                <span>{phone.smsEnabled ? "Text-capable number ✓" : "Text-capable number ✗"}</span>
               </div>
             </>
           ) : (
@@ -317,74 +299,136 @@ function HealthPage() {
         {/* Last Call */}
         <StatusCard
           title="Last Call"
-          ok={h.lastCall.found}
+          state={callState}
           tip={
-            h.lastCall.found
+            call.found
               ? undefined
-              : "No calls received yet. Make sure you're forwarding calls to your ReceptionAI number. If you brought your own number, set up call forwarding with your carrier."
+              : "No customer calls yet. Make sure you're forwarding calls to your ReceptionAI number. If you brought your own number, set up call forwarding with your carrier."
           }
         >
-          {h.lastCall.found ? (
+          {call.found ? (
             <>
-              <p className="font-mono text-xs">{h.lastCall.callerNumber}</p>
+              <p className="font-mono text-xs">{call.callerNumber || "Caller number unavailable"}</p>
               <p className="text-xs text-gray-400">
-                {h.lastCall.time ? new Date(h.lastCall.time).toLocaleString() : ""}
-                {h.lastCall.duration != null && ` · ${h.lastCall.duration}s`}
+                {call.time ? new Date(call.time).toLocaleString() : "Time unavailable"}
+                {call.duration != null && ` · ${call.duration}s`}
               </p>
-              <p className="text-xs text-gray-500">
-                Outcome: {h.lastCall.outcome}
-              </p>
+              <p className="text-xs text-gray-500">Outcome: {call.outcome || "not recorded"}</p>
+              {call.demoCallsExcluded > 0 && (
+                <p className="text-xs text-gray-400">
+                  {call.demoCallsExcluded} call{call.demoCallsExcluded === 1 ? "" : "s"} to the demo line not counted.
+                </p>
+              )}
             </>
           ) : (
-            <p className="text-xs text-gray-500">No calls yet.</p>
+            <p className="text-xs text-gray-500">No calls from customers yet.</p>
           )}
         </StatusCard>
 
         {/* Webhook */}
         <StatusCard
           title="Webhook Connection"
-          ok={h.webhookStatus.configured}
-          warn={!h.webhookStatus.configured && !!h.webhookStatus.lastReceived}
+          state={hookState}
           tip={
-            h.webhookStatus.configured
-              ? undefined
-              : "Our server isn't receiving call webhooks. This means incoming calls won't be answered by the AI. Check your Telnyx connection settings."
+            hook.known && hook.configured === false
+              ? "Our server isn't receiving call webhooks, so incoming calls won't be answered by the AI. Contact support and we'll re-attach the Telnyx connection."
+              : undefined
           }
         >
-          {h.webhookStatus.configured ? (
+          {!hook.known ? (
             <>
               <p>
-                <StatusLabel ok={true} okText="Connected" badText="" />
+                <StatusLabel state="unknown" text="Not checked" />
               </p>
-              {h.webhookStatus.lastReceived && (
+              <p className="text-xs text-gray-400">
+                We can't read this number's Telnyx voice configuration from here, so we're not
+                claiming it is connected.
+              </p>
+              {hook.lastReceived && (
                 <p className="text-xs text-gray-400">
-                  Last webhook: {new Date(h.webhookStatus.lastReceived).toLocaleString()}
-                  {h.webhookStatus.recent && <span className="ml-1 text-green-600">(recent)</span>}
+                  Last call event received: {new Date(hook.lastReceived).toLocaleString()}
+                  {hook.recent && <span className="ml-1 text-green-600">(recent)</span>}
+                </p>
+              )}
+            </>
+          ) : hook.configured ? (
+            <>
+              <p>
+                <StatusLabel state="ok" text="Connected" />
+              </p>
+              {hook.lastReceived && (
+                <p className="text-xs text-gray-400">
+                  Last call event received: {new Date(hook.lastReceived).toLocaleString()}
+                  {hook.recent && <span className="ml-1 text-green-600">(recent)</span>}
                 </p>
               )}
             </>
           ) : (
             <>
               <p>
-                <StatusLabel ok={false} badText="Not connected" />
+                <StatusLabel state="bad" text="Not connected" />
               </p>
-              <p className="text-xs text-gray-400">Webhooks may not be reaching our server.</p>
+              <p className="text-xs text-gray-400">Call events may not be reaching our server.</p>
             </>
           )}
         </StatusCard>
 
         {/* Schedule */}
-        <StatusCard
-          title="Schedule"
-          ok={h.scheduleStatus.upcoming >= 0}
-          tip={undefined}
-        >
+        <StatusCard title="Schedule" state="ok">
           <p>
-            <StatusLabel ok={true} okText={`${h.scheduleStatus.upcoming} upcoming appointment${h.scheduleStatus.upcoming !== 1 ? "s" : ""}`} badText="" />
+            <StatusLabel
+              state="ok"
+              text={`${h.scheduleStatus.upcoming} upcoming appointment${h.scheduleStatus.upcoming === 1 ? "" : "s"}`}
+            />
           </p>
           <p className="text-xs text-gray-400">
             <a href="/dashboard/schedule" className="text-indigo-600 hover:underline">View full schedule →</a>
           </p>
+        </StatusCard>
+
+        {/* Text alerts — an optional add-on, off by default, and honest about delivery */}
+        <StatusCard
+          title="Text Alerts (optional add-on)"
+          state={texting.addonEnabled ? (texting.delivering === true ? "ok" : "warn") : "unknown"}
+        >
+          {!texting.addonEnabled ? (
+            <>
+              <p>
+                <StatusLabel state="unknown" text="Off" />
+              </p>
+              <p className="text-xs text-gray-400">
+                Email notifications are on and free. Texting is a paid upgrade you can turn on
+                in Settings → Notifications.
+              </p>
+            </>
+          ) : texting.delivering === true ? (
+            <>
+              <p>
+                <StatusLabel state="ok" text="On" />
+              </p>
+              <p className="text-xs text-gray-400">Texts are being delivered to your mobile.</p>
+            </>
+          ) : texting.delivering === false ? (
+            <>
+              <p>
+                <StatusLabel state="warn" text="On — not delivering yet" />
+              </p>
+              <p className="text-xs text-gray-400">
+                No text has been delivered yet while our sending number awaits carrier approval.
+                Email is carrying every notification in the meantime.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                <StatusLabel state="warn" text="On — delivery not checked" />
+              </p>
+              <p className="text-xs text-gray-400">
+                We couldn't read the delivery records just now. Email is carrying every
+                notification either way.
+              </p>
+            </>
+          )}
         </StatusCard>
       </div>
 
@@ -399,7 +443,7 @@ function HealthPage() {
           </div>
           <button
             onClick={runTest}
-            disabled={testRunning || !h.phoneStatus.provisioned}
+            disabled={testRunning || !phone.provisioned}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {testRunning ? (
@@ -445,7 +489,7 @@ function HealthPage() {
           </div>
         )}
 
-        {!h.phoneStatus.provisioned && (
+        {!phone.provisioned && (
           <p className="mt-3 text-xs text-gray-400">
             You need a phone number to run a test call. Provision one first.
           </p>
@@ -473,7 +517,7 @@ function HealthPage() {
       )}
 
       {/* Timestamp */}
-      {checkedAt && (
+      {formattedTime && (
         <p className="text-center text-xs text-gray-400">
           Last checked at {formattedTime}
         </p>
