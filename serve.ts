@@ -8,6 +8,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 }
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
+import { buildOrgHealth, normalizeOrgHealth } from "./src/lib/org-health";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
@@ -4759,6 +4760,29 @@ for (let attempt = 1; ; attempt++) {
             console.error("[Test Call]", errMsg);
             return new Response(JSON.stringify({ success: false, error: errMsg }),
               { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
+
+        // ── Org health API (dashboard System health page) ───────────
+        // /api/health above is the PLATFORM check (database, Telnyx balance, delivery).
+        // The dashboard needs org-scoped facts, and in this server these inline handlers
+        // shadow src/routes/api/*.ts — which is how the page ended up calling the platform
+        // endpoint and throwing on a phoneStatus it has never returned. The single
+        // implementation of the org payload lives in src/lib/org-health.ts and is shared by
+        // both serve.ts trees and the route handler, so the shape cannot drift again.
+        if (pathname === "/api/health/org" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const payload = await buildOrgHealth(sql as any, auth.organizationId);
+            return json(normalizeOrgHealth(payload));
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error("[Org Health API]", errMsg);
+            return json({ error: "Health check failed", detail: errMsg }, 500);
           }
         }
 
