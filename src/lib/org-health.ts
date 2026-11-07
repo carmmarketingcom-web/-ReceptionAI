@@ -303,6 +303,8 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 function asNumber(value: unknown): number | null {
+  // Number(null) is 0 and Number("") is 0 — neither is a real measurement.
+  if (value === null || value === undefined || value === "") return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : null;
 }
