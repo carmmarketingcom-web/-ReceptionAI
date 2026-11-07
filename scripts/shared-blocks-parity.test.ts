@@ -16,8 +16,10 @@
  * literally the same characters.
  */
 import { test, expect } from "bun:test";
+import { join, resolve } from "node:path";
 
-const REPO = "/tmp/receptionai-live";
+// Test the tree this file lives in (a clone, a CI checkout, whatever) — not a fixed path.
+const REPO = process.env.RECEPTIONAI_REPO ? resolve(process.env.RECEPTIONAI_REPO) : join(import.meta.dir, "..");
 const root = await Bun.file(`${REPO}/serve.ts`).text();
 const site = await Bun.file(`${REPO}/site/serve.ts`).text();
 
