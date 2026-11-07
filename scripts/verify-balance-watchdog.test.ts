@@ -21,10 +21,12 @@
  */
 import { test, expect, mock, beforeAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { join, resolve } from "node:path";
 
 const PORT = 3211;
 const BASE = `http://127.0.0.1:${PORT}`;
-const REPO = "/tmp/receptionai-live";
+// Test the tree this file lives in (a clone, a CI checkout, whatever) — not a fixed path.
+const REPO = process.env.RECEPTIONAI_REPO ? resolve(process.env.RECEPTIONAI_REPO) : join(import.meta.dir, "..");
 
 // ── Fake Postgres (SQLite) ───────────────────────────────────────────────────
 const db = new Database(":memory:");
@@ -152,22 +154,24 @@ test("the fired timestamp is persisted in system_alert_state (survives a restart
   expect(Number(row.last_fired_at_ms)).toBeGreaterThan(0);
 });
 
-test("after 24h the same warn level may fire again", async () => {
+test("after 24h the SAME $42.10 still sends nothing — the amount, not the clock, decides", async () => {
+  // This is the rule that killed the 14 identical "CRITICAL $14.19" emails: a cooldown alone
+  // used to be enough to re-send the same figure every 6h, forever.
   advance(23 * HOUR); // ~25h since the first warn
   const { body } = await health();
   expect(body.telnyxBalanceStatus).toBe("low");
-  expect(resend.emails.length).toBe(2);
-  expect(resend.emails[1].subject).toContain("Telnyx balance low $42.10");
+  expect(resend.emails.length).toBe(1);
 });
 
-test("below $20 escalates to urgent on its own 6h cooldown", async () => {
+test("below $20 escalates to urgent at once, whatever the clock says", async () => {
   telnyx.balance = "17.68";
   advance(HOUR);
   const { body } = await health();
   expect(body.telnyxBalance).toBe(17.68);
   expect(body.telnyxBalanceStatus).toBe("urgent");
-  expect(resend.emails.length).toBe(3);
-  expect(resend.emails[2].subject).toContain("CRITICAL $17.68");
+  // Crossing into a more severe level is the "calls stop at $0" moment: it fires immediately.
+  expect(resend.emails.length).toBe(2);
+  expect(resend.emails[1].subject).toContain("CRITICAL $17.68");
 });
 
 test("a Telnyx API error is swallowed: health still 200, no SMS, no throw", async () => {
@@ -179,7 +183,7 @@ test("a Telnyx API error is swallowed: health still 200, no SMS, no throw", asyn
   expect(body.telnyxBalance).toBeNull();
   expect(body.telnyxBalanceStatus).toBe("unknown");
   expect(body.telnyxBalanceError).toContain("500");
-  expect(resend.emails.length).toBe(3); // nothing new was sent
+  expect(resend.emails.length).toBe(2); // nothing new was sent
 });
 
 test("the server keeps serving after the API failure (a call flow is never broken)", async () => {
@@ -202,8 +206,8 @@ test("recovering above $50 clears the state so the next drop alerts immediately"
   advance(HOUR);
   r = await health();
   expect(r.body.telnyxBalanceStatus).toBe("low");
-  expect(resend.emails.length).toBe(4);
-  expect(resend.emails[3].subject).toContain("$30.00");
+  expect(resend.emails.length).toBe(3);
+  expect(resend.emails[2].subject).toContain("$30.00");
 });
 
 // ── The text is a SECONDARY channel, and only for a business that opted in ──

@@ -24,10 +24,12 @@
  */
 import { test, expect, mock, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { join, resolve } from "node:path";
 
 const PORT = 3212;
 const BASE = `http://127.0.0.1:${PORT}`;
-const REPO = "/tmp/receptionai-live";
+// Test the tree this file lives in (a clone, a CI checkout, whatever) - not a fixed path.
+const REPO = process.env.RECEPTIONAI_REPO ? resolve(process.env.RECEPTIONAI_REPO) : join(import.meta.dir, "..");
 
 // ── Fake Postgres (SQLite) ───────────────────────────────────────────────────
 const db = new Database(":memory:");
@@ -241,7 +243,10 @@ test("a second failure inside the hour does not re-send the email", async () => 
 
 // ── 4. A rejected POST is logged, recorded, and never throws ────────────────
 test("a 4xx POST records the failure and never throws into the caller", async () => {
-  advance(25 * HOUR); // past the 24h balance-watchdog cooldown and the hourly email window
+  advance(25 * HOUR); // past the hourly email window and the watchdog's 6h re-alert cooldown
+  // The watchdog only re-alerts on a REAL fall (>= $5 lower than the last alert): re-sending an
+  // unchanged figure every cooldown is the flood the owner complained about on 2026-11-07.
+  telnyx.balance = "36.00"; // $6.10 below the $42.10 it already reported
 
   // Two more failures already inside the alert window → the email must aggregate.
   const t = Date.now() - 5 * MINUTE;

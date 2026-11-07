@@ -3125,20 +3125,49 @@ async function alertOwnerOfCallbackRequest(contact: string, message: string): Pr
 // optional secondary, and only for a platform line whose business opted into
 // texting (organizations.sms_enabled).
 //
-//   warn   below $50 → at most one alert / 24h
-//   urgent below $20 → at most one alert / 6h
+//   warn     below $50 → the "top up soon" step
+//   urgent   below $20 → "calls stop at $0"
+//   critical below $5  → calls are about to stop
+//   empty    at or below $0 → calls have stopped
 //
-// The last-fired timestamps live in `system_alert_state` (migration 0007), so
-// a redeploy or restart cannot re-spam him. If the DB is unreachable the check
-// fails OPEN and still alerts: a duplicate alert is far cheaper than a silent
-// dead phone line. Nothing in here may throw — it runs beside call flows,
-// webhooks and health checks, and a Telnyx API failure must never reach them.
+// WHEN it fires (owner rule, 2026-11-07 — the fix for 14 identical emails):
+//   1. once on entering a level;
+//   2. after that, silent for the same figure. A re-alert needs the balance to
+//      have fallen at least $5 since the last alert AND 6h since that alert;
+//   3. always once when crossing into a more severe level — critical/empty are
+//      the "calls are about to stop / have stopped" moments — whatever the
+//      cooldown says, but never twice for the same rounded amount;
+//   4. a material rise (a top-up, or recovery above $50) clears the fired state,
+//      so the next decline alerts once at its first threshold instead of
+//      waiting out an old cooldown.
+//
+// The last alert — timestamp AND amount — lives in `system_alert_state`
+// (migration 0007), so a redeploy or restart cannot re-spam the owner. If the DB
+// is unreachable the in-memory mirror still suppresses repeats inside the 6h
+// window: a database outage must not turn into a flood either. Nothing in here
+// may throw — it runs beside call flows, webhooks and health checks, and a
+// Telnyx API failure must never reach them.
 const TELNYX_BALANCE_WARN_BELOW = 50;
 const TELNYX_BALANCE_URGENT_BELOW = 20;
-const TELNYX_BALANCE_WARN_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const TELNYX_BALANCE_URGENT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const TELNYX_BALANCE_CRITICAL_BELOW = 5;
+const TELNYX_BALANCE_EMPTY_AT_OR_BELOW = 0;
+const TELNYX_BALANCE_REALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // ≥6h between re-alerts
+const TELNYX_BALANCE_REALERT_DROP = 5; // …and ≥$5 lower than the last alert
 const TELNYX_BALANCE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // ≤1 Telnyx API call per hour
 const TELNYX_BALANCE_TIMEOUT_MS = 5_000;
+
+type BalanceLevel = "warn" | "urgent" | "critical" | "empty";
+// Severity order. A crossing UP this ladder is the "calls stop soon / have
+// stopped" moment and always alerts once, even inside the cooldown.
+const BALANCE_LEVEL_RANK: Record<string, number> = { warn: 1, urgent: 2, critical: 3, empty: 4 };
+
+function balanceLevelFor(balance: number): BalanceLevel | null {
+  if (balance <= TELNYX_BALANCE_EMPTY_AT_OR_BELOW) return "empty";
+  if (balance < TELNYX_BALANCE_CRITICAL_BELOW) return "critical";
+  if (balance < TELNYX_BALANCE_URGENT_BELOW) return "urgent";
+  if (balance < TELNYX_BALANCE_WARN_BELOW) return "warn";
+  return null; // healthy — no alert level
+}
 
 type TelnyxBalanceSnapshot = {
   balance: number | null; // null = unknown (no key / API failure) — never alert on unknown
@@ -3150,7 +3179,10 @@ type TelnyxBalanceSnapshot = {
 let telnyxBalanceCache: TelnyxBalanceSnapshot = { balance: null, currency: "USD", checkedAt: "" };
 let telnyxBalanceLastAttemptAt = 0; // in-memory throttle for the opportunistic trigger
 let telnyxBalanceInFlight: Promise<TelnyxBalanceSnapshot> | null = null; // dedupe concurrent triggers
-const telnyxBalanceFiredAt: Record<string, number> = {}; // in-memory mirror of the DB rows
+// The newest alert the owner was actually told about. Mirrors the `system_alert_state`
+// row so a DB outage cannot make the watchdog forget it already emailed him.
+type BalanceAlertState = { firedAtMs: number; lastValue: string | null; level: string };
+let telnyxBalanceLastAlert: BalanceAlertState | null = null;
 let alertStateTableReady: Promise<boolean> | null = null;
 
 // Owner alert on the same env-gated path as the support/callback alerts:
@@ -3230,20 +3262,76 @@ async function ensureAlertStateTable(sql: any): Promise<boolean> {
   return alertStateTableReady;
 }
 
-// null = state unknown (no DB / DB down) → caller fails OPEN and alerts
-// 0    = never fired at this level
-// >0   = epoch ms of the last alert at this level
-async function readBalanceAlertFiredAt(level: string): Promise<number | null> {
+// The MOST RECENT balance alert across every level: the decision compares against the
+// last thing the owner was actually told, not just the last alert at this one level.
+// null = state unknown (no DB / DB down) → the caller falls back to the in-memory mirror.
+async function readBalanceAlertState(): Promise<BalanceAlertState | null> {
   const sql = balanceStateDb();
   if (!sql) return null;
   if (!(await ensureAlertStateTable(sql))) return null;
   try {
-    const rows = (await sql`SELECT last_fired_at_ms FROM system_alert_state WHERE alert_key = ${"telnyx_balance." + level} LIMIT 1`) as any[];
-    const v = rows?.[0]?.last_fired_at_ms;
-    return v === undefined || v === null ? 0 : Number(v);
+    const rows = (await sql`SELECT alert_key, last_fired_at_ms, last_value FROM system_alert_state
+      WHERE alert_key LIKE ${"telnyx_balance.%"} ORDER BY last_fired_at_ms DESC LIMIT 1`) as any[];
+    const row = rows?.[0];
+    if (!row) return { firedAtMs: 0, lastValue: null, level: "" }; // never fired at any level
+    const firedAtMs = Number(row.last_fired_at_ms);
+    return {
+      firedAtMs: Number.isFinite(firedAtMs) ? firedAtMs : 0,
+      lastValue: row.last_value === null || row.last_value === undefined ? null : String(row.last_value),
+      level: String(row.alert_key || "").replace("telnyx_balance.", ""),
+    };
   } catch {
     return null;
   }
+}
+
+type BalanceAlertDecision = { fire: boolean; reason: string; reset?: boolean };
+
+// The decision, in one place, so the rule can be read (and tested) without the email code.
+//   1. never alerted            → fire (entering a level)
+//   2. same rounded amount      → silent, however long it has been (this was the flood)
+//   3. balance rose materially  → clear the fired state, no alert (top-up / recovery)
+//   4. more severe level        → fire immediately (calls are about to stop / have stopped)
+//   5. fell ≥$5 and ≥6h         → fire
+//   6. otherwise                → silent, with the reason
+async function decideBalanceAlert(balance: number, level: BalanceLevel, now: number): Promise<BalanceAlertDecision> {
+  const persisted = await readBalanceAlertState();
+  // DB unreachable → keep using the in-memory mirror instead of failing open, so an
+  // outage cannot turn into one identical email per check.
+  const last = persisted ?? telnyxBalanceLastAlert;
+  if (persisted && persisted.firedAtMs) telnyxBalanceLastAlert = persisted;
+  if (!last || !last.firedAtMs) return { fire: true, reason: `first ${level} alert` };
+
+  // A row dated in the future (a parked stopgap timestamp) reads as "just fired": it
+  // cannot loop, and the 6h comparison stays a comparison instead of going negative.
+  const elapsedMs = Math.max(0, now - Number(last.firedAtMs));
+  const hours = Math.round(elapsedMs / (60 * 60 * 1000));
+  const money = `$${balance.toFixed(2)}`;
+  const lastValue = last.lastValue === null || last.lastValue === "" ? NaN : Number(last.lastValue);
+  const since = Number.isFinite(lastValue) ? `$${lastValue.toFixed(2)}` : "an unknown amount";
+
+  // Same figure → silent, whatever the level or the cooldown. 14 emails, all $14.19.
+  if (Number.isFinite(lastValue) && Math.abs(lastValue - balance) < 0.005) {
+    return { fire: false, reason: `same amount ${money}, ${hours}h since last alert` };
+  }
+  // A material rise is a top-up (or a recovery): forget the fired state so the NEXT
+  // decline alerts once at its first threshold, not immediately and not never.
+  if (Number.isFinite(lastValue) && balance - lastValue >= TELNYX_BALANCE_REALERT_DROP) {
+    return { fire: false, reset: true, reason: `balance up to ${money} from ${since} — fired state cleared` };
+  }
+  // Crossing into a more severe level is the moment that matters: fire once, now.
+  if ((BALANCE_LEVEL_RANK[level] || 0) > (BALANCE_LEVEL_RANK[last.level] || 0)) {
+    return { fire: true, reason: `entered ${level} (was ${last.level || "none"}) at ${money}` };
+  }
+  const fell = Number.isFinite(lastValue) ? lastValue - balance : 0;
+  if (fell <= 0) return { fire: false, reason: `${money} has not fallen below ${since}` };
+  if (fell < TELNYX_BALANCE_REALERT_DROP) {
+    return { fire: false, reason: `only $${fell.toFixed(2)} below ${since}, need $${TELNYX_BALANCE_REALERT_DROP}` };
+  }
+  if (elapsedMs < TELNYX_BALANCE_REALERT_COOLDOWN_MS) {
+    return { fire: false, reason: `fell to ${money} from ${since} but only ${hours}h since last alert, need 6h` };
+  }
+  return { fire: true, reason: `fell to ${money} from ${since}, ${hours}h since last alert` };
 }
 
 async function writeBalanceAlertFiredAt(level: string, value: number, firedAtMs: number): Promise<void> {
@@ -3262,18 +3350,44 @@ async function writeBalanceAlertFiredAt(level: string, value: number, firedAtMs:
   }
 }
 
-// Balance healthy again → forget the fired timestamps so the NEXT drop alerts
-// immediately instead of waiting out the old cooldown.
+// Balance healthy (or materially recovered) → forget the fired state so the NEXT
+// decline alerts immediately instead of waiting out the old cooldown.
 async function clearBalanceAlertState(): Promise<void> {
   const sql = balanceStateDb();
   if (!sql) return;
   if (!(await ensureAlertStateTable(sql))) return;
   try {
-    await sql`DELETE FROM system_alert_state WHERE alert_key IN (${"telnyx_balance.warn"}, ${"telnyx_balance.urgent"})`;
+    await sql`DELETE FROM system_alert_state WHERE alert_key LIKE ${"telnyx_balance.%"}`;
   } catch {
     /* not worth a log line every healthy hour */
   }
 }
+
+// One block of copy per level. Email leads (it is the channel that works); the text is a
+// secondary that only leaves for a platform line with texting switched on, and every body
+// stays inside GSM-7 so it cannot quietly become a multi-part (UCS-2) message.
+const BALANCE_ALERT_COPY: Record<BalanceLevel, (money: string) => { subject: string; email: string; sms: string }> = {
+  warn: (money) => ({
+    subject: `ReceptionAI: Telnyx balance low ${money} - top up soon`,
+    email: `Telnyx available credit is ${money}. Calls stop at $0.`,
+    sms: `ReceptionAI: Telnyx balance low ${money} - top up soon; calls stop at $0. portal.telnyx.com > Billing.`,
+  }),
+  urgent: (money) => ({
+    subject: `ReceptionAI: Telnyx balance CRITICAL ${money} - calls stop at $0`,
+    email: `Telnyx available credit is ${money}. Inbound calls STOP when it reaches $0.`,
+    sms: `ReceptionAI: TELNYX BALANCE CRITICAL ${money} - inbound calls STOP at $0. Top up: portal.telnyx.com > Billing > Add credit.`,
+  }),
+  critical: (money) => ({
+    subject: `ReceptionAI: Telnyx balance ALMOST EMPTY ${money} - calls stop at $0`,
+    email: `Telnyx available credit is ${money}. Inbound calls stop at $0 — add credit now.`,
+    sms: `ReceptionAI: Telnyx balance ALMOST EMPTY ${money} - calls stop at $0. Top up: portal.telnyx.com > Billing > Add credit.`,
+  }),
+  empty: (money) => ({
+    subject: `ReceptionAI: Telnyx balance EMPTY ${money} - calls have stopped`,
+    email: `Telnyx available credit is ${money}. Inbound calls are FAILING until credit is added.`,
+    sms: `ReceptionAI: Telnyx balance EMPTY ${money} - inbound calls STOPPED. Top up: portal.telnyx.com > Billing > Add credit.`,
+  }),
+};
 
 // The watchdog itself. Throttled to one Telnyx call per hour per process, so it
 // is safe to call on every inbound request. Returns the (possibly cached)
@@ -3302,43 +3416,29 @@ async function runBalanceCheck(trigger: string): Promise<TelnyxBalanceSnapshot> 
       console.warn(`[BalanceWatch] balance unknown (${snap.error || "no data"}) — no alert sent`);
       return snap;
     }
-    if (snap.balance >= TELNYX_BALANCE_WARN_BELOW) {
-      telnyxBalanceFiredAt["warn"] = 0;
-      telnyxBalanceFiredAt["urgent"] = 0;
-      await clearBalanceAlertState();
-      console.log(`[BalanceWatch] Telnyx balance $${snap.balance.toFixed(2)} ${snap.currency} — ok`);
-      return snap;
-    }
-
-    const level = snap.balance < TELNYX_BALANCE_URGENT_BELOW ? "urgent" : "warn";
-    const cooldown = level === "urgent" ? TELNYX_BALANCE_URGENT_COOLDOWN_MS : TELNYX_BALANCE_WARN_COOLDOWN_MS;
-
-    const memLast = telnyxBalanceFiredAt[level] || 0;
-    if (memLast && now - memLast < cooldown) {
-      console.log(`[BalanceWatch] ${level} alert already sent ${Math.round((now - memLast) / 60000)}m ago — suppressed`);
-      return snap;
-    }
-    // Cross-restart guard: the DB remembers even if this process does not.
-    const persisted = await readBalanceAlertFiredAt(level);
-    if (persisted && now - persisted < cooldown) {
-      telnyxBalanceFiredAt[level] = persisted;
-      console.log(`[BalanceWatch] ${level} alert already sent ${Math.round((now - persisted) / 60000)}m ago (persisted) — suppressed`);
-      return snap;
-    }
 
     const money = `$${snap.balance.toFixed(2)}`;
-    // Emoji are deliberately gone from the text: gsm7Safe() strips them anyway, so they were
-    // costing characters in a body that could never arrive.
-    const smsText = level === "urgent"
-      ? `ReceptionAI: TELNYX BALANCE CRITICAL ${money} - inbound calls STOP at $0. Top up: portal.telnyx.com > Billing > Add credit.`
-      : `ReceptionAI: Telnyx balance low ${money} - top up soon; calls stop at $0. portal.telnyx.com > Billing.`;
-    const subject = level === "urgent"
-      ? `ReceptionAI: Telnyx balance CRITICAL ${money} - calls stop at $0`
-      : `ReceptionAI: Telnyx balance low ${money} - top up soon`;
+    const level = balanceLevelFor(snap.balance);
+    if (!level) {
+      telnyxBalanceLastAlert = null;
+      await clearBalanceAlertState();
+      console.log(`[BalanceWatch] Telnyx balance ${money} ${snap.currency} — ok`);
+      return snap;
+    }
+
+    const decision = await decideBalanceAlert(snap.balance, level, now);
+    if (decision.reset) {
+      telnyxBalanceLastAlert = null;
+      await clearBalanceAlertState();
+    }
+    if (!decision.fire) {
+      console.log(`[BalanceWatch] ${level} alert suppressed: ${decision.reason}`);
+      return snap;
+    }
+
+    const copy = BALANCE_ALERT_COPY[level](money);
     const emailBody = [
-      level === "urgent"
-        ? `Telnyx available credit is ${money}. Inbound calls STOP when it reaches $0.`
-        : `Telnyx available credit is ${money}. Calls stop at $0.`,
+      copy.email,
       ``,
       `Top up: portal.telnyx.com > Billing > Add credit.`,
       ``,
@@ -3348,16 +3448,16 @@ async function runBalanceCheck(trigger: string): Promise<TelnyxBalanceSnapshot> 
     ].join("\n");
 
     const alertRes = await deliverPlatformAlert({
-      subject,
+      subject: copy.subject,
       emailBody,
       kind: "balance_alert",
-      smsText,
+      smsText: copy.sms,
       smsKind: "owner_alert",
     });
-    telnyxBalanceFiredAt[level] = now;
+    telnyxBalanceLastAlert = { firedAtMs: now, lastValue: snap.balance.toFixed(2), level };
     await writeBalanceAlertFiredAt(level, snap.balance, now);
     console.log(
-      `[BalanceWatch] ${level} alert for ${money} (trigger: ${trigger}): ` +
+      `[BalanceWatch] ${level} alert for ${money} (${decision.reason}; trigger: ${trigger}): ` +
       `email ${alertRes.emailed ? "sent" : "NOT sent"}` +
       `${alertRes.smsAttempted ? `, text ${alertRes.smsOk ? "accepted" : "failed"}` : ", texting off"}`,
     );
