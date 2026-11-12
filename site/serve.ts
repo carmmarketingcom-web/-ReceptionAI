@@ -2110,8 +2110,8 @@ async function handleReschedulePhase(cid: string, digit: string, cs: CallState):
         }
         cs.phase = "menu";
         await speakOnly(cid, es
-          ? "Está en la lista de espera. Le enviaremos un mensaje si se abre un espacio. Gracias."
-          : "You're on the waitlist. We'll text you if a slot opens. Thank you.", lang);
+          ? "Está en la lista de espera. El equipo puede ver que está esperando. Gracias."
+          : "You're on the waitlist. The team can see you are waiting. Thank you.", lang);
       } else if (digit === "2") {
         cs.phase = "menu";
         await speakOnly(cid, es
@@ -2475,8 +2475,8 @@ async function startVoiceBooking(cid: string, cs: CallState): Promise<void> {
     if (slots.length === 0) {
       cs.phase = "waitlist";
       await speakOnly(cid, es
-        ? "No hay citas disponibles en este momento. ¿Le gustaría unirse a la lista de espera? Le avisaremos cuando se abra un espacio. Presione 1 para sí, 2 para volver al menú."
-        : "No appointments available right now. Would you like to join the waitlist? We'll text you when a slot opens. Press 1 for yes, 2 to return to the menu.", lang);
+        ? "No hay citas disponibles en este momento. ¿Le gustaría unirse a la lista de espera? El equipo verá que está esperando. Presione 1 para sí, 2 para volver al menú."
+        : "No appointments available right now. Would you like to join the waitlist? The team will see you are waiting. Press 1 for yes, 2 to return to the menu.", lang);
       return;
     }
     cs.bookingSlots = slots;
@@ -3676,6 +3676,140 @@ async function requireOrgAuth(
     role: (payload.role as string) || "agent",
   };
 }
+// ── Reminder sweep — ONE implementation, two callers ────────────────────────
+// GET /api/reminders/process below is kept for an external cron service, but nothing was
+// ever pointed at it in production, so due reminder rows sat 'pending' forever and no
+// reminder ever went out. The server now runs this same sweep itself on a timer (see the
+// bottom of this file), so a reminder fires whether or not anything calls the endpoint.
+// Returns the same shape the endpoint answers with.
+export type ReminderSweepResult = {
+  processed: number; sent: number; failed: number; skipped: number;
+  message?: string; error?: string;
+};
+
+async function processDueReminders(): Promise<ReminderSweepResult> {
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      return { processed: 0, sent: 0, failed: 0, skipped: 0, message: "No database configured" };
+    }
+
+    const sql = neon(dbUrl);
+    const now = new Date().toISOString();
+
+    const due = await sql`
+      SELECT ar.id as reminder_id, ar.appointment_id, ar.organization_id,
+             ar.reminder_type, ar.recipient_phone, ar.recipient_email, ar.message_body,
+             a.title as appt_title, o.name as org_name
+      FROM appointment_reminders ar
+      JOIN appointments a ON ar.appointment_id = a.id
+      LEFT JOIN organizations o ON o.id = ar.organization_id
+      WHERE ar.status = 'pending' AND ar.scheduled_at <= ${now}
+      LIMIT 50
+    `;
+
+    // A reminder is "sent" only when something actually left the building. Email is
+    // tried first (it is the channel that delivers); a text is the fallback for a
+    // business that opted into texting. When neither is possible the row is marked
+    // 'skipped' with the reason, so the dashboard stops counting a send that never
+    // happened.
+    let sent = 0, failed = 0, skipped = 0;
+    for (const r of due as any[]) {
+      const type = String(r.reminder_type || "");
+      const orgName = String(r.org_name || "our team");
+      const messageBody = String(r.message_body || "").trim();
+
+      // Where can this customer be reached? The address stored on the reminder, else
+      // the email the contact left when they booked on the web.
+      let toEmail = String(r.recipient_email || "").trim();
+      if (!toEmail) {
+        try {
+          const ce = await sql`
+            SELECT c.email FROM appointments a
+            JOIN contacts c ON c.id = a.contact_id
+            WHERE a.id = ${r.appointment_id} LIMIT 1
+          `;
+          toEmail = String(ce[0]?.email || "").trim();
+        } catch { /* no contact email — the text path decides below */ }
+      }
+
+      const phoneRow = await sql`
+        SELECT phone_number FROM phone_numbers
+        WHERE organization_id = ${r.organization_id} AND is_active = true LIMIT 1
+      `;
+      const fromNum = phoneRow[0]?.phone_number || "";
+      const telnyxKey = process.env.TELNYX_API_KEY || "";
+      const canText = Boolean(telnyxKey && r.recipient_phone && fromNum)
+        && (await smsEnabledForOrg(r.organization_id));
+
+      let channel = "";
+      let sendError = "";
+      if (toEmail) {
+        const subject = type === "follow_up"
+          ? `Thanks for visiting ${orgName}`
+          : type === "2h_before"
+            ? `Reminder: your appointment at ${orgName} is in 2 hours`
+            : `Reminder: your appointment at ${orgName} is tomorrow`;
+        const body = [messageBody, "", orgName].join("\n");
+        if (await deliverEmail(toEmail, subject, body, "reminder", r.organization_id)) {
+          channel = "email";
+        } else {
+          sendError = "Email send failed";
+        }
+      }
+      if (!channel && canText) {
+        // Routed through sendSms() so the reminder is recorded in
+        // sms_deliveries and a rejection is visible; the wording is unchanged.
+        const smsRes = await sendSms(smsSenderForOrg(fromNum), r.recipient_phone, r.message_body, "reminder");
+        if (smsRes.ok) channel = "sms";
+        else sendError = sendError || "Telnyx error";
+      }
+
+      if (channel) {
+        await sql`UPDATE appointment_reminders SET status='sent', channel=${channel}, sent_at=NOW(), updated_at=NOW() WHERE id=${r.reminder_id}`;
+        await sql`UPDATE appointments SET reminder_sent_at=NOW(), reminder_sent_count=COALESCE(NULLIF(reminder_sent_count,'0')::int+1,1)::text, updated_at=NOW() WHERE id=${r.appointment_id}`;
+        sent++;
+      } else if (!toEmail && !canText) {
+        const reason = r.recipient_phone
+          ? "Nothing sent: no email on file and texting is off for this business"
+          : "Nothing sent: no email and no phone on file";
+        await sql`UPDATE appointment_reminders SET status='skipped', error_message=${reason}, updated_at=NOW() WHERE id=${r.reminder_id}`;
+        skipped++;
+      } else {
+        await sql`UPDATE appointment_reminders SET status='failed', error_message=${sendError || "Delivery failed"}, updated_at=NOW() WHERE id=${r.reminder_id}`;
+        failed++;
+      }
+    }
+
+    return { processed: due.length, sent, failed, skipped };
+  } catch (err) {
+    console.error("[Reminders Cron]", String(err).slice(0, 200));
+    return { processed: 0, sent: 0, failed: 0, skipped: 0, error: String(err).slice(0, 100) };
+  }
+}
+
+// ── In-process reminder timer ───────────────────────────────────────────────
+// Every 5 minutes. Off under test (bun test sets NODE_ENV=test) and when REMINDER_TIMER=off.
+// Each run logs one line, so "did the reminders run?" is answerable from the server log.
+// REMINDER_TICK_MS is overridable so a test can prove the timer fires without waiting
+// five minutes; production leaves it unset.
+const REMINDER_TICK_MS = Number(process.env.REMINDER_TICK_MS) || 5 * 60 * 1000;
+const reminderTimerOff = process.env.NODE_ENV === "test" || process.env.REMINDER_TIMER === "off";
+
+if (!reminderTimerOff) {
+  console.log(`[Reminders] in-process timer armed — sweep every ${REMINDER_TICK_MS / 60000} min`);
+  setInterval(() => {
+    void (async () => {
+      const startedAt = Date.now();
+      const r = await processDueReminders();
+      const extra = [r.error ? `error=${r.error}` : "", r.message ? `note=${r.message}` : ""].filter(Boolean).join(" ");
+      console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
+      // The timer is also a heartbeat for the balance watchdog (internally throttled).
+      void checkTelnyxBalance("reminders-timer").catch(() => {});
+    })();
+  }, REMINDER_TICK_MS);
+}
+
 const freePort = `for _ in $(seq 1 25); do pids=$(lsof -t -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true); if [ -z "$pids" ]; then exit 0; fi; kill $pids 2>/dev/null || true; sleep 0.2; done`;
 
 for (let attempt = 1; ; attempt++) {
@@ -5995,6 +6129,8 @@ for (let attempt = 1; ; attempt++) {
         }
 
         // ── Reminders Cron ──────────────────────────────────────────
+        // ── Reminders Cron ──────────────────────────────────────────
+        // External-cron entry point; the same sweep also runs on the in-process timer.
         if (pathname === "/api/reminders/process" && req.method === "GET") {
           try {
             const cronSecret = process.env.CRON_SECRET || "receptionai-cron-secret-dev";
@@ -6013,100 +6149,8 @@ for (let attempt = 1; ; attempt++) {
             // too (internally throttled to ≤1 Telnyx call/hour, never awaited).
             void checkTelnyxBalance("reminders-cron").catch(() => {});
 
-            const dbUrl = process.env.DATABASE_URL;
-            if (!dbUrl) {
-              return new Response(JSON.stringify({ processed: 0, status: "ok", message: "No database configured" }),
-                { status: 200, headers: { "Content-Type": "application/json" } });
-            }
-
-            const sql = neon(dbUrl);
-            const now = new Date().toISOString();
-
-            const due = await sql`
-              SELECT ar.id as reminder_id, ar.appointment_id, ar.organization_id,
-                     ar.reminder_type, ar.recipient_phone, ar.recipient_email, ar.message_body,
-                     a.title as appt_title, o.name as org_name
-              FROM appointment_reminders ar
-              JOIN appointments a ON ar.appointment_id = a.id
-              LEFT JOIN organizations o ON o.id = ar.organization_id
-              WHERE ar.status = 'pending' AND ar.scheduled_at <= ${now}
-              LIMIT 50
-            `;
-
-            // A reminder is "sent" only when something actually left the building. Email is
-            // tried first (it is the channel that delivers); a text is the fallback for a
-            // business that opted into texting. When neither is possible the row is marked
-            // 'skipped' with the reason, so the dashboard stops counting a send that never
-            // happened.
-            let sent = 0, failed = 0, skipped = 0;
-            for (const r of due as any[]) {
-              const type = String(r.reminder_type || "");
-              const orgName = String(r.org_name || "our team");
-              const messageBody = String(r.message_body || "").trim();
-
-              // Where can this customer be reached? The address stored on the reminder, else
-              // the email the contact left when they booked on the web.
-              let toEmail = String(r.recipient_email || "").trim();
-              if (!toEmail) {
-                try {
-                  const ce = await sql`
-                    SELECT c.email FROM appointments a
-                    JOIN contacts c ON c.id = a.contact_id
-                    WHERE a.id = ${r.appointment_id} LIMIT 1
-                  `;
-                  toEmail = String(ce[0]?.email || "").trim();
-                } catch { /* no contact email — the text path decides below */ }
-              }
-
-              const phoneRow = await sql`
-                SELECT phone_number FROM phone_numbers
-                WHERE organization_id = ${r.organization_id} AND is_active = true LIMIT 1
-              `;
-              const fromNum = phoneRow[0]?.phone_number || "";
-              const telnyxKey = process.env.TELNYX_API_KEY || "";
-              const canText = Boolean(telnyxKey && r.recipient_phone && fromNum)
-                && (await smsEnabledForOrg(r.organization_id));
-
-              let channel = "";
-              let sendError = "";
-              if (toEmail) {
-                const subject = type === "follow_up"
-                  ? `Thanks for visiting ${orgName}`
-                  : type === "2h_before"
-                    ? `Reminder: your appointment at ${orgName} is in 2 hours`
-                    : `Reminder: your appointment at ${orgName} is tomorrow`;
-                const body = [messageBody, "", orgName].join("\n");
-                if (await deliverEmail(toEmail, subject, body, "reminder", r.organization_id)) {
-                  channel = "email";
-                } else {
-                  sendError = "Email send failed";
-                }
-              }
-              if (!channel && canText) {
-                // Routed through sendSms() so the reminder is recorded in
-                // sms_deliveries and a rejection is visible; the wording is unchanged.
-                const smsRes = await sendSms(smsSenderForOrg(fromNum), r.recipient_phone, r.message_body, "reminder");
-                if (smsRes.ok) channel = "sms";
-                else sendError = sendError || "Telnyx error";
-              }
-
-              if (channel) {
-                await sql`UPDATE appointment_reminders SET status='sent', channel=${channel}, sent_at=NOW(), updated_at=NOW() WHERE id=${r.reminder_id}`;
-                await sql`UPDATE appointments SET reminder_sent_at=NOW(), reminder_sent_count=COALESCE(NULLIF(reminder_sent_count,'0')::int+1,1)::text, updated_at=NOW() WHERE id=${r.appointment_id}`;
-                sent++;
-              } else if (!toEmail && !canText) {
-                const reason = r.recipient_phone
-                  ? "Nothing sent: no email on file and texting is off for this business"
-                  : "Nothing sent: no email and no phone on file";
-                await sql`UPDATE appointment_reminders SET status='skipped', error_message=${reason}, updated_at=NOW() WHERE id=${r.reminder_id}`;
-                skipped++;
-              } else {
-                await sql`UPDATE appointment_reminders SET status='failed', error_message=${sendError || "Delivery failed"}, updated_at=NOW() WHERE id=${r.reminder_id}`;
-                failed++;
-              }
-            }
-
-            return new Response(JSON.stringify({ processed: due.length, sent, failed, skipped }),
+            const result = await processDueReminders();
+            return new Response(JSON.stringify(result),
               { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Reminders Cron]", String(err).slice(0, 200));
@@ -6114,7 +6158,6 @@ for (let attempt = 1; ; attempt++) {
               { status: 200, headers: { "Content-Type": "application/json" } });
           }
         }
-
         // ── Auth: Login ──────────────────────────────────────────────
         if (pathname === "/api/auth/login" && req.method === "POST") {
           try {
