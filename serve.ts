@@ -9,6 +9,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
 import { buildOrgHealth, normalizeOrgHealth } from "./src/lib/org-health";
+import { resolvePublicBookingOrg, BOOKING_FALLBACK, type PublicBookingOrg } from "./src/lib/public-booking-org";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
@@ -2168,6 +2169,19 @@ async function getOrgTimezone(orgId: string): Promise<string> {
     const rows = await sql`SELECT timezone FROM organizations WHERE id = ${orgId} LIMIT 1`;
     return (rows[0]?.timezone as string) || "America/Chicago";
   } catch { return "America/Chicago"; }
+}
+
+// Resolve the org a public booking request belongs to. The public /book page sends NO org
+// id: the real org is resolved here, server-side, from data that exists (see
+// src/lib/public-booking-org.ts). A non-uuid value is only ever treated as a slug, because
+// `organizations.id` is a uuid — `org_id=demo` threw and 500ed /book for every visitor.
+async function resolveBookingOrgForRequest(sql: any, requested: string | null | undefined) {
+  return resolvePublicBookingOrg(requested, async (kind, value) => {
+    const rows = kind === "id"
+      ? await sql`SELECT id, name, phone, email FROM organizations WHERE id = ${value}::uuid LIMIT 1`
+      : await sql`SELECT id, name, phone, email FROM organizations WHERE slug = ${value} LIMIT 1`;
+    return (rows[0] as PublicBookingOrg) || null;
+  });
 }
 
 // Generate available slots for one org-local date (same rules as /api/booking/slots).
@@ -6143,22 +6157,34 @@ for (let attempt = 1; ; attempt++) {
         if (pathname === "/api/booking/slots" && req.method === "GET") {
           try {
             const url = new URL(req.url);
-            const orgId = url.searchParams.get("org_id") || "";
+            const requestedOrg = url.searchParams.get("org_id") || "";
             const date = url.searchParams.get("date") || "";
             const duration = parseInt(url.searchParams.get("duration") || "60", 10);
 
-            if (!orgId || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-              return new Response(JSON.stringify({ error: "org_id and date (YYYY-MM-DD) required" }),
-                { status: 400, headers: { "Content-Type": "application/json" } });
+            if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+              return new Response(JSON.stringify({
+                error: "Pick a date to see available times.", code: "invalid_date",
+              }), { status: 400, headers: { "Content-Type": "application/json" } });
             }
 
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) {
-              return new Response(JSON.stringify({ error: "DB not configured" }),
-                { status: 500, headers: { "Content-Type": "application/json" } });
+              return new Response(JSON.stringify({
+                error: "Online booking is not available right now. Please call or email us and we will find a time.",
+                code: "booking_unavailable", fallback: BOOKING_FALLBACK,
+              }), { status: 503, headers: { "Content-Type": "application/json" } });
             }
 
-            const result = await getSlotsForDate(orgId, date, duration);
+            const sql = neon(dbUrl);
+            const org = await resolveBookingOrgForRequest(sql, requestedOrg);
+            if (!org) {
+              return new Response(JSON.stringify({
+                error: "We could not find the booking calendar for this page. Please call or email us and we will book you in.",
+                code: "org_not_found", fallback: BOOKING_FALLBACK,
+              }), { status: 404, headers: { "Content-Type": "application/json" } });
+            }
+
+            const result = await getSlotsForDate(org.id, date, duration);
             if (result.closed) {
               return new Response(JSON.stringify({ date, slots: [], closed: true, ...(result.holiday ? { holiday: true } : {}) }),
                 { status: 200, headers: { "Content-Type": "application/json" } });
@@ -6167,8 +6193,10 @@ for (let attempt = 1; ; attempt++) {
               { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Booking Slots]", String(err).slice(0, 200));
-            return new Response(JSON.stringify({ error: "Failed to load slots" }),
-              { status: 500, headers: { "Content-Type": "application/json" } });
+            return new Response(JSON.stringify({
+              error: "We could not load available times. Please call or email us and we will find a time.",
+              code: "slots_failed", fallback: BOOKING_FALLBACK,
+            }), { status: 500, headers: { "Content-Type": "application/json" } });
           }
         }
 
@@ -6233,18 +6261,33 @@ for (let attempt = 1; ; attempt++) {
             const { org_id = "", name = "", phone = "", email = "",
                     date = "", time = "", service = "General Service", notes = "" } = body;
 
-            if (!org_id || !name || !phone || !date || !time) {
-              return new Response(JSON.stringify({ error: "org_id, name, phone, date, and time are required" }),
-                { status: 400, headers: { "Content-Type": "application/json" } });
+            if (!name || !phone || !date || !time) {
+              return new Response(JSON.stringify({
+                error: "Please fill in your name, phone number, date and time.", code: "missing_fields",
+              }), { status: 400, headers: { "Content-Type": "application/json" } });
+            }
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+              return new Response(JSON.stringify({
+                error: "That date or time is not one we can book. Please pick a time again.", code: "invalid_slot",
+              }), { status: 400, headers: { "Content-Type": "application/json" } });
             }
 
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) {
-              return new Response(JSON.stringify({ error: "DB not configured" }),
-                { status: 500, headers: { "Content-Type": "application/json" } });
+              return new Response(JSON.stringify({
+                error: "Online booking is not available right now. Please call or email us and we will book you in.",
+                code: "booking_unavailable", fallback: BOOKING_FALLBACK,
+              }), { status: 503, headers: { "Content-Type": "application/json" } });
             }
 
             const sql = neon(dbUrl);
+            const org = await resolveBookingOrgForRequest(sql, org_id);
+            if (!org) {
+              return new Response(JSON.stringify({
+                error: "We could not find the booking calendar for this page. Please call or email us and we will book you in.",
+                code: "org_not_found", fallback: BOOKING_FALLBACK,
+              }), { status: 404, headers: { "Content-Type": "application/json" } });
+            }
             const [hour, min] = time.split(":").map(Number);
             const endMin = hour * 60 + min + 60; // default 60 min
             const endTime = `${String(Math.floor(endMin/60)).padStart(2,"0")}:${String(endMin%60).padStart(2,"0")}`;
@@ -6252,14 +6295,14 @@ for (let attempt = 1; ; attempt++) {
             // Create or find contact
             let contactId = "";
             const existing = await sql`
-              SELECT id FROM contacts WHERE organization_id = ${org_id} AND phone = ${phone} LIMIT 1
+              SELECT id FROM contacts WHERE organization_id = ${org.id} AND phone = ${phone} LIMIT 1
             `;
             if (existing[0]) {
               contactId = existing[0].id;
             } else {
               const c = await sql`
                 INSERT INTO contacts (id, organization_id, first_name, last_name, phone, email, created_at, updated_at)
-                VALUES (gen_random_uuid(), ${org_id}, ${name}, '', ${phone}, ${email || null}, NOW(), NOW())
+                VALUES (gen_random_uuid(), ${org.id}, ${name}, '', ${phone}, ${email || null}, NOW(), NOW())
                 RETURNING id
               `;
               contactId = c[0]?.id;
@@ -6271,7 +6314,7 @@ for (let attempt = 1; ; attempt++) {
                 (id, organization_id, contact_id, title, start_time, end_time,
                  service_type, status, notes, created_at, updated_at)
               VALUES
-                (gen_random_uuid(), ${org_id}, ${contactId},
+                (gen_random_uuid(), ${org.id}, ${contactId},
                  ${service + " - " + name},
                  ${date + "T" + time + ":00"}, ${date + "T" + endTime + ":00"},
                  ${service}, 'confirmed', ${notes || null}, NOW(), NOW())
@@ -6283,7 +6326,7 @@ for (let attempt = 1; ; attempt++) {
             // Send SMS confirmation
             const orgRow = await sql`
               SELECT pn.phone_number FROM phone_numbers pn
-              WHERE pn.organization_id = ${org_id} AND pn.is_active = true LIMIT 1
+              WHERE pn.organization_id = ${org.id} AND pn.is_active = true LIMIT 1
             `;
             const orgPhone = orgRow[0]?.phone_number || "";
 
@@ -6301,8 +6344,10 @@ for (let attempt = 1; ; attempt++) {
             }), { status: 201, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Booking Create]", String(err).slice(0, 200));
-            return new Response(JSON.stringify({ error: "Failed to create appointment" }),
-              { status: 500, headers: { "Content-Type": "application/json" } });
+            return new Response(JSON.stringify({
+              error: "We could not save your booking. Please call or email us and we will book you in.",
+              code: "booking_failed", fallback: BOOKING_FALLBACK,
+            }), { status: 500, headers: { "Content-Type": "application/json" } });
           }
         }
 
