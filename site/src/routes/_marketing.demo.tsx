@@ -12,7 +12,7 @@ const demoScript = [
   { speaker: "ai", text: "Thanks David! Let me check available slots for tomorrow...", highlight: "availability" },
   { speaker: "ai", text: "Great, I have an opening at 10 AM tomorrow morning. Does that work?" },
   { speaker: "caller", text: "Perfect, book it!" },
-  { speaker: "ai", text: "Done! Your appointment is confirmed for tomorrow at 10 AM. You'll receive an email reminder. Is there anything else?", highlight: "booking" },
+  { speaker: "ai", text: "Done! Your appointment is confirmed for tomorrow at 10 AM. The team will see you then. Is there anything else?", highlight: "booking" },
   { speaker: "caller", text: "No, that's all. Thanks!" },
   { speaker: "ai", text: "You're welcome, David! Have a great day." },
 ];
@@ -33,7 +33,7 @@ function DemoPage() {
   const features = [
     { id: "call-handling", title: "24/7 Call Answering", desc: "Never miss a lead — AI answers instantly, day or night", icon: "📞" },
     { id: "availability", title: "Smart Scheduling", desc: "Checks your calendar and books automatically", icon: "📅" },
-    { id: "booking", title: "Instant Confirmations", desc: "Sends email confirmations & reminders", icon: "✅" },
+    { id: "booking", title: "Instant Confirmations", desc: "Emails confirmations & reminders for web bookings", icon: "✅" },
   ];
 
   // Highlight sync: each message with a highlight sets it, then clears after 3s

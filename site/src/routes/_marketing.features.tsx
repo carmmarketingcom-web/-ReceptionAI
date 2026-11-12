@@ -89,7 +89,7 @@ const liveFeatures = [
   {
     icon: "globe",
     title: "English & Spanish",
-    desc: "Callers choose their language at the start of the call and the AI continues in it. Booking confirmations and reminders go out in the caller's language too.",
+    desc: "Callers choose their language at the start of the call and the AI continues in it. Web chat and emails go out in English and Spanish too.",
   },
   {
     icon: "calendar",
@@ -99,7 +99,7 @@ const liveFeatures = [
   {
     icon: "clock",
     title: "Confirmations & Reminders",
-    desc: "A completed booking emails the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
+    desc: "A booking made on your website emails the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
   },
   {
     icon: "sms",
