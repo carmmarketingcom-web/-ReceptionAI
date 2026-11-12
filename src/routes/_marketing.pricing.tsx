@@ -79,9 +79,7 @@ const comingSoon = [
 
 const addOns = [
   { nameKey: "pricing.addon1.name", priceKey: "pricing.addon1.price" },
-  { nameKey: "pricing.addon2.name", priceKey: "pricing.addon2.price" },
   { nameKey: "pricing.addon3.name", priceKey: "pricing.addon3.price" },
-  { nameKey: "pricing.addon4.name", priceKey: "pricing.addon4.price" },
   // Texting: built, off by default, not included in any plan and not yet priced.
   { nameKey: "pricing.addon5.name", priceKey: "pricing.addon5.price" },
 ];
