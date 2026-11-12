@@ -6469,6 +6469,14 @@ for (let attempt = 1; ; attempt++) {
             const endMin = hour * 60 + min + 60; // default 60 min
             const endTime = `${String(Math.floor(endMin/60)).padStart(2,"0")}:${String(endMin%60).padStart(2,"0")}`;
 
+            // The picked date+time is a wall clock in the BUSINESS's timezone, so store the
+            // real instant: convert it to UTC with the org tz (the same source the reminders
+            // use) and record that tz on the row. Writing "YYYY-MM-DDTHH:MM" straight into a
+            // timestamptz stored an 11:00 ET booking as 11:00Z — five hours off.
+            const orgTz = await getOrgTimezone(org.id);
+            const startUtc = zonedToUtc(date, time, orgTz);
+            const endUtc = zonedToUtc(date, endTime, orgTz);
+
             // Create or find contact
             let contactId = "";
             const existing = await sql`
@@ -6488,12 +6496,12 @@ for (let attempt = 1; ; attempt++) {
             // Create appointment
             const appt = await sql`
               INSERT INTO appointments
-                (id, organization_id, contact_id, title, start_time, end_time,
+                (id, organization_id, contact_id, title, start_time, end_time, timezone,
                  service_type, status, notes, created_at, updated_at)
               VALUES
                 (gen_random_uuid(), ${org.id}, ${contactId},
                  ${service + " - " + name},
-                 ${date + "T" + time + ":00"}, ${date + "T" + endTime + ":00"},
+                 ${startUtc.toISOString()}, ${endUtc.toISOString()}, ${orgTz},
                  ${service}, 'confirmed', ${notes || null}, NOW(), NOW())
               RETURNING id
             `;
@@ -6512,7 +6520,6 @@ for (let attempt = 1; ; attempt++) {
             // the channel that actually delivers today (texting is off unless the business
             // opted in). So the confirmation the voice line promises is really sent here, and
             // the reminder rows carry the address the cron emails.
-            const orgTz = await getOrgTimezone(org.id);
             const orgName = String(org.name || "our team");
             if (apptId && email) {
               const mail = buildConfirmationEmail({
