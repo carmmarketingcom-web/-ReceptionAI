@@ -18,16 +18,16 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-[60] border-b border-gray-100 bg-white/80 backdrop-blur-lg">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-        <Link to="/" className="flex items-center gap-3">
+        {/* No tagline beside the logo: the header is capped at 1280px, and the nav
+            needs that whole row in both English and Spanish, so the strapline never
+            fits on desktop — it only ever wrapped to three or four lines. */}
+        <Link to="/" className="flex shrink-0 items-center gap-3">
           <img src="/images/logo.png" alt="ReceptionAI" className="h-12 w-auto sm:h-14" width={800} height={450} />
-          <span className="hidden text-xs font-medium text-gray-400 md:inline-block border-l border-gray-200 pl-3">
-            {t("header.tagline")}
-          </span>
         </Link>
 
-        <nav className="hidden items-center gap-5 md:flex lg:gap-7">
+        <nav className="hidden items-center gap-3 whitespace-nowrap md:flex">
           <Link to="/features" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.features")}</Link>
-          <Link to="/book" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700">{t("nav.book")}</Link>
+          <Link to="/book" className="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-700">{t("nav.book")}</Link>
           <Link to="/pricing" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.pricing")}</Link>
           <Link to="/demo" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.demo")}</Link>
           <Link to="/faq" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.faq")}</Link>
@@ -35,7 +35,7 @@ export default function Header() {
           <Link to="/contact" className="text-sm font-medium text-gray-600 transition hover:text-gray-900" activeProps={{ className: "text-indigo-600 font-medium" }}>{t("nav.contact")}</Link>
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden shrink-0 items-center gap-2 whitespace-nowrap md:flex">
           {showLocaleToggle && (
             <button
               type="button"
@@ -54,7 +54,7 @@ export default function Header() {
           )}
           <Link to="/login" className="text-sm font-medium text-gray-600 transition hover:text-gray-900">{t("nav.login")}</Link>
           <Link to="/signup" className="text-sm font-medium text-gray-600 transition hover:text-gray-900">{t("nav.signup")}</Link>
-          <Link to="/signup" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700">{t("nav.getStarted")}</Link>
+          <Link to="/signup" className="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-700">{t("nav.getStarted")}</Link>
         </div>
 
         {/* Mobile menu: pure HTML <details> — zero JavaScript required */}
