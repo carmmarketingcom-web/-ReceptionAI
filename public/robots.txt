@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /set-password
+Disallow: /setup
+Disallow: /getting-started
+Disallow: /chat-review
+
+Sitemap: https://www.receptionai.store/sitemap.xml
