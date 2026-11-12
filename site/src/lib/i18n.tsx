@@ -62,7 +62,7 @@ export const translations: Record<string, { en: string; es: string }> = {
   "home.value.1": { en: "Answers after hours and while you're on a job", es: "Contesta fuera de horario y mientras estás en un trabajo" },
   "home.value.2": { en: "Takes the caller's name and number", es: "Toma el nombre y el número de quien llama" },
   "home.value.3": { en: "Books straight into your calendar", es: "Agenda directo en tu calendario" },
-  "home.value.4": { en: "Emails the caller a confirmation and reminders", es: "Le manda al llamante una confirmación y recordatorios por correo" },
+  "home.value.4": { en: "Emails web bookings a confirmation and reminders", es: "Le manda a quien reserva en la web una confirmación y recordatorios por correo" },
   "home.value.5": { en: "Emails you a summary after every call", es: "Te manda un resumen por correo después de cada llamada" },
   "home.value.6": { en: "English and Spanish", es: "Inglés y español" },
   "home.value.7": { en: "Transfers to you when it matters", es: "Te transfiere la llamada cuando hace falta" },
@@ -147,8 +147,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "feature.scheduling.title": { en: "Smart Appointment Scheduling", es: "Agendamiento Inteligente de Citas" },
   "feature.scheduling.desc": {
-    en: "AI reads your calendar and books appointments automatically. Sends confirmations, reminders, and follow-ups.",
-    es: "La IA lee tu calendario y agenda citas automáticamente. Envía confirmaciones, recordatorios y seguimientos.",
+    en: "AI reads your calendar and books appointments automatically. Emails web bookings a confirmation, reminders, and follow-ups.",
+    es: "La IA lee tu calendario y agenda citas automáticamente. Manda por correo a quien reserva en la web la confirmación, los recordatorios y el seguimiento.",
   },
   "feature.multichannel.title": { en: "Calls, Web Chat & Email", es: "Llamadas, Chat Web y Correo" },
   "feature.multichannel.desc": {
@@ -315,8 +315,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "home.social.card2.title": { en: "Books the appointment on the call", es: "Agenda la cita durante la llamada" },
   "home.social.card2.body": {
-    en: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then emails the caller a confirmation and reminders 24 hours and 2 hours ahead.",
-    es: "Revisa tu disponibilidad real — tus horarios, tus feriados, las citas que ya tienes y un margen de 15 minutos — agenda el horario y luego le manda al llamante una confirmación y recordatorios por correo 24 horas y 2 horas antes.",
+    en: "It checks your real availability — your hours, your holidays, appointments already on the books and a 15-minute buffer — books the slot, then emails a booking made on the web a confirmation and reminders 24 hours and 2 hours ahead.",
+    es: "Revisa tu disponibilidad real — tus horarios, tus feriados, las citas que ya tienes y un margen de 15 minutos — agenda el horario y luego le manda por correo a quien reserva en la web la confirmación y los recordatorios 24 horas y 2 horas antes.",
   },
   "home.social.card3.title": { en: "Emails you a summary after every call", es: "Te manda un resumen por correo después de cada llamada" },
   "home.social.card3.body": {

@@ -8,7 +8,7 @@ export const Route = createFileRoute("/_marketing/about")({
 const shipped = [
   "Answers calls 24/7, including nights, weekends and holidays — in English and Spanish.",
   "Books appointments during the call, against your real availability: your hours, your holidays, appointments already booked, and a 15-minute buffer.",
-  "Emails the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
+  "Emails a booking made on your website a confirmation, then reminders 24 hours and 2 hours before the appointment.",
   "Emails you a summary after every call: who called, how long it ran, and what happened.",
   "Transfers to you or your team when the caller asks for a person.",
   "Answers website chat in English and Spanish, with the same information as the phone line.",
@@ -68,7 +68,7 @@ function AboutPage() {
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-400">
             ReceptionAI is an AI receptionist for small service businesses. It answers your calls 24/7 in English and
-            Spanish, books appointments against live availability, emails the caller a confirmation and reminders, and
+            Spanish, books appointments against live availability, emails web bookings a confirmation and reminders, and
             emails you a summary after every call.
           </p>
         </div>

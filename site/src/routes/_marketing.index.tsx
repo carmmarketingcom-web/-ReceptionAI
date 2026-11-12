@@ -345,7 +345,7 @@ const VOICE_STEPS = [
   { key: "home.see.step.answered", text: `Welcome! For English, press 1. Para español, presione 2.` },
   { key: "home.see.step.menu", text: `Hello, you've reached ${APP_DEMO.org}. Press 1 for appointments, 2 for services, 3 for a team member, 4 to reschedule, 5 for availability, or 9 to leave a message.` },
   { key: "home.see.step.availability", text: `Here are the next available times. Option 1: ${APP_DEMO.day} at ${APP_DEMO.time}. Option 2: ${APP_DEMO.day} at 2:00 PM. Press 1, 2, 3, or 4 to book, or 9 to speak with the team.` },
-  { key: "home.see.step.booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll email you a confirmation and a reminder. Thank you! Goodbye!` },
+  { key: "home.see.step.booked", text: `Your appointment is booked for ${APP_DEMO.day} at ${APP_DEMO.time}. We'll see you then. Thank you! Goodbye!` },
 ];
 
 const EMAIL_THREAD = [

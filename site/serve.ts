@@ -2312,11 +2312,49 @@ function buildReminderMessage(
     : `Hi ${p.customerName}, we hope your ${p.service} appointment at ${p.orgName} went well!`;
 }
 
+// ── Customer appointment confirmation email ─────────────────────────────────
+// Email is the channel that actually reaches a customer today (texting is off by default and
+// no text has ever been delivered), and a web booking is the one place we hold an address.
+// This is the confirmation the voice line used to promise and never sent.
+function buildConfirmationEmail(p: {
+  customerName: string; service: string; date: string; time: string;
+  orgName: string; orgPhone: string; lang: "en" | "es";
+}): { subject: string; body: string } {
+  const es = p.lang === "es";
+  const slot = formatSlotSpeech({ date: p.date, time: p.time }, p.lang);
+  const contact = p.orgPhone
+    ? (es ? `Si necesita cambiarla, llame al ${p.orgPhone}.` : `If you need to change it, call ${p.orgPhone}.`)
+    : (es ? "Si necesita cambiarla, responda a este correo." : "If you need to change it, just reply to this email.");
+  return es ? {
+    subject: `Su cita en ${p.orgName} está confirmada`,
+    body: [
+      `Hola ${p.customerName},`,
+      "",
+      `Su cita para ${p.service} en ${p.orgName} quedó confirmada para el ${slot}.`,
+      "Le enviaremos un recordatorio por correo 24 horas y 2 horas antes de la cita.",
+      contact,
+      "",
+      p.orgName,
+    ].join("\n"),
+  } : {
+    subject: `Your appointment at ${p.orgName} is confirmed`,
+    body: [
+      `Hi ${p.customerName},`,
+      "",
+      `Your appointment for ${p.service} at ${p.orgName} is confirmed for ${slot}.`,
+      "We'll email you a reminder 24 hours and 2 hours before your appointment.",
+      contact,
+      "",
+      p.orgName,
+    ].join("\n"),
+  };
+}
+
 // Schedule reminder rows for a newly booked appointment (same as calendar/book).
 async function scheduleRemindersInline(p: {
   appointmentId: string; organizationId: string; customerName: string; customerPhone: string;
   service: string; date: string; time: string; orgName: string; orgPhone: string; tz: string;
-  lang: "en" | "es";
+  lang: "en" | "es"; customerEmail?: string;
 }): Promise<void> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) return;
@@ -2332,12 +2370,17 @@ async function scheduleRemindersInline(p: {
     for (const r of reminders) {
       if (r.at <= now) continue;
       const msg = buildReminderMessage(p, r.type, p.lang);
+      const customerEmail = String(p.customerEmail || "").trim();
+      // With an address on file the reminder goes out by email, so the row records that
+      // channel (and the cron can reach the customer without a text).
       await sql`
         INSERT INTO appointment_reminders
-          (id, appointment_id, organization_id, reminder_type, scheduled_at, status, channel, recipient_phone, message_body)
+          (id, appointment_id, organization_id, reminder_type, scheduled_at, status, channel,
+           recipient_phone, recipient_email, message_body)
         VALUES
           (gen_random_uuid(), ${p.appointmentId}, ${p.organizationId}, ${r.type},
-           ${new Date(r.at).toISOString()}, 'pending', 'sms', ${p.customerPhone}, ${msg})
+           ${new Date(r.at).toISOString()}, 'pending', ${customerEmail ? "email" : "sms"},
+           ${p.customerPhone}, ${customerEmail || null}, ${msg})
       `;
     }
     const next = await sql`
@@ -2484,8 +2527,8 @@ async function handleBookingPhase(cid: string, digit: string, cs: CallState): Pr
       cs.bookedSlot = { date: slot.date, time: slot.time };
       cs.phase = "menu";
       await speakOnly(cid, es
-        ? `Su cita quedó reservada para ${formatSlotSpeech(slot, "es")}. Le enviaremos un correo de confirmación y un recordatorio. ¡Gracias! ¡Adiós!`
-        : `Your appointment is booked for ${formatSlotSpeech(slot, "en")}. We'll email you a confirmation and a reminder. Thank you! Goodbye!`, lang);
+        ? `Su cita quedó reservada para ${formatSlotSpeech(slot, "es")}. ¡Le esperamos! ¡Gracias! ¡Adiós!`
+        : `Your appointment is booked for ${formatSlotSpeech(slot, "en")}. We'll see you then. Thank you! Goodbye!`, lang);
       pendingHangups.add(cid);
     } else {
       cs.phase = "waitlist";
@@ -5584,14 +5627,14 @@ for (let attempt = 1; ; attempt++) {
               // Coming-soon sits ABOVE services: "funciones"/"features" is a services keyword.
               if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
                 return isEs
-                  ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por correo, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
-                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, email confirmations and reminders, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, call analytics. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
+                  ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por correo para las reservas hechas en la web, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
+                  : "Live today: 24/7 calls in English and Spanish, booking by phone and web, email confirmations and reminders for bookings made on the web, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, call analytics. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
               }
               // Services: the same capabilities the model path is given as facts.
               if (has("services", "service", "servicios", "servicio", "features", "feature", "funciones", "funcion", "what do you do", "what do you offer", "que hace", "que hacen", "que ofrece", "que ofrecen", "ofrece", "ofrecen")) {
                 return isEs
-                  ? "ReceptionAI contesta llamadas 24/7 en inglés y español, agenda citas por teléfono y en la web, envía confirmaciones y recordatorios por correo y te manda un resumen después de cada llamada. También recibe mensajes de voz, avisa de llamadas perdidas, tiene chat web y transfiere llamadas al dueño."
-                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments by phone and web, sends email confirmations and reminders, and emails you a summary after every call. It also catches voicemail, alerts you to missed calls, runs web chat, and can transfer callers to you.";
+                  ? "ReceptionAI contesta llamadas 24/7 en inglés y español, agenda citas por teléfono y en la web, envía confirmación y recordatorios por correo a quien reserva en la web y te manda un resumen después de cada llamada. También recibe mensajes de voz, avisa de llamadas perdidas, tiene chat web y transfiere llamadas al dueño."
+                  : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments by phone and web, emails a booking made on the web a confirmation and reminders, and emails you a summary after every call. It also catches voicemail, alerts you to missed calls, runs web chat, and can transfer callers to you.";
               }
               if (has("book", "booking", "appointment", "appointments", "reserva", "reservas", "reservar", "cita", "citas")) {
                 return isEs
@@ -5610,8 +5653,8 @@ for (let attempt = 1; ; attempt++) {
               }
               if (has("calendar", "schedule", "calendario", "agenda", "agendar")) {
                 return isEs
-                  ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o web y reciben confirmacion por correo."
-                  : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or web and get email confirmations.";
+                  ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o web; las reservas hechas en la web reciben confirmacion por correo."
+                  : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or web; a booking made on the web gets an email confirmation.";
               }
               if (has("support", "soporte", "talk to a person", "hablar con una persona", "hablar con alguien", "atencion al cliente", "customer service", "servicio al cliente", "help desk")) {
                 return isEs
@@ -5666,7 +5709,7 @@ for (let attempt = 1; ; attempt++) {
                   "- No long-term contracts: every plan is month-to-month. Cancel anytime before the next renewal — it takes effect at the end of the current paid month, with no cancellation fee.",
                   "- How to cancel: from your account dashboard (Settings → Billing → cancel) or email hello@receptionai.store.",
                   "- Billing: the first month is charged at checkout, then it renews monthly automatically. Founder pricing: 50% off the first 3 months for the first 100 customers.",
-                  "- Live today: answers calls 24/7 in English and Spanish; books appointments by phone and on the web; sends email confirmations and reminders; sends a post-call email summary to the owner after every call; recognizes returning callers.",
+                  "- Live today: answers calls 24/7 in English and Spanish; books appointments by phone and on the web; emails a booking made on the web a confirmation and reminders (a phone booking leaves no email, so nothing is emailed); sends a post-call email summary to the owner after every call; recognizes returning callers.",
                   "- Live today: catches voicemail and sends missed-call alerts; web chat; email notifications; “talk to the owner” call transfer (press 3); built-in calendar with preset business hours (no Google account needed).",
                   "- Free live demo line: call (727) 966-7556.",
                   "- Support: email hello@receptionai.store.",
@@ -5678,7 +5721,7 @@ for (let attempt = 1; ; attempt++) {
                   "- Sin contratos a largo plazo: todos los planes son mes a mes. Puedes cancelar cuando quieras antes de la próxima renovación — se hace efectivo al final del mes que ya pagaste, sin cargo por cancelación.",
                   "- Cómo cancelar: desde el panel de tu cuenta (Configuración → Facturación → cancelar) o escribiendo a hello@receptionai.store.",
                   "- Facturación: el primer mes se cobra al momento de la compra y después se renueva automáticamente cada mes. Precio de fundador: 50% de descuento los primeros 3 meses para los primeros 100 clientes.",
-                  "- Disponible hoy: contesta llamadas 24/7 en inglés y español; agenda citas por teléfono y en la web; envía confirmaciones y recordatorios por correo; manda al dueño un resumen por correo después de cada llamada; reconoce a los clientes que vuelven a llamar.",
+                  "- Disponible hoy: contesta llamadas 24/7 en inglés y español; agenda citas por teléfono y en la web; envía confirmación y recordatorios por correo a quien reserva en la web (una reserva por teléfono no deja correo, así que no se envía nada); manda al dueño un resumen por correo después de cada llamada; reconoce a los clientes que vuelven a llamar.",
                   "- Disponible hoy: recibe mensajes de voz y avisa de llamadas perdidas; chat en la web; notificaciones por correo; transferencia “hablar con el dueño” (presione 3); calendario incorporado con el horario de atención ya configurado (sin cuenta de Google).",
                   "- Línea de demostración gratuita: llama al (727) 966-7556.",
                   "- Soporte: escribe a hello@receptionai.store.",
@@ -5908,9 +5951,31 @@ for (let attempt = 1; ; attempt++) {
             `;
             const orgPhone = orgRow[0]?.phone_number || "";
 
-            if (orgPhone && phone) {
-              // Same wording, now delivery-tracked (fire-and-forget: the booking
-              // response must not wait on Telnyx).
+            // ── Customer confirmation + reminders ────────────────────
+            // A web booking is the one place a caller leaves an email address, and email is
+            // the channel that actually delivers today (texting is off unless the business
+            // opted in). So the confirmation the voice line promises is really sent here, and
+            // the reminder rows carry the address the cron emails.
+            const orgTz = await getOrgTimezone(org.id);
+            const orgName = String(org.name || "our team");
+            if (apptId && email) {
+              const mail = buildConfirmationEmail({
+                customerName: name, service, date, time,
+                orgName, orgPhone, lang: "en",
+              });
+              await deliverEmail(email, mail.subject, mail.body, "confirmation", org.id);
+            }
+            if (apptId) {
+              await scheduleRemindersInline({
+                appointmentId: apptId, organizationId: org.id, customerName: name,
+                customerPhone: phone, customerEmail: email || undefined,
+                service, date, time, orgName, orgPhone, tz: orgTz, lang: "en",
+              });
+            }
+            if (orgPhone && phone && (await smsEnabledForOrg(org.id))) {
+              // Texting is a paid upgrade that is off by default: a text is attempted only for
+              // a business that turned it on, so nothing is spent on a message the carrier
+              // would throw away. Same wording, delivery-tracked (fire-and-forget).
               void sendSms(smsSenderForOrg(orgPhone), phone,
                 `Hi ${name}, your appointment for ${service} on ${date} at ${time} is confirmed. We'll send a reminder before your visit. Questions? Call ${orgPhone}.`,
                 "confirmation").catch(() => {});
@@ -5960,47 +6025,88 @@ for (let attempt = 1; ; attempt++) {
             const due = await sql`
               SELECT ar.id as reminder_id, ar.appointment_id, ar.organization_id,
                      ar.reminder_type, ar.recipient_phone, ar.recipient_email, ar.message_body,
-                     a.title as appt_title
+                     a.title as appt_title, o.name as org_name
               FROM appointment_reminders ar
               JOIN appointments a ON ar.appointment_id = a.id
+              LEFT JOIN organizations o ON o.id = ar.organization_id
               WHERE ar.status = 'pending' AND ar.scheduled_at <= ${now}
               LIMIT 50
             `;
 
-            let sent = 0, failed = 0;
+            // A reminder is "sent" only when something actually left the building. Email is
+            // tried first (it is the channel that delivers); a text is the fallback for a
+            // business that opted into texting. When neither is possible the row is marked
+            // 'skipped' with the reason, so the dashboard stops counting a send that never
+            // happened.
+            let sent = 0, failed = 0, skipped = 0;
             for (const r of due as any[]) {
+              const type = String(r.reminder_type || "");
+              const orgName = String(r.org_name || "our team");
+              const messageBody = String(r.message_body || "").trim();
+
+              // Where can this customer be reached? The address stored on the reminder, else
+              // the email the contact left when they booked on the web.
+              let toEmail = String(r.recipient_email || "").trim();
+              if (!toEmail) {
+                try {
+                  const ce = await sql`
+                    SELECT c.email FROM appointments a
+                    JOIN contacts c ON c.id = a.contact_id
+                    WHERE a.id = ${r.appointment_id} LIMIT 1
+                  `;
+                  toEmail = String(ce[0]?.email || "").trim();
+                } catch { /* no contact email — the text path decides below */ }
+              }
+
               const phoneRow = await sql`
                 SELECT phone_number FROM phone_numbers
                 WHERE organization_id = ${r.organization_id} AND is_active = true LIMIT 1
               `;
               const fromNum = phoneRow[0]?.phone_number || "";
-
-              if (!r.recipient_phone || !fromNum) {
-                await sql`UPDATE appointment_reminders SET status='failed', error_message='Missing phone', updated_at=NOW() WHERE id=${r.reminder_id}`;
-                failed++; continue;
-              }
-
               const telnyxKey = process.env.TELNYX_API_KEY || "";
-              const remindersOn = telnyxKey ? await smsEnabledForOrg(r.organization_id) : false;
-              let smsOk = false;
-              if (remindersOn) {
+              const canText = Boolean(telnyxKey && r.recipient_phone && fromNum)
+                && (await smsEnabledForOrg(r.organization_id));
+
+              let channel = "";
+              let sendError = "";
+              if (toEmail) {
+                const subject = type === "follow_up"
+                  ? `Thanks for visiting ${orgName}`
+                  : type === "2h_before"
+                    ? `Reminder: your appointment at ${orgName} is in 2 hours`
+                    : `Reminder: your appointment at ${orgName} is tomorrow`;
+                const body = [messageBody, "", orgName].join("\n");
+                if (await deliverEmail(toEmail, subject, body, "reminder", r.organization_id)) {
+                  channel = "email";
+                } else {
+                  sendError = "Email send failed";
+                }
+              }
+              if (!channel && canText) {
                 // Routed through sendSms() so the reminder is recorded in
                 // sms_deliveries and a rejection is visible; the wording is unchanged.
                 const smsRes = await sendSms(smsSenderForOrg(fromNum), r.recipient_phone, r.message_body, "reminder");
-                smsOk = smsRes.ok;
+                if (smsRes.ok) channel = "sms";
+                else sendError = sendError || "Telnyx error";
               }
 
-              if (smsOk || !remindersOn) {
-                await sql`UPDATE appointment_reminders SET status='sent', sent_at=NOW(), updated_at=NOW() WHERE id=${r.reminder_id}`;
+              if (channel) {
+                await sql`UPDATE appointment_reminders SET status='sent', channel=${channel}, sent_at=NOW(), updated_at=NOW() WHERE id=${r.reminder_id}`;
                 await sql`UPDATE appointments SET reminder_sent_at=NOW(), reminder_sent_count=COALESCE(NULLIF(reminder_sent_count,'0')::int+1,1)::text, updated_at=NOW() WHERE id=${r.appointment_id}`;
                 sent++;
+              } else if (!toEmail && !canText) {
+                const reason = r.recipient_phone
+                  ? "Nothing sent: no email on file and texting is off for this business"
+                  : "Nothing sent: no email and no phone on file";
+                await sql`UPDATE appointment_reminders SET status='skipped', error_message=${reason}, updated_at=NOW() WHERE id=${r.reminder_id}`;
+                skipped++;
               } else {
-                await sql`UPDATE appointment_reminders SET status='failed', error_message='Telnyx error', updated_at=NOW() WHERE id=${r.reminder_id}`;
+                await sql`UPDATE appointment_reminders SET status='failed', error_message=${sendError || "Delivery failed"}, updated_at=NOW() WHERE id=${r.reminder_id}`;
                 failed++;
               }
             }
 
-            return new Response(JSON.stringify({ processed: due.length, sent, failed }),
+            return new Response(JSON.stringify({ processed: due.length, sent, failed, skipped }),
               { status: 200, headers: { "Content-Type": "application/json" } });
           } catch (err) {
             console.error("[Reminders Cron]", String(err).slice(0, 200));

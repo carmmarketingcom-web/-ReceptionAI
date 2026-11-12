@@ -24,7 +24,7 @@ const FACT_LINES_EN = [
   "- No long-term contracts: every plan is month-to-month. Cancel anytime before the next renewal — it takes effect at the end of the current paid month, with no cancellation fee.",
   "- How to cancel: from your account dashboard (Settings → Billing → cancel) or email hello@receptionai.store.",
   "- Billing: the first month is charged at checkout, then it renews monthly automatically. Founder pricing: 50% off the first 3 months for the first 100 customers.",
-  "- Live today: answers calls 24/7 in English and Spanish; books appointments by phone and on the web; sends email confirmations and reminders; sends a post-call email summary to the owner after every call; recognizes returning callers.",
+  "- Live today: answers calls 24/7 in English and Spanish; books appointments by phone and on the web; emails a booking made on the web a confirmation and reminders (a phone booking leaves no email, so nothing is emailed); sends a post-call email summary to the owner after every call; recognizes returning callers.",
   "- Live today: catches voicemail and sends missed-call alerts; web chat; email notifications; “talk to the owner” call transfer (press 3); built-in calendar with preset business hours (no Google account needed).",
   "- Free live demo line: call (727) 966-7556.",
   "- Support: email hello@receptionai.store.",
@@ -36,7 +36,7 @@ const FACT_LINES_ES = [
   "- Sin contratos a largo plazo: todos los planes son mes a mes. Puedes cancelar cuando quieras antes de la próxima renovación — se hace efectivo al final del mes que ya pagaste, sin cargo por cancelación.",
   "- Cómo cancelar: desde el panel de tu cuenta (Configuración → Facturación → cancelar) o escribiendo a hello@receptionai.store.",
   "- Facturación: el primer mes se cobra al momento de la compra y después se renueva automáticamente cada mes. Precio de fundador: 50% de descuento los primeros 3 meses para los primeros 100 clientes.",
-  "- Disponible hoy: contesta llamadas 24/7 en inglés y español; agenda citas por teléfono y en la web; envía confirmaciones y recordatorios por correo; manda al dueño un resumen por correo después de cada llamada; reconoce a los clientes que vuelven a llamar.",
+  "- Disponible hoy: contesta llamadas 24/7 en inglés y español; agenda citas por teléfono y en la web; envía confirmación y recordatorios por correo a quien reserva en la web (una reserva por teléfono no deja correo, así que no se envía nada); manda al dueño un resumen por correo después de cada llamada; reconoce a los clientes que vuelven a llamar.",
   "- Disponible hoy: recibe mensajes de voz y avisa de llamadas perdidas; chat en la web; notificaciones por correo; transferencia “hablar con el dueño” (presione 3); calendario incorporado con el horario de atención ya configurado (sin cuenta de Google).",
   "- Línea de demostración gratuita: llama al (727) 966-7556.",
   "- Soporte: escribe a hello@receptionai.store.",
@@ -137,14 +137,14 @@ function smartReply(message: string, lang: string): string {
   // Coming-soon sits ABOVE services: "funciones"/"features" is a services keyword.
   if (has("coming soon", "roadmap", "upcoming", "future", "not yet available", "proximamente", "por venir", "futuro", "planean", "van a agregar", "todavia no", "que sigue")) {
     return isEs
-      ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por correo, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
-      : "Live today: 24/7 calls in English and Spanish, booking by phone and web, email confirmations and reminders, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, call analytics. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
+      ? "Disponible hoy: llamadas 24/7 en inglés y español, citas por teléfono y web, confirmaciones y recordatorios por correo para las reservas hechas en la web, buzón de voz, avisos de llamadas perdidas, chat web, transferencia al dueño y calendario. Próximamente: WhatsApp, Facebook, bandeja unificada, horarios por miembro."
+      : "Live today: 24/7 calls in English and Spanish, booking by phone and web, email confirmations and reminders for bookings made on the web, voicemail with playable recordings, missed-call alerts, web chat, owner transfer, built-in calendar, call analytics. Coming soon: WhatsApp, Facebook, unified inbox, team schedules.";
   }
   // Services: the same capabilities the model path is given as facts.
   if (has("services", "service", "servicios", "servicio", "features", "feature", "funciones", "funcion", "what do you do", "what do you offer", "que hace", "que hacen", "que ofrece", "que ofrecen", "ofrece", "ofrecen")) {
     return isEs
-      ? "ReceptionAI contesta llamadas 24/7 en inglés y español, agenda citas por teléfono y en la web, envía confirmaciones y recordatorios por correo y te manda un resumen después de cada llamada. También recibe mensajes de voz, avisa de llamadas perdidas, tiene chat web y transfiere llamadas al dueño."
-      : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments by phone and web, sends email confirmations and reminders, and emails you a summary after every call. It also catches voicemail, alerts you to missed calls, runs web chat, and can transfer callers to you.";
+      ? "ReceptionAI contesta llamadas 24/7 en inglés y español, agenda citas por teléfono y en la web, envía confirmación y recordatorios por correo a quien reserva en la web y te manda un resumen después de cada llamada. También recibe mensajes de voz, avisa de llamadas perdidas, tiene chat web y transfiere llamadas al dueño."
+      : "ReceptionAI answers calls 24/7 in English and Spanish, books appointments by phone and web, emails a booking made on the web a confirmation and reminders, and emails you a summary after every call. It also catches voicemail, alerts you to missed calls, runs web chat, and can transfer callers to you.";
   }
   if (has("book", "booking", "appointment", "appointments", "reserva", "reservas", "reservar", "cita", "citas")) {
     return isEs
@@ -163,8 +163,8 @@ function smartReply(message: string, lang: string): string {
   }
   if (has("calendar", "schedule", "calendario", "agenda", "agendar")) {
     return isEs
-      ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o web y reciben confirmacion por correo."
-      : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or web and get email confirmations.";
+      ? "Calendario incorporado con horario de atencion preconfigurado, sin Google. Tus clientes reservan por telefono, chat o web; las reservas hechas en la web reciben confirmacion por correo."
+      : "Built-in calendar with business hours preset - no Google setup. Clients book by phone, chat, or web; a booking made on the web gets an email confirmation.";
   }
   if (has("support", "soporte", "talk to a person", "hablar con una persona", "hablar con alguien", "atencion al cliente", "customer service", "servicio al cliente", "help desk")) {
     return isEs
