@@ -24,6 +24,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "nav.getStarted": { en: "Get Started", es: "Comenzar" },
   "nav.book": { en: "Book Now", es: "Reservar Ahora" },
   "nav.faq": { en: "FAQ", es: "Preguntas Frecuentes" },
+  "nav.about": { en: "About", es: "Nosotros" },
+  "nav.contact": { en: "Contact", es: "Contacto" },
   "nav.signup": { en: "Sign Up", es: "Registrarse" },
 
   /* ─── Header ─── */
@@ -531,8 +533,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "pricing.faq2.q": { en: "What happens if I run out of AI-minutes?", es: "¿Qué pasa si se me acaban los minutos de IA?" },
   "pricing.faq2.a": {
-    en: "You can purchase additional minutes in bundles of 500. We'll notify you when you're approaching your limit.",
-    es: "Puedes comprar minutos adicionales en paquetes de 500. Te avisaremos cuando te acerques a tu límite.",
+    en: "Nothing is charged automatically for extra minutes today — there are no overage fees. If your call volume outgrows your plan, contact us and we'll help you move to a larger one: Growth includes 2,000 AI-minutes a month, Scale includes 10,000+.",
+    es: "Hoy no se cobra automáticamente por minutos adicionales: no hay cargos por exceso. Si tu volumen de llamadas supera lo que incluye tu plan, contáctanos y te ayudamos a pasar a uno mayor: Growth incluye 2,000 minutos de IA al mes y Scale incluye 10,000+.",
   },
   "pricing.faq3.q": { en: "Is there a long-term contract?", es: "¿Hay un contrato a largo plazo?" },
   "pricing.faq3.a": {
