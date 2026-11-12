@@ -11,8 +11,13 @@ const SERVICE_TYPES = [
   "Product Demo", "Pricing & Plans", "Get Started",
 ];
 
-// Default demo org — in production this routes by domain/subdomain
-const DEFAULT_ORG_ID = "demo";
+// The public page sends NO org id. `organizations.id` is a uuid and the old `org_id=demo`
+// placeholder made every slots request and booking POST fail, so the server resolves the real
+// org (see src/lib/public-booking-org.ts). These are the human fallback shown on the page —
+// keep them equal to BOOKING_FALLBACK in that file.
+const SUPPORT_PHONE = "(727) 966-7556";
+const SUPPORT_PHONE_HREF = "tel:+17279667556";
+const SUPPORT_EMAIL = "hello@receptionai.store";
 
 export default function BookPage() {
   const [step, setStep] = useState<"form" | "slots" | "confirm" | "done">("form");
@@ -55,7 +60,7 @@ export default function BookPage() {
       if (!n || !p || !d) { setError("Please fill in name, phone, and date."); return; }
       setLoading(true); setError("");
       try {
-        const res = await fetch(`/api/booking/slots?org_id=${encodeURIComponent(DEFAULT_ORG_ID)}&date=${encodeURIComponent(d)}`);
+        const res = await fetch(`/api/booking/slots?date=${encodeURIComponent(d)}`);
         const data = (await res.json()) as { slots?: Slot[]; closed?: boolean; error?: string };
         if (data.error) { setError(data.error); setLoading(false); return; }
         setSlots(data.slots || []);
@@ -90,7 +95,7 @@ export default function BookPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            org_id: DEFAULT_ORG_ID, name, phone, email, date, service,
+            name, phone, email, date, service,
             time: slot.time, notes,
           }),
         });
@@ -298,6 +303,17 @@ export default function BookPage() {
                 </button>
               </div>
             )}
+
+        {/* Human fallback, on every step: if online booking cannot serve a visitor (no
+            calendar, a service error), they still have a way to reach us instead of a dead
+            button. */ }
+        <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-5 text-center">
+          <p className="text-sm font-medium text-gray-900">Prefer to talk to a person?</p>
+          <p className="mt-1 text-sm text-gray-600">
+            Call <a href={SUPPORT_PHONE_HREF} className="font-semibold text-indigo-600 hover:underline">{SUPPORT_PHONE}</a>
+            {" "}or email <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold text-indigo-600 hover:underline">{SUPPORT_EMAIL}</a>.
+          </p>
+        </div>
       </div>
     </div>
   );
