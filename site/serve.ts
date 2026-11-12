@@ -6085,6 +6085,7 @@ for (let attempt = 1; ; attempt++) {
                  ${service}, 'confirmed', ${notes || null}, NOW(), NOW())
               RETURNING id
             `;
+            const apptId = appt[0]?.id;
 
             // Send SMS confirmation
             const orgRow = await sql`
