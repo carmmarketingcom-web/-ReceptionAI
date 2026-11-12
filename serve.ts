@@ -2351,6 +2351,34 @@ function buildConfirmationEmail(p: {
   };
 }
 
+// ── Owner "new booking" email ─────────────────────────────────────────
+// A web booking used to email only the customer, so a booking could land and nobody at the
+// business found out without logging in. Every owner event goes out by email (owner decision
+// 2026-11-03), so the same booking is reported to the owner. The date and time are the wall
+// clock the customer picked — the business's own timezone — and the body names that zone so
+// the owner never has to work out the offset.
+function buildOwnerBookingEmail(p: {
+  customerName: string; customerPhone: string; customerEmail: string;
+  service: string; date: string; time: string; tz: string; notes: string;
+}): { subject: string; body: string } {
+  const slot = formatSlotSpeech({ date: p.date, time: p.time }, "en");
+  return {
+    subject: `New booking: ${p.service} — ${p.date} ${p.time}`,
+    body: [
+      "Someone just booked an appointment on your website.",
+      "",
+      `Customer: ${p.customerName}`,
+      `Phone: ${p.customerPhone}`,
+      `Email: ${p.customerEmail || "not provided"}`,
+      `Service: ${p.service}`,
+      `When: ${slot} (${p.tz})`,
+      `Notes: ${p.notes || "none"}`,
+      "",
+      `Open your dashboard: ${DASHBOARD_NOTIFY_URL}`,
+    ].join("\n"),
+  };
+}
+
 // Schedule reminder rows for a newly booked appointment (same as calendar/book).
 async function scheduleRemindersInline(p: {
   appointmentId: string; organizationId: string; customerName: string; customerPhone: string;
@@ -6527,6 +6555,22 @@ for (let attempt = 1; ; attempt++) {
                 orgName, orgPhone, lang: "en",
               });
               await deliverEmail(email, mail.subject, mail.body, "confirmation", org.id);
+            }
+            // ── Tell the business owner ──────────────────────────────────
+            // The customer email above needs an address the customer typed; the owner always
+            // has one (organizations.email, else the signup user), so this alert fires for
+            // every booking. A failed or slow send must never fail or hold up the booking —
+            // the appointment is already committed, so the error is logged and swallowed.
+            if (apptId) {
+              try {
+                const mail = buildOwnerBookingEmail({
+                  customerName: name, customerPhone: phone, customerEmail: email,
+                  service, date, time, tz: orgTz, notes,
+                });
+                await sendEmailNotification(org.id, mail.subject, mail.body, "booking");
+              } catch (err) {
+                console.error("[Booking Owner Email]", String(err).slice(0, 160));
+              }
             }
             if (apptId) {
               await scheduleRemindersInline({
