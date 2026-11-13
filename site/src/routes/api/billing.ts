@@ -9,8 +9,9 @@
 
 import { authenticate } from "../../../lib/middleware";
 import { getDb, isMockMode } from "../../../db/index";
-import { subscriptions, subscriptionPlans, usageRecords } from "../../../db/schema/index";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { subscriptions, subscriptionPlans, usageRecords, conversations } from "../../../db/schema/index";
+import { eq, and, gte, lte, ne, isNotNull, sql } from "drizzle-orm";
+import { sumAiMinutes } from "../../../lib/ai-minutes";
 
 // ─── Plan definitions with Stripe payment links ─────────────────────────────
 
@@ -197,9 +198,35 @@ async function handleGetSubscription(request: Request) {
       )
     );
 
-  const aiMinutesUsed = usageRows
+  // AI-minutes for the calendar month, counted from real voice conversations:
+  // ended_at - started_at per call, rounded up to whole minutes. Nothing ever wrote
+  // usage_records.ai_minutes, so this is what makes the dashboard bar show real usage.
+  // Falls back to the usage_records sum when the org has no ended calls this month.
+  // Counting only — never blocks, caps or bills a call.
+  let aiMinutesUsed = usageRows
     .filter((r) => r.recordType === "ai_minutes")
     .reduce((sum, r) => sum + Number(r.quantity), 0);
+
+  try {
+    const callRows = await db
+      .select({ startedAt: conversations.startedAt, endedAt: conversations.endedAt })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.organizationId, orgId),
+          eq(conversations.type, "call"),
+          ne(conversations.status, "missed"),
+          sql`coalesce(${conversations.aiHandled}, true)`,
+          eq(conversations.isDemo, false),
+          isNotNull(conversations.endedAt),
+          gte(conversations.startedAt, monthStart)
+        )
+      );
+    if (callRows.length > 0) aiMinutesUsed = sumAiMinutes(callRows);
+  } catch (err) {
+    // Never break the billing page over usage counting.
+    console.warn("[Billing API] ai-minute count failed:", String(err).slice(0, 140));
+  }
 
   return new Response(
     JSON.stringify({
