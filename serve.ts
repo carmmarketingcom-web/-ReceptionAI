@@ -5923,7 +5923,6 @@ for (let attempt = 1; ; attempt++) {
                   AND type = 'call'
                   AND status <> 'missed'::conversation_status
                   AND COALESCE(ai_handled, true)
-                  AND is_demo = false
                   AND ended_at IS NOT NULL
                   AND started_at >= ${monthStart}::timestamptz
               `;

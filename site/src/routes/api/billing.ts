@@ -217,7 +217,6 @@ async function handleGetSubscription(request: Request) {
           eq(conversations.type, "call"),
           ne(conversations.status, "missed"),
           sql`coalesce(${conversations.aiHandled}, true)`,
-          eq(conversations.isDemo, false),
           isNotNull(conversations.endedAt),
           gte(conversations.startedAt, monthStart)
         )

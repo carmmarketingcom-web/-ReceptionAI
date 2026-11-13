@@ -66,10 +66,11 @@ test("serve.ts derives aiMinutesUsed from conversations and keeps usage_records 
   // Counted from conversations…
   expect(block).toContain("FROM conversations");
   expect(block).toContain("sumAiMinutes(");
-  // …with the filters the owner asked for: voice, AI-handled, not demo, this month.
+  // …with the filters the owner asked for: voice, AI-handled, this month. Demo-tagged
+  // calls are counted too: those minutes were really consumed on the org's line.
   expect(block).toContain("type = 'call'");
   expect(block).toContain("COALESCE(ai_handled, true)");
-  expect(block).toContain("is_demo = false");
+  expect(block).not.toContain("is_demo = false");
   expect(block).toContain("ended_at IS NOT NULL");
   expect(block).toContain("started_at >= ${monthStart}::timestamptz");
   // Ring time on a call nobody answered is not AI time.
@@ -90,6 +91,6 @@ test("the AI-minutes counter is byte-identical in both trees and both /api/billi
   for (const [label, src] of [["src/routes/api/billing.ts", rootRoute], ["site/src/routes/api/billing.ts", siteRoute]] as const) {
     expect({ label, usesCounter: src.includes("sumAiMinutes(") }).toEqual({ label, usesCounter: true });
     expect({ label, fallback: src.includes('r.recordType === "ai_minutes"') }).toEqual({ label, fallback: true });
-    expect({ label, filters: src.includes("eq(conversations.type, \"call\")") && src.includes("eq(conversations.isDemo, false)") }).toEqual({ label, filters: true });
+    expect({ label, filters: src.includes("eq(conversations.type, \"call\")") && !src.includes("eq(conversations.isDemo, false)") }).toEqual({ label, filters: true });
   }
 });
