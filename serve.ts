@@ -9,6 +9,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 import handler from "./dist/server/server.js";
 import { neon } from "@neondatabase/serverless";
 import { buildOrgHealth, normalizeOrgHealth } from "./src/lib/org-health";
+import { sumAiMinutes } from "./src/lib/ai-minutes";
 import { resolvePublicBookingOrg, BOOKING_FALLBACK, type PublicBookingOrg } from "./src/lib/public-booking-org";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
@@ -5909,7 +5910,30 @@ for (let attempt = 1; ; attempt++) {
             const usageRows = await sql`SELECT record_type, SUM(quantity) as qty FROM usage_records WHERE organization_id = ${organizationId} AND recorded_at >= ${monthStart}::timestamptz GROUP BY record_type`;
             const usageMap: Record<string, number> = {};
             for (const u of usageRows as any[]) usageMap[u.record_type] = Number(u.qty || 0);
-            const aiMinutesUsed = usageMap["ai_minutes"] || 0;
+            // AI-minutes for the calendar month, counted from real voice conversations:
+            // ended_at - started_at per call, rounded up to whole minutes. Nothing ever wrote
+            // usage_records.ai_minutes, so this is what makes the bar show real usage. Falls
+            // back to the usage_records sum when the org has no ended calls this month.
+            // Counting only — never blocks, caps or bills a call.
+            let aiMinutesUsed = usageMap["ai_minutes"] || 0;
+            try {
+              const callRows = await sql`
+                SELECT started_at, ended_at FROM conversations
+                WHERE organization_id = ${organizationId}
+                  AND type = 'call'
+                  AND status <> 'missed'::conversation_status
+                  AND COALESCE(ai_handled, true)
+                  AND is_demo = false
+                  AND ended_at IS NOT NULL
+                  AND started_at >= ${monthStart}::timestamptz
+              `;
+              if (callRows.length > 0) {
+                aiMinutesUsed = sumAiMinutes(callRows.map((r: any) => ({ startedAt: r.started_at, endedAt: r.ended_at })));
+              }
+            } catch (err) {
+              // Never break the billing page over usage counting.
+              console.warn("[Billing API] ai-minute count failed:", String(err).slice(0, 140));
+            }
             const smsUsed = (usageMap["sms_outbound"] || 0) + (usageMap["sms_inbound"] || 0);
             const aiLimit = sub?.included_ai_minutes || 500;
             const smsLimit = sub?.included_sms_messages || 200;
