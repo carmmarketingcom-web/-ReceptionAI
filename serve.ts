@@ -7028,7 +7028,7 @@ for (let attempt = 1; ; attempt++) {
             const bcrypt = await import("bcryptjs");
             const tokenHash = await bcrypt.hash(resetToken, 10);
             await sql`
-              UPDATE users SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('reset_token_hash', ${tokenHash}, 'reset_token_expires', ${new Date(Date.now() + 3600000).toISOString()})
+              UPDATE users SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('reset_token_hash', ${tokenHash}::text, 'reset_token_expires', ${new Date(Date.now() + 3600000).toISOString()}::text)
               WHERE id = ${user.id}
             `;
 
