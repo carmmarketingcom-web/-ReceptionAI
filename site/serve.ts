@@ -359,8 +359,12 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
       `;
       conversationId = (existing[0]?.id as string) || null;
     }
+    // `status` and `ended_at` are written in the SAME statement, always. AI-minutes are
+    // derived from ended_at - started_at, so a conversation that reads as finished but has no
+    // finish time silently contributes nothing. Every terminal status this function can pick
+    // ('ended', 'missed', 'voicemail', 'transferred') gets the same finish stamp.
     if (conversationId) {
-      await sql`
+      const finished = await sql`
         UPDATE conversations SET
           contact_id = ${contactId},
           phone_number_id = ${phoneNumberId},
@@ -372,8 +376,13 @@ async function saveCallerHistory(cs: CallState): Promise<void> {
           metadata = ${metadata}::jsonb,
           updated_at = NOW()
         WHERE id = ${conversationId}
+        RETURNING id
       `;
-    } else {
+      // A stale conversation id (row gone, or written by an older process) must not swallow
+      // the call: fall through to the INSERT so a finished conversation WITH ended_at exists.
+      if (!finished[0]) conversationId = null;
+    }
+    if (!conversationId) {
       conversationId = crypto.randomUUID();
       await sql`
         INSERT INTO conversations
@@ -3832,11 +3841,65 @@ if (!reminderTimerOff) {
       const r = await processDueReminders();
       const extra = [r.error ? `error=${r.error}` : "", r.message ? `note=${r.message}` : ""].filter(Boolean).join(" ");
       console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
+      // Same pass, same timer: close calls that never got their hangup.
+      const swept = await sweepStaleCalls();
+      console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
       // The timer is also a heartbeat for the balance watchdog (internally throttled).
       void checkTelnyxBalance("reminders-timer").catch(() => {});
     })();
   }, REMINDER_TICK_MS);
 }
+
+  // ── Stale-call sweeper ─────────────────────────────────────────────────────
+  // A call whose hangup never reached us — the process restarted mid-call, a webhook was
+  // dropped, the server was killed while the caller was still on the line — leaves a
+  // conversation sitting at status 'active' forever. It never gets an ended_at, so it is
+  // invisible to AI-minutes (counted from ended_at - started_at) and it shows up as a call
+  // that never finished.
+  //
+  // Anything still open after six hours is closed here, and the finish time is taken from
+  // something that really happened on that call rather than invented: the newest message on
+  // the conversation, else its started_at, else the row's own created_at. It runs on the same
+  // in-process timer as the reminders (no external cron) and logs one line per pass.
+  //
+  // Rows that are already marked finished are never touched. The three historical rows that
+  // read 'ended' with a NULL ended_at keep their honest blank instead of a made-up duration.
+  const STALE_CALL_MS = 6 * 60 * 60 * 1000;
+
+  async function sweepStaleCalls(): Promise<{ closed: number; error?: string }> {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) return { closed: 0 };
+    try {
+      const sql = neon(dbUrl);
+      const cutoff = new Date(Date.now() - STALE_CALL_MS).toISOString();
+      const stale = await sql`
+        SELECT c.id,
+               COALESCE(
+                 (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id),
+                 c.started_at,
+                 c.created_at
+               ) AS ended_at
+        FROM conversations c
+        WHERE c.type = 'call'
+          AND c.status = 'active'::conversation_status
+          AND c.ended_at IS NULL
+          AND COALESCE(c.started_at, c.created_at) < ${cutoff}::timestamptz
+        LIMIT 200
+      `;
+      for (const row of stale as any[]) {
+        await sql`
+          UPDATE conversations
+          SET status = 'ended'::conversation_status,
+              ended_at = ${row.ended_at},
+              updated_at = NOW()
+          WHERE id = ${row.id} AND ended_at IS NULL
+        `;
+      }
+      return { closed: (stale as any[]).length };
+    } catch (err) {
+      return { closed: 0, error: String(err).slice(0, 140) };
+    }
+  }
 
 const freePort = `for _ in $(seq 1 25); do pids=$(lsof -t -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true); if [ -z "$pids" ]; then exit 0; fi; kill $pids 2>/dev/null || true; sleep 0.2; done`;
 
