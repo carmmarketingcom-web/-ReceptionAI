@@ -274,7 +274,7 @@ function SetupPage() {
           {step === 1 && (
             <div>
               <h2 className="text-xl font-bold text-gray-900">Let's set up your AI receptionist</h2>
-              <p className="mt-1 text-sm text-gray-500">Your phone number is live and taking calls. Just a couple things to personalize it.</p>
+              <p className="mt-1 text-sm text-gray-500">A couple of quick things to personalize your receptionist.</p>
               <div className="mt-6">
                 <label className="block text-sm font-medium text-gray-700">Company name</label>
                 <input
@@ -477,7 +477,7 @@ function SetupPage() {
                 <li>
                   Approval usually lands in <strong className="font-semibold text-gray-900">2 weeks or less</strong>.
                 </li>
-                <li>You confirm the consent below, and we send you a test text to prove it works.</li>
+                <li>Once the carriers approve, we send you a test text so you know it works.</li>
                 <li>From then on, your alerts arrive by text as well as email.</li>
               </ol>
 
