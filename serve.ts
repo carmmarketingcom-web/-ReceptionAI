@@ -2430,6 +2430,22 @@ async function scheduleRemindersInline(p: {
            ${p.customerPhone}, ${customerEmail || null}, ${msg})
       `;
     }
+    // The reminder CALL (owner 2026-11-17). A caller who books by phone leaves no email, so
+    // the rows above never reach them; this one is dialled instead. 24 hours out, 'voice'.
+    if (String(p.customerPhone || "").trim()) {
+      const callAt = apptTime.getTime() - 24 * 3600 * 1000;
+      if (callAt > now) {
+        await sql`
+          INSERT INTO appointment_reminders
+            (id, appointment_id, organization_id, reminder_type, scheduled_at, status, channel,
+             recipient_phone, recipient_email, message_body)
+          VALUES
+            (gen_random_uuid(), ${p.appointmentId}, ${p.organizationId}, '24h_call',
+             ${new Date(callAt).toISOString()}, 'pending', 'voice',
+             ${String(p.customerPhone).trim()}, NULL, NULL)
+        `;
+      }
+    }
     const next = await sql`
       SELECT MIN(scheduled_at) as next_at FROM appointment_reminders
       WHERE appointment_id = ${p.appointmentId} AND status = 'pending'
@@ -3943,6 +3959,339 @@ async function syncAppointmentToGoogle(apptId: string): Promise<void> {
     if (orgId) await logCalendarSync(orgId, apptId, "create", "error", String(e).slice(0, 200));
   }
 }
+// ── Automated reminder CALL (voice) — owner request 2026-11-17 ──────────────
+// The reminder channel that needs no carrier approval. A caller who books by phone leaves no
+// email address, so until now that customer got no reminder at all (the row fell back to
+// 'sms', and texting is off). The same in-process timer that sends the email reminders now
+// also dials a short call 24 hours before the appointment.
+//
+// Everything one call needs lives in reminderCallStates, keyed by the OUTBOUND call id — the
+// same way pendingCallbacks and transferStates already route outbound legs. The webhook only
+// looks the id up; it never queries for a reminder mid-call.
+type ReminderCallState = {
+  reminderId: string;
+  appointmentId: string;
+  organizationId: string;
+  phone: string;           // the customer we dialled
+  businessNumber: string;  // the business line the call comes from
+  businessName: string;
+  customerName: string;
+  service: string;
+  timeText: string;        // "9:00 AM" — the appointment time in the business's timezone
+  dateText: string;        // "November 18" — used in the owner's cancellation email
+  language: "en" | "es";
+  startedAt: number;
+  answered: boolean;       // the customer actually picked up
+  prompted: number;        // how many times the options have been spoken
+  outcome: string;         // dialed | confirmed | cancelled | transfer | optout | no_answer | failed
+};
+const reminderCallStates = new Map<string, ReminderCallState>();
+
+// Never call at night: 09:00–20:00 in the BUSINESS's own timezone.
+const REMINDER_CALL_START_HOUR = 9;
+const REMINDER_CALL_END_HOUR = 20;
+// Below this Telnyx balance the sweep stops dialling rather than run the account dry.
+const REMINDER_CALL_MIN_BALANCE_USD = 5;
+
+// Local hour (0–23) in a timezone. A bogus zone falls back to noon — the safe hour — because
+// returning 0 would silently suppress every reminder call for that business.
+function localHourIn(timezone: string, at: Date = new Date()): number {
+  try {
+    const h = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hour12: false }).format(at), 10);
+    return Number.isFinite(h) ? ((h % 24) + 24) % 24 : 12;
+  } catch { return 12; }
+}
+
+// The whole call, spoken in the customer's language. "virtual assistant" is part of the
+// script on purpose: the AI never claims to be a person.
+function reminderCallLines(rc: ReminderCallState, part: "menu" | "repeat" | "silent"): SpokenLine[] {
+  const es = rc.language === "es";
+  const name = String(rc.customerName || "").trim();
+  const hi = name ? `${es ? "Hola" : "Hi"} ${name}` : (es ? "Hola" : "Hi");
+  const options = es
+    ? "Para confirmar, presione 1. Para cancelar, presione 2. Para hablar con la oficina, presione 3. Para no recibir más llamadas de recordatorio, presione 9."
+    : "To confirm, press 1. To cancel, press 2. To speak with the office, press 3. To stop reminder calls, press 9.";
+  if (part === "menu") {
+    return [
+      es
+        ? `${hi}, le habla el asistente virtual de ${rc.businessName}.`
+        : `${hi}, this is the virtual assistant for ${rc.businessName}.`,
+      es
+        ? `Le recuerdo que tiene ${rc.service} mañana a las ${rc.timeText}.`
+        : `This is a reminder that you have ${rc.service} tomorrow at ${rc.timeText}.`,
+      options,
+    ];
+  }
+  if (part === "repeat") return [es ? "No escuché su elección." : "I didn't hear a choice.", options];
+  return [es ? "Gracias, adiós." : "Thank you, goodbye."];
+}
+
+// The columns this feature needs, issued by the server on the first sweep so a deploy works
+// before 0012_reminder_calls.sql is applied by hand (same pattern as 0008/0010).
+let reminderCallSchemaReady = false;
+async function ensureReminderCallSchema(sql: any): Promise<void> {
+  if (reminderCallSchemaReady) return;
+  reminderCallSchemaReady = true;
+  try {
+    await sql`ALTER TABLE appointment_reminders ADD COLUMN IF NOT EXISTS result TEXT`;
+    await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS reminder_calls_opt_out BOOLEAN NOT NULL DEFAULT false`;
+  } catch (err) {
+    console.warn("[ReminderCall] schema ensure skipped:", String(err).slice(0, 120));
+  }
+}
+
+// Write one outcome to the reminder row and to the log, in the format the owner reads:
+// [ReminderCall] appt=<id> to=<last4> status=<outcome>
+async function recordReminderCall(rc: ReminderCallState, outcome: string, note?: string, status = "sent"): Promise<void> {
+  rc.outcome = outcome;
+  console.log(`[ReminderCall] appt=${rc.appointmentId} to=${String(rc.phone || "").slice(-4)} status=${outcome}`);
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  try {
+    const sql = neon(dbUrl);
+    await sql`
+      UPDATE appointment_reminders
+      SET status=${status}, channel='voice', result=${outcome}, error_message=${note || null}, updated_at=NOW()
+      WHERE id=${rc.reminderId}
+    `;
+  } catch (err) {
+    console.error("[ReminderCall] outcome write failed:", String(err).slice(0, 120));
+  }
+}
+
+// 2 — cancel the appointment and tell the owner, by email, that the customer cancelled.
+async function cancelAppointmentFromReminderCall(rc: ReminderCallState): Promise<void> {
+  await recordReminderCall(rc, "cancelled");
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl) {
+    try {
+      const sql = neon(dbUrl);
+      await sql`UPDATE appointments SET status='cancelled', updated_at=NOW() WHERE id=${rc.appointmentId}`;
+    } catch (err) {
+      console.error("[ReminderCall] cancel write failed:", String(err).slice(0, 120));
+    }
+  }
+  const es = rc.language === "es";
+  const line = es
+    ? `Cita cancelada por llamada de recordatorio: ${rc.customerName} — ${rc.service} ${rc.dateText} ${rc.timeText}`
+    : `Appointment cancelled by reminder call: ${rc.customerName} — ${rc.service} ${rc.dateText} ${rc.timeText}`;
+  await deliverOwnerNotification({
+    orgId: rc.organizationId,
+    smsFrom: rc.businessNumber,
+    smsText: line,
+    smsKind: "owner_alert",
+    emailSubject: line,
+    emailBody: [
+      es
+        ? "El cliente canceló su cita en la llamada de recordatorio."
+        : "The customer cancelled their appointment on the reminder call.",
+      "",
+      line,
+      "",
+      `${es ? "Abrir su panel" : "Open your dashboard"}: ${DASHBOARD_NOTIFY_URL}`,
+    ].join("\n"),
+    emailKind: "appointment_cancelled",
+  });
+}
+
+// 9 — stop calling this customer. Kept per contact, so it survives a re-booking.
+async function optOutOfReminderCalls(rc: ReminderCallState): Promise<void> {
+  await recordReminderCall(rc, "optout");
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  try {
+    const sql = neon(dbUrl);
+    await sql`
+      UPDATE contacts SET reminder_calls_opt_out = true, updated_at = NOW()
+      WHERE organization_id = ${rc.organizationId} AND phone = ${rc.phone}
+    `;
+  } catch (err) {
+    console.error("[ReminderCall] opt-out write failed:", String(err).slice(0, 120));
+  }
+}
+
+// Silence, or a key we don't use: say the options once more, then close the call politely.
+async function repeatReminderOptionsOrClose(cid: string, rc: ReminderCallState): Promise<void> {
+  if (rc.prompted >= 2) {
+    await speakLines(cid, reminderCallLines(rc, "silent"), rc.language);
+    pendingHangups.add(cid);
+    return;
+  }
+  rc.prompted += 1;
+  await speakLines(cid, reminderCallLines(rc, "repeat"), rc.language);
+}
+
+// What a keypress does on a reminder call: 1 confirm, 2 cancel, 3 the office, 9 stop calling.
+async function handleReminderCallDigit(cid: string, digit: string, rc: ReminderCallState): Promise<void> {
+  const es = rc.language === "es";
+  // A duplicate press after the call has been answered must not repeat the whole response.
+  if (rc.outcome !== "dialed") {
+    pendingHangups.add(cid);
+    return;
+  }
+  if (digit === "1") {
+    await recordReminderCall(rc, "confirmed");
+    await speakLines(cid, [es ? "Gracias, su cita está confirmada. Que tenga un buen día." : "Thank you, you're confirmed. Have a good day."], rc.language);
+    pendingHangups.add(cid);
+    return;
+  }
+  if (digit === "2") {
+    await cancelAppointmentFromReminderCall(rc);
+    await speakLines(cid, [es ? "Su cita ha sido cancelada. Avisaremos a la oficina. Adiós." : "Your appointment has been cancelled. We'll let the office know. Goodbye."], rc.language);
+    pendingHangups.add(cid);
+    return;
+  }
+  if (digit === "9") {
+    await optOutOfReminderCalls(rc);
+    await speakLines(cid, [es ? "No recibirá más llamadas de recordatorio de nuestra parte. Adiós." : "You won't receive reminder calls from us again. Goodbye."], rc.language);
+    pendingHangups.add(cid);
+    return;
+  }
+  if (digit === "3") {
+    // The same transfer the main line uses: dial the owner's mobile and bridge on answer. If the
+    // owner does not pick up, that path already tells the customer someone will call back and
+    // alerts the owner — the callback request, taken exactly the way the main line takes it.
+    await recordReminderCall(rc, "transfer");
+    const pseudo: CallState = {
+      callerNumber: rc.phone,
+      toNumber: rc.businessNumber,
+      dtmfHistory: ["3"],
+      startTime: new Date(),
+      orgId: rc.organizationId,
+      orgName: rc.businessName,
+      isDemo: false,
+      appointmentIntent: false,
+      appointmentBooked: false,
+      language: rc.language,
+      phase: "menu",
+      answered: true,
+      callbackSent: false,
+      surveySent: false,
+      gatherTimeouts: 0,
+      transferred: false,
+      transferring: false,
+      requestedCallback: false,
+      voicemail: false,
+      callControlId: cid,
+    };
+    await transferToOwner(cid, pseudo);
+    return;
+  }
+  await repeatReminderOptionsOrClose(cid, rc);
+}
+
+// One due '24h_call' row: decide whether it may be dialled, and dial it.
+// Returns what happened so the sweep can count it. A "deferred" row is deliberately left
+// 'pending' — the next sweep inside the 9am–8pm window picks it up, and once the appointment is
+// in the past it is skipped instead.
+async function attemptReminderCall(sql: any, r: any): Promise<"dialed" | "deferred" | "skipped" | "failed"> {
+  const apptId = String(r.appointment_id || "");
+  const reminderId = String(r.reminder_id || "");
+  const last4 = String(r.recipient_phone || "").slice(-4);
+  const skip = async (result: string, why: string): Promise<"skipped"> => {
+    console.log(`[ReminderCall] appt=${apptId} to=${last4} status=${result} — ${why}`);
+    try {
+      await sql`
+        UPDATE appointment_reminders
+        SET status='skipped', channel='voice', result=${result}, error_message=${why}, updated_at=NOW()
+        WHERE id=${reminderId}
+      `;
+    } catch { /* the log line above is the record */ }
+    return "skipped";
+  };
+
+  const rows = await sql`
+    SELECT a.id, a.start_time, a.status, a.service_type, a.title, a.is_demo,
+           c.first_name, c.phone, c.preferred_language, c.reminder_calls_opt_out,
+           o.name AS org_name, o.timezone AS org_timezone
+    FROM appointments a
+    LEFT JOIN contacts c ON c.id = a.contact_id
+    LEFT JOIN organizations o ON o.id = a.organization_id
+    WHERE a.id = ${apptId} LIMIT 1
+  `;
+  const appt: any = rows[0];
+  if (!appt) return await skip("failed", "the appointment no longer exists");
+  // Demo bookings are the owner's own test traffic: never dial one.
+  if (appt.is_demo) return await skip("skipped", "demo booking — never call a test appointment");
+  if (appt.reminder_calls_opt_out) return await skip("skipped", "the customer opted out of reminder calls");
+  const apptStatus = String(appt.status || "");
+  if (apptStatus !== "confirmed" && apptStatus !== "scheduled") {
+    return await skip("skipped", `the appointment is ${apptStatus || "not confirmed"}`);
+  }
+  const startMs = new Date(appt.start_time).getTime();
+  if (!Number.isFinite(startMs) || startMs <= Date.now()) return await skip("skipped", "the appointment time has passed");
+  const phone = String(r.recipient_phone || appt.phone || "").trim();
+  if (!phone) return await skip("skipped", "no phone number on the appointment");
+
+  const tz = String(appt.org_timezone || "America/Chicago");
+  const hour = localHourIn(tz);
+  if (hour < REMINDER_CALL_START_HOUR || hour >= REMINDER_CALL_END_HOUR) {
+    console.log(`[ReminderCall] appt=${apptId} to=${phone.slice(-4)} deferred — local time ${hour}:00 is outside ${REMINDER_CALL_START_HOUR}:00–${REMINDER_CALL_END_HOUR}:00 (${tz})`);
+    return "deferred";
+  }
+
+  // Cost guard: never dial on a balance we cannot see running out. An unknown balance is not
+  // permission to call — the row waits for the next sweep.
+  let balance = telnyxBalanceCache.balance;
+  if (balance === null) balance = (await checkTelnyxBalance("reminder-call")).balance;
+  if (balance === null) {
+    console.log(`[ReminderCall] appt=${apptId} to=${phone.slice(-4)} deferred — Telnyx balance unknown`);
+    return "deferred";
+  }
+  if (balance < REMINDER_CALL_MIN_BALANCE_USD) {
+    console.log(`[ReminderCall] skipped — balance $${balance.toFixed(2)}`);
+    return await skip("skipped", `Telnyx balance $${balance.toFixed(2)} is below $${REMINDER_CALL_MIN_BALANCE_USD}`);
+  }
+
+  const fromRow = await sql`
+    SELECT phone_number FROM phone_numbers
+    WHERE organization_id = ${r.organization_id} AND is_active = true LIMIT 1
+  `;
+  const fromNumber = String(fromRow[0]?.phone_number || "");
+  if (!fromNumber) return await skip("skipped", "this business has no active phone line to call from");
+
+  const language: "en" | "es" = String(appt.preferred_language || "") === "es" ? "es" : "en";
+  const loc = language === "es" ? "es-ES" : "en-US";
+  const start = new Date(startMs);
+  const rc: ReminderCallState = {
+    reminderId,
+    appointmentId: apptId,
+    organizationId: String(r.organization_id || ""),
+    phone,
+    businessNumber: fromNumber,
+    businessName: String(appt.org_name || "our team"),
+    customerName: String(appt.first_name || "").trim(),
+    service: String(appt.service_type || appt.title || "your appointment"),
+    timeText: new Intl.DateTimeFormat(loc, { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(start),
+    dateText: new Intl.DateTimeFormat(loc, { timeZone: tz, month: "long", day: "numeric" }).format(start),
+    language,
+    startedAt: Date.now(),
+    answered: false,
+    prompted: 1,
+    outcome: "dialed",
+  };
+
+  const webhookUrl = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
+  const cid = await dialOutbound(phone, fromNumber, webhookUrl);
+  if (!cid) {
+    await recordReminderCall(rc, "failed", "Telnyx rejected the dial", "failed");
+    return "failed";
+  }
+  reminderCallStates.set(cid, rc);
+  console.log(`[ReminderCall] appt=${apptId} to=${phone.slice(-4)} status=dialed (cid ${cid.slice(-8)})`);
+  try {
+    await sql`
+      UPDATE appointment_reminders
+      SET status='sent', channel='voice', result='dialed', sent_at=NOW(), updated_at=NOW()
+      WHERE id=${reminderId}
+    `;
+    await sql`UPDATE appointments SET reminder_sent_at=NOW(), updated_at=NOW() WHERE id=${apptId}`;
+  } catch (err) {
+    console.error("[ReminderCall] dialled but the row was not updated:", String(err).slice(0, 120));
+  }
+  return "dialed";
+}
+
 // ── Reminder sweep — ONE implementation, two callers ────────────────────────
 // GET /api/reminders/process below is kept for an external cron service, but nothing was
 // ever pointed at it in production, so due reminder rows sat 'pending' forever and no
@@ -3951,6 +4300,7 @@ async function syncAppointmentToGoogle(apptId: string): Promise<void> {
 // Returns the same shape the endpoint answers with.
 export type ReminderSweepResult = {
   processed: number; sent: number; failed: number; skipped: number;
+  dialled?: number; // reminder CALLS placed this pass
   message?: string; error?: string;
 };
 
@@ -3958,15 +4308,16 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
   try {
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) {
-      return { processed: 0, sent: 0, failed: 0, skipped: 0, message: "No database configured" };
+      return { processed: 0, sent: 0, failed: 0, skipped: 0, dialled: 0, message: "No database configured" };
     }
 
     const sql = neon(dbUrl);
     const now = new Date().toISOString();
+    await ensureReminderCallSchema(sql);
 
     const due = await sql`
       SELECT ar.id as reminder_id, ar.appointment_id, ar.organization_id,
-             ar.reminder_type, ar.recipient_phone, ar.recipient_email, ar.message_body,
+             ar.reminder_type, ar.channel, ar.recipient_phone, ar.recipient_email, ar.message_body,
              a.title as appt_title, o.name as org_name
       FROM appointment_reminders ar
       JOIN appointments a ON ar.appointment_id = a.id
@@ -3980,8 +4331,18 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
     // business that opted into texting. When neither is possible the row is marked
     // 'skipped' with the reason, so the dashboard stops counting a send that never
     // happened.
-    let sent = 0, failed = 0, skipped = 0;
+    let sent = 0, failed = 0, skipped = 0, dialled = 0;
     for (const r of due as any[]) {
+      // A reminder CALL is dialled, not emailed: it is the only channel a customer who booked
+      // by phone can be reached on, and it needs no carrier approval.
+      if (String(r.channel || "") === "voice") {
+        const callResult = await attemptReminderCall(sql, r);
+        // "deferred" counts as neither sent nor skipped: that row stays pending on purpose.
+        if (callResult === "dialed") { dialled++; sent++; }
+        else if (callResult === "failed") failed++;
+        else if (callResult === "skipped") skipped++;
+        continue;
+      }
       const type = String(r.reminder_type || "");
       const orgName = String(r.org_name || "our team");
       const messageBody = String(r.message_body || "").trim();
@@ -4048,10 +4409,10 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
       }
     }
 
-    return { processed: due.length, sent, failed, skipped };
+    return { processed: due.length, sent, failed, skipped, dialled };
   } catch (err) {
     console.error("[Reminders Cron]", String(err).slice(0, 200));
-    return { processed: 0, sent: 0, failed: 0, skipped: 0, error: String(err).slice(0, 100) };
+    return { processed: 0, sent: 0, failed: 0, skipped: 0, dialled: 0, error: String(err).slice(0, 100) };
   }
 }
 
@@ -4070,7 +4431,7 @@ if (!reminderTimerOff) {
       const startedAt = Date.now();
       const r = await processDueReminders();
       const extra = [r.error ? `error=${r.error}` : "", r.message ? `note=${r.message}` : ""].filter(Boolean).join(" ");
-      console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
+      console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} dialled=${r.dialled || 0} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
       // Same pass, same timer: close calls that never got their hangup.
       const swept = await sweepStaleCalls();
       console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
@@ -4158,6 +4519,11 @@ for (let attempt = 1; ; attempt++) {
           // Transfer legs and pending outbound callbacks whose events never arrived are stale.
           transferStates.clear();
           pendingCallbacks.clear();
+          // Reminder calls are short; anything still in the map after two hours is a webhook
+          // that never arrived.
+          for (const [rcCid, rcState] of reminderCallStates) {
+            if (rcState.startedAt < cutoff) reminderCallStates.delete(rcCid);
+          }
         }
 
         // ── Telnyx prepaid balance watchdog (opportunistic) ─────────────
@@ -4191,6 +4557,18 @@ for (let attempt = 1; ; attempt++) {
                   await speakOnly(cid, es
                     ? `Hola, somos ${cbInfo.orgName}. Disculpe que no pudimos atender su llamada. Presione 1 para agendar una cita.`
                     : `Hi, this is ${cbInfo.orgName}. Sorry we missed your call. Press 1 to book an appointment.`, cbInfo.language);
+                }, 600);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
+
+              // ── Outbound reminder call? ───────────────────────────
+              // Dialled by the reminder sweep. Answer, then speak the reminder once; the DTMF
+              // gather is armed by `call.speak.ended` (10 s), exactly like every other prompt.
+              const rcInit = reminderCallStates.get(cid);
+              if (rcInit) {
+                await cmd(cid, "answer");
+                setTimeout(async () => {
+                  await speakLines(cid, reminderCallLines(rcInit, "menu"), rcInit.language);
                 }, 600);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
@@ -4310,6 +4688,13 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Owner answered for a transfer → bridge caller to owner ──
             else if (ev === "call.answered") {
+              // The customer picked up the reminder call — from here a silence means "no
+              // choice", not "no answer".
+              const rcAnswered = reminderCallStates.get(cid);
+              if (rcAnswered) {
+                rcAnswered.answered = true;
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               const t = transferStates.get(cid);
               if (t) {
                 t.answered = true;
@@ -4323,6 +4708,24 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Speak ended → gather or hangup ─────────────────────────
             else if (ev === "call.speak.ended") {
+              // Reminder call: the last queued line arms ONE 10-second DTMF gather, or hangs up
+              // once the goodbye has played.
+              const rcSpeak = reminderCallStates.get(cid);
+              if (rcSpeak) {
+                const segs = speakSegments.get(cid) || 0;
+                if (segs > 1) {
+                  speakSegments.set(cid, segs - 1);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                speakSegments.delete(cid);
+                if (pendingHangups.has(cid)) {
+                  pendingHangups.delete(cid);
+                  armHangup(cid, 1200);
+                } else if (rcSpeak.outcome === "dialed") {
+                  armGather(cid, { type: "dtmf", minimum_digits: 1, maximum_digits: 1, timeout_millis: 10000 });
+                }
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               const speakCs = calls.get(cid);
               if (speakCs?.transferring) {
                 // Dialing the owner — wait for the bridge; do not re-prompt.
@@ -4378,6 +4781,14 @@ for (let attempt = 1; ; attempt++) {
                 lastDtmf.set(cid, { digit, ts: now });
               }
               gatherActive.delete(cid); // this press satisfied the active gather
+
+              // ── Reminder call: 1 confirm, 2 cancel, 3 office, 9 stop ──
+              const rcDtmf = reminderCallStates.get(cid);
+              if (rcDtmf) {
+                rcDtmf.answered = true;
+                await handleReminderCallDigit(cid, digit, rcDtmf);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
 
               // Track DTMF in call state (cap at 50 to prevent memory issues from spam)
               const cs = calls.get(cid);
@@ -4567,6 +4978,16 @@ for (let attempt = 1; ; attempt++) {
             // ── Gather ended (timeout, no DTMF) ─────────────────────
             else if (ev === "call.gather.ended") {
               gatherActive.delete(cid);
+              // Reminder call: silence gets the options once more, then a polite goodbye.
+              const rcGather = reminderCallStates.get(cid);
+              if (rcGather) {
+                const gatheredRc = String(p.data?.payload?.digits ?? "").trim();
+                if (!gatheredRc) {
+                  if (rcGather.outcome === "dialed") await repeatReminderOptionsOrClose(cid, rcGather);
+                  else pendingHangups.add(cid);
+                }
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               const cs = calls.get(cid);
               // Telnyx fires `call.gather.ended` BOTH when the gather times out AND when it
               // completes with digits — the payload then carries `digits` (status "valid").
@@ -4634,6 +5055,21 @@ for (let attempt = 1; ; attempt++) {
             else if (ev === "call.hangup" || ev === "call.hungup") {
               const cs = calls.get(cid);
               console.log(`Hangup: ${cid.slice(-8)}${cs ? ` from ${cs.callerNumber}` : ""}`);
+
+              // ── Reminder call ended ─────────────────────────────
+              // One outcome per dialled reminder, written here when no keypress decided it: the
+              // customer never picked up, or listened and hung up. No retry, no voicemail.
+              const rcHangup = reminderCallStates.get(cid);
+              if (rcHangup) {
+                if (rcHangup.outcome === "dialed") {
+                  await recordReminderCall(
+                    rcHangup,
+                    "no_answer",
+                    rcHangup.answered ? "no DTMF after the options were repeated" : "the call was never answered",
+                  );
+                }
+                reminderCallStates.delete(cid);
+              }
 
               // ── Owner transfer leg hung up ─────────────────────
               const tState = transferStates.get(cid);
