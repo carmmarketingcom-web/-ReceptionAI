@@ -1640,6 +1640,14 @@ async function deliverOwnerNotification(opts: {
   return { emailed, smsAttempted, smsOk };
 }
 
+
+// The exact consent wording the owner ticks at setup. Stored verbatim on every
+// texting_requests row (it is the opt-in evidence we file with the carrier), so this
+// string must match the checkbox in src/routes/setup.tsx and site/src/routes/setup.tsx.
+const TEXTING_CONSENT_TEXT =
+  "I agree to receive call and appointment alert texts from ReceptionAI at this number. " +
+  "Message frequency varies. Message & data rates may apply. Reply STOP to opt out, HELP for help. " +
+  "Consent is not a condition of purchase.";
 // ── Platform alerts (ReceptionAI's own owner, not a customer business) ──────
 // Same env-only routing rule as SUPPORT_ALERT_TO: no address is ever hardcoded.
 async function platformAlertEmailRecipients(): Promise<string[]> {
@@ -5841,6 +5849,84 @@ for (let attempt = 1; ; attempt++) {
           }
         }
         // ── Settings API ─────────────────────────────────────────────
+        // ── Texting add-on request ($10/month) ─────────────────────────
+        // Records a REQUEST and nothing else. Texting is off until the mobile carriers
+        // verify the number (our toll-free filing was rejected 2026-11-16), so this
+        // handler never flips sms_enabled and never bills: it writes one row per org
+        // (repeat requests update it, consent wording stored verbatim as the evidence we
+        // file) and emails the team to file the verification. The UI says "we'll confirm
+        // by email before billing starts" — that is exactly what this does.
+        if (pathname === "/api/texting-request" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const body = (await req.json().catch(() => ({}))) as Record<string, any>;
+            const phone = String(body.phone || "").trim();
+            if (body.consent !== true) {
+              return json({ error: "Consent is required before we can file the verification." }, 400);
+            }
+            if (phone.replace(/\D/g, "").length < 10) {
+              return json({ error: "Enter a mobile number we can text." }, 400);
+            }
+            const sql = neon(dbUrl);
+            // Works before the 0011 migration is applied by hand (same pattern as
+            // sms_deliveries / email_deliveries).
+            await sql`CREATE TABLE IF NOT EXISTS texting_requests (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              organization_id uuid NOT NULL,
+              phone text,
+              consent_text text,
+              consent_at timestamptz,
+              status text NOT NULL DEFAULT 'requested',
+              created_at timestamptz NOT NULL DEFAULT now()
+            )`;
+            await sql`CREATE UNIQUE INDEX IF NOT EXISTS texting_requests_org_idx ON texting_requests (organization_id)`;
+            const saved = await sql`
+              INSERT INTO texting_requests (organization_id, phone, consent_text, consent_at, status)
+              VALUES (${organizationId}, ${phone}, ${TEXTING_CONSENT_TEXT}, now(), 'requested')
+              ON CONFLICT (organization_id) DO UPDATE
+                SET phone = EXCLUDED.phone,
+                    consent_text = EXCLUDED.consent_text,
+                    consent_at = EXCLUDED.consent_at,
+                    status = 'requested'
+              RETURNING id, status
+            `;
+            // Tell the team to file it. A mail failure must never lose the request — the
+            // row above is the record — so the result is only reported, never thrown.
+            let notified = false;
+            try {
+              const orgRows = await sql`SELECT name, email FROM organizations WHERE id = ${organizationId} LIMIT 1`;
+              const org = (orgRows[0] || {}) as any;
+              notified = await emailPlatformAlert(
+                `Texting request: ${org.name || "a business"} — $10/month`,
+                [
+                  "A customer asked for text alerts. File the carrier verification for their number.",
+                  "",
+                  `Business: ${org.name || "(no name)"}`,
+                  `Organization id: ${organizationId}`,
+                  `Owner email: ${org.email || "(none on the organization record)"}`,
+                  `Mobile number for text alerts: ${phone}`,
+                  `Request id: ${(saved[0] as any)?.id || "(unknown)"}`,
+                  "",
+                  "Consent recorded verbatim:",
+                  TEXTING_CONSENT_TEXT,
+                  "",
+                  "Nothing is billed yet — confirm by email with the customer before charging $10/month.",
+                ].join("\n"),
+                "texting_request",
+              );
+            } catch (mailErr) {
+              console.warn("[Texting] request saved but the team email failed:", String(mailErr).slice(0, 140));
+            }
+            return json({ ok: true, status: "requested", notified });
+          } catch (err) {
+            console.error("[Texting API]", String(err).slice(0, 200));
+            return json({ error: "Could not save your request" }, 500);
+          }
+        }
         if (pathname === "/api/settings" && req.method === "GET") {
           try {
             const auth = await requireOrgAuth(req);

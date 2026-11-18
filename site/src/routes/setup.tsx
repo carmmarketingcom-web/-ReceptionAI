@@ -27,7 +27,72 @@ const defaultHours: Record<Weekday, { open: string; close: string; enabled: bool
   sunday:    { open: "09:00", close: "17:00", enabled: false },
 };
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 6;
+
+// The consent wording is stored verbatim on the request row (texting_requests.consent_text)
+// because it is the opt-in evidence we file with the carrier. The server keeps its own copy
+// (TEXTING_CONSENT_TEXT in serve.ts / site/serve.ts) — the two must stay word-for-word equal.
+const TEXTING_CONSENT_TEXT =
+  "I agree to receive call and appointment alert texts from ReceptionAI at this number. " +
+  "Message frequency varies. Message & data rates may apply. Reply STOP to opt out, HELP for help. " +
+  "Consent is not a condition of purchase.";
+
+// The real menu rows for each phone, in order. These are what the owner taps — no invented
+// paths, no fake logos, no screenshots of a real phone.
+type PhoneRow = { label: string; toggle?: boolean; chevron?: boolean };
+
+const IPHONE_ROWS: PhoneRow[] = [
+  { label: "Settings" },
+  { label: "Notifications" },
+  { label: "Mail" },
+  { label: "Allow Notifications", toggle: true, chevron: false },
+  { label: "Lock Screen · Banners · Sounds", chevron: false },
+];
+
+const ANDROID_ROWS: PhoneRow[] = [
+  { label: "Settings" },
+  { label: "Apps → Gmail" },
+  { label: "Notifications" },
+  { label: "All notifications", toggle: true, chevron: false },
+  { label: "Mail and Messages", chevron: false },
+];
+
+// A small dark phone frame with a stylised Settings list. Built in HTML/CSS on purpose:
+// the menu paths have to be exact and legible, which a generated image cannot guarantee.
+function PhoneMockup({ platform, rows }: { platform: string; rows: PhoneRow[] }) {
+  return (
+    <div className="mx-auto w-full max-w-[232px]">
+      <div className="rounded-[1.75rem] border border-gray-700 bg-gray-900 p-1.5 shadow-lg shadow-gray-300/40">
+        <div className="flex items-center justify-between px-2.5 pb-1 pt-1 text-[9px] text-gray-400">
+          <span>9:41</span>
+          <span className="h-1 w-9 rounded-full bg-gray-700" />
+          <span>100%</span>
+        </div>
+        <div className="rounded-[1.4rem] bg-[#0b0f19] px-2 pb-3 pt-2">
+          <p className="mb-2 px-1 text-[11px] font-semibold text-white">{platform} Settings</p>
+          <div className="space-y-1">
+            {rows.map((row, i) => (
+              <div key={row.label} className="flex items-center gap-2 rounded-md bg-white/[0.07] px-2 py-1.5">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
+                  {i + 1}
+                </span>
+                <span className="flex-1 text-[10px] font-medium leading-tight text-gray-100">{row.label}</span>
+                {row.toggle ? (
+                  <span className="relative h-3 w-5 shrink-0 rounded-full bg-indigo-500">
+                    <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-white" />
+                  </span>
+                ) : row.chevron === false ? null : (
+                  <span className="shrink-0 text-[10px] text-gray-500">›</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <p className="mt-2 text-center text-xs font-semibold text-gray-700">{platform}</p>
+    </div>
+  );
+}
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -58,6 +123,15 @@ function SetupPage() {
 
   const [saving, setSaving] = useState(false);
 
+  // Steps 5 and 6 — notifications, and the $10/month texting add-on. Choosing the add-on only
+  // records a request: texting stays off until the carriers verify the number, so the UI never
+  // shows an enabled state and nothing is charged here.
+  const [textingChoice, setTextingChoice] = useState<"idle" | "form" | "sent">("idle");
+  const [textingPhone, setTextingPhone] = useState("");
+  const [textingConsent, setTextingConsent] = useState(false);
+  const [textingSaving, setTextingSaving] = useState(false);
+  const [textingError, setTextingError] = useState("");
+
   // Pre-fill from the org we already have: the business name came from signup, and the mobile is
   // the number Stripe Checkout collected — so most customers just confirm and press Continue.
   useEffect(() => {
@@ -67,6 +141,14 @@ function SetupPage() {
     if (typeof org.phone === "string" && org.phone.trim()) setMobile(org.phone.trim());
     setPrefilled(true);
   }, [settingsData, prefilled]);
+
+  // Step 6 starts with the mobile we already have (step 1, or the org record) so the owner
+  // normally just ticks the consent box.
+  useEffect(() => {
+    if (step !== 6) return;
+    const org = settingsData?.organization as { phone?: string | null } | undefined;
+    setTextingPhone((current) => current || mobile.trim() || (org?.phone || "").trim());
+  }, [step, mobile, settingsData]);
 
   // ── Navigation ──────────────────────────────────────────────────────────
 
@@ -110,6 +192,34 @@ function SetupPage() {
       next();
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Step 6: record the request. This writes one row (texting_requests) and emails the team to
+  // file the carrier verification. It does not turn texting on and it does not charge anything.
+  const handleTextingRequest = async () => {
+    const phone = textingPhone.trim();
+    if (phone.replace(/\D/g, "").length < 10) {
+      setTextingError("Enter a mobile number we can text.");
+      return;
+    }
+    if (!textingConsent) {
+      setTextingError("Tick the consent box so we can file the verification.");
+      return;
+    }
+    setTextingSaving(true);
+    setTextingError("");
+    try {
+      await api.post("/api/texting-request", {
+        phone,
+        consent: true,
+        consentText: TEXTING_CONSENT_TEXT,
+      });
+      setTextingChoice("sent");
+    } catch {
+      setTextingError("We couldn't send your request just now. Nothing was charged — try again in a moment.");
+    } finally {
+      setTextingSaving(false);
     }
   };
 
@@ -322,6 +432,149 @@ function SetupPage() {
             </div>
           )}
 
+          {/* ── Step 5: Email notifications ─────────────────────────── */}
+          {step === 5 && (
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Email notifications — already on</h2>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                Every call summary, missed call, voicemail and new booking is emailed to you automatically — it's included in your plan and costs you nothing extra.
+              </p>
+              <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                One thing to do now:{" "}
+                <strong className="font-semibold text-gray-900">allow notifications for your email app on your phone.</strong>{" "}
+                Otherwise the emails still arrive, but your phone stays quiet until you open your inbox — and a booking you don't see for six hours is a customer who called someone else.
+              </p>
+
+              <div className="mt-6 grid gap-5 sm:grid-cols-2">
+                <PhoneMockup platform="iPhone" rows={IPHONE_ROWS} />
+                <PhoneMockup platform="Android" rows={ANDROID_ROWS} />
+              </div>
+
+              <p className="mt-4 text-center text-xs text-gray-500">Prefer a text? That's the add-on below.</p>
+            </div>
+          )}
+
+          {/* ── Step 6: Texting add-on ($10/month) ──────────────────── */}
+          {step === 6 && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-bold text-gray-900">Text alerts — $10/month</h2>
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+                  Requires carrier approval
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs text-gray-500">
+                $10/month is the price we will bill once the carriers approve your number — not before.
+              </p>
+
+              <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                Texting is the one channel we can't switch on ourselves. In the US, a business can only send text messages to phones after its number is verified by the mobile carriers — that rule comes from the carriers and the FCC, not from us. We file it for you and pay the filing fee. We just can't skip it, and neither can any other provider.
+              </p>
+
+              <p className="mt-3 text-sm font-semibold text-gray-900">What happens after you turn this on:</p>
+              <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-gray-600">
+                <li>We file the verification for your number — the same day you request it.</li>
+                <li>
+                  Approval usually lands in <strong className="font-semibold text-gray-900">2 weeks or less</strong>.
+                </li>
+                <li>You confirm the consent below, and we send you a test text to prove it works.</li>
+                <li>From then on, your alerts arrive by text as well as email.</li>
+              </ol>
+
+              <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                Until it's approved, <strong className="font-semibold text-gray-900">nothing changes</strong> — email keeps delivering everything. We won't charge you for texting while it's pending.
+              </p>
+
+              <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                <p className="text-xs leading-relaxed text-gray-600">
+                  <strong className="font-semibold text-gray-900">Why we do it this way.</strong> Every legitimate business texting US phones goes through this. The businesses that skip it get their messages filtered or their number blocked — and then their customers stop hearing from them at all. We'd rather take two weeks and do it properly, so your alerts keep arriving for as long as you're a customer.
+                </p>
+              </div>
+
+              {textingChoice === "idle" && (
+                <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    onClick={() => setTextingChoice("form")}
+                    className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
+                  >
+                    Request texting — $10/month
+                  </button>
+                  <button
+                    onClick={finish}
+                    className="rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+                  >
+                    No thanks, email is fine
+                  </button>
+                </div>
+              )}
+
+              {textingChoice === "form" && (
+                <div className="mt-5">
+                  <label htmlFor="textingPhone" className="block text-sm font-medium text-gray-700">
+                    Mobile number for text alerts
+                  </label>
+                  <input
+                    id="textingPhone"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={textingPhone}
+                    onChange={(e) => { setTextingPhone(e.target.value); setTextingError(""); }}
+                    placeholder="(555) 123-4567"
+                    className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  />
+                  <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={textingConsent}
+                      onChange={(e) => { setTextingConsent(e.target.checked); setTextingError(""); }}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+                    />
+                    <span>{TEXTING_CONSENT_TEXT}</span>
+                  </label>
+                  {textingError && (
+                    <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      {textingError}
+                    </p>
+                  )}
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      onClick={handleTextingRequest}
+                      disabled={textingSaving}
+                      className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:opacity-50"
+                    >
+                      {textingSaving ? "Sending your request…" : "Request texting — $10/month"}
+                    </button>
+                    <button
+                      onClick={finish}
+                      className="rounded-xl border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+                    >
+                      No thanks, email is fine
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {textingChoice === "sent" && (
+                <div className="mt-5 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-sm font-semibold text-gray-900">Request received</p>
+                  <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                    We'll file the verification for {textingPhone.trim()} and email you when the carriers respond.{" "}
+                    <strong className="font-semibold text-gray-900">Texting is not active yet</strong> — email keeps delivering every call summary, missed call, voicemail and new booking in the meantime.
+                  </p>
+                  <button
+                    onClick={finish}
+                    className="mt-4 w-full rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black sm:w-auto"
+                  >
+                    Go to Dashboard →
+                  </button>
+                </div>
+              )}
+
+              <p className="mt-3 text-xs text-gray-500">We'll confirm by email before billing starts.</p>
+            </div>
+          )}
+
           {/* ── Navigation ──────────────────────────────────────────── */}
           <div className="mt-8 flex items-center justify-between">
             <button
@@ -357,14 +610,7 @@ function SetupPage() {
                 >
                   {saving ? "Saving..." : "Continue"}
                 </button>
-              ) : (
-                <button
-                  onClick={finish}
-                  className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
-                >
-                  Go to Dashboard →
-                </button>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
