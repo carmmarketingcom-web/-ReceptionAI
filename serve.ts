@@ -1046,7 +1046,9 @@ function splitForPacing(text: string, lang: string): string[] {
 // comes out as a single flat breath. Separate speaks queue in order and each one gets its own
 // sentence-final intonation — the same mechanism the owner ear-confirmed in #26 — and the gap
 // above gives each idea room to land instead of running them together.
-async function speakLines(cid: string, lines: SpokenLine[], lang: string) {
+// Returns how many utterances Telnyx ACCEPTED — 0 means the prompt never played at all
+// (every speak was refused), which a caller-reachable path must not treat as "spoken".
+async function speakLines(cid: string, lines: SpokenLine[], lang: string): Promise<number> {
   let spoken = 0;
   for (const raw of lines) {
     if (!raw) continue;
@@ -1054,10 +1056,10 @@ async function speakLines(cid: string, lines: SpokenLine[], lang: string) {
     for (const line of splitForPacing(raw, lang)) {
       if (!line) continue;
       if (spoken > 0) await paceGap(lang);
-      await speakOnly(cid, line, lang);
-      spoken++;
+      if (await speakOnly(cid, line, lang)) spoken++;
     }
   }
+  return spoken;
 }
 // One payload, paced internally (sentence-ending beats) — used for single-line prompts that
 // carry more than one idea, e.g. the demo silence nudge.
@@ -4562,14 +4564,25 @@ for (let attempt = 1; ; attempt++) {
               }
 
               // ── Outbound reminder call? ───────────────────────────
-              // Dialled by the reminder sweep. Answer, then speak the reminder once; the DTMF
-              // gather is armed by `call.speak.ended` (10 s), exactly like every other prompt.
+              // Dialled by the reminder sweep. `call.initiated` fires at DIAL time — the callee's
+              // phone has not even rung yet, let alone been picked up — so NOTHING is spoken here
+              // and the leg is not answered. Audio sent now plays into a leg that is not up, which
+              // is exactly how the owner's phone rang and he heard silence (reminder bb36f127).
+              // The reminder is spoken from `call.answered` below, the moment the customer picks up.
               const rcInit = reminderCallStates.get(cid);
               if (rcInit) {
-                await cmd(cid, "answer");
-                setTimeout(async () => {
-                  await speakLines(cid, reminderCallLines(rcInit, "menu"), rcInit.language);
-                }, 600);
+                console.log(`[ReminderCall] appt=${rcInit.appointmentId} dialling ${String(rcInit.phone).slice(-4)} — waiting for answer (cid ${cid.slice(-8)})`);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
+
+              // ── Outbound owner leg of a press-3 transfer? ─────────
+              // Same reason: this leg is dialled to the owner's mobile and `call.initiated` is
+              // still the ringing phase. It must never fall through to the inbound script below,
+              // which would answer the owner's phone with "Welcome! For English, press 1." The
+              // bridge happens on `call.answered`.
+              const tInit = transferStates.get(cid);
+              if (tInit) {
+                console.log(`[Transfer] owner leg ${cid.slice(-8)} dialling — waiting for answer`);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
 
@@ -4693,6 +4706,21 @@ for (let attempt = 1; ; attempt++) {
               const rcAnswered = reminderCallStates.get(cid);
               if (rcAnswered) {
                 rcAnswered.answered = true;
+                console.log(`[ReminderCall] appt=${rcAnswered.appointmentId} answered — speaking the reminder (cid ${cid.slice(-8)})`);
+                // The first moment audio can actually reach this customer. A short beat so the
+                // media path is up before the first word; nothing is queued after the last line,
+                // so the single 10 s DTMF gather still arms on the final `call.speak.ended`.
+                setTimeout(async () => {
+                  const spoken = await speakLines(cid, reminderCallLines(rcAnswered, "menu"), rcAnswered.language);
+                  // Telnyx refused every line: no `call.speak.ended` will ever arrive, so the
+                  // gather would never arm and the customer would hear silence again. Say so and
+                  // close the call instead of leaving a dead line open.
+                  if (spoken === 0) {
+                    console.error(`[ReminderCall] appt=${rcAnswered.appointmentId} the reminder could not be spoken (cid ${cid.slice(-8)}) — hanging up`);
+                    const hungUp = await cmd(cid, "hangup");
+                    if (!hungUp) console.error(`[ReminderCall] hangup was rejected for cid ${cid.slice(-8)}`);
+                  }
+                }, 300);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
               const t = transferStates.get(cid);
