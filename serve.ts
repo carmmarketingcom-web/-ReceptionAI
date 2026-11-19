@@ -6168,6 +6168,52 @@ for (let attempt = 1; ; attempt++) {
             return json({ error: "Failed to update missed call" }, 500);
           }
         }
+        // ── Test-call check (Getting Started "Test it yourself") ──
+        // GET /api/test-call-check — org-scoped. Answers one question from real rows: is there
+        // a call on this org, and did it book anything? A customer who has not called yet gets
+        // hasCall:false, and the page says we cannot see a call — never that one happened.
+        // Keep in sync with src/routes/api/test-call-check.ts and the other serve.ts tree.
+        if (pathname === "/api/test-call-check" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const rows = (await sql`
+              SELECT id, started_at, ended_at, status
+              FROM conversations
+              WHERE organization_id = ${auth.organizationId}
+                AND type = 'call'
+                AND is_demo = false
+              ORDER BY started_at DESC
+              LIMIT 1
+            `) as any[];
+            const call = rows[0];
+            if (!call) {
+              return json({ hasCall: false, startedAt: null, durationSeconds: null, booked: 0, status: null });
+            }
+            const bookedRows = (await sql`
+              SELECT count(*)::int AS booked FROM appointments WHERE conversation_id = ${call.id}
+            `) as any[];
+            const started = call.started_at ? new Date(call.started_at) : null;
+            const ended = call.ended_at ? new Date(call.ended_at) : null;
+            const durationSeconds =
+              started && ended && ended.getTime() >= started.getTime()
+                ? Math.round((ended.getTime() - started.getTime()) / 1000)
+                : null;
+            return json({
+              hasCall: true,
+              startedAt: call.started_at,
+              durationSeconds,
+              booked: Number(bookedRows[0]?.booked || 0),
+              status: call.status,
+            });
+          } catch (err) {
+            console.error("[Test call check API]", String(err).slice(0, 200));
+            return json({ error: "Failed to check calls" }, 500);
+          }
+        }
         // ── Call outcomes (reminder calls + transfers) ──
         // GET /api/dashboard/call-outcomes?limit=50 — org-scoped. Reminder calls are the
         // appointment_reminders rows the sweep dials (channel='voice', reminder_type='24h_call');

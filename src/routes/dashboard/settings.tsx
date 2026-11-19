@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { api, ApiError } from "~/lib/api-client";
 import { useSettings, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
+import { BUSINESS_TYPES } from "~/lib/business-types";
 
 export const Route = createFileRoute("/dashboard/settings")({
   component: SettingsPage,
@@ -18,13 +19,6 @@ const DAY_LABELS: Record<Weekday, string> = {
 const TIMEZONES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
   "America/Phoenix", "America/Anchorage", "Pacific/Honolulu",
-] as const;
-
-const BUSINESS_TYPES = [
-  "HVAC", "Plumbing", "Electrical", "Roofing", "Dental", "Veterinary",
-  "Law Firm", "Med Spa", "Home Services", "Auto Repair",
-  "Marketing", "Consulting", "Accounting", "Real Estate", "Insurance",
-  "IT Services", "Cleaning Services", "Landscaping", "Salon & Spa", "Other",
 ] as const;
 
 type Hours = Record<Weekday, { open: string; close: string; enabled: boolean }>;

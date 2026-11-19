@@ -677,6 +677,71 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "faq.cta.button": { en: "Start Today", es: "Comenzar Hoy" },
 
+  /* ─── FAQ page — the nine plain answers ─── */
+  /* Every sentence here is a fact about the product as it ships today. If a capability is
+     missing, the answer says it is missing — the page never describes self-serve setup we do
+     not have (number provisioning, Google/Outlook sync, carrier-approved texting). */
+  "faq.hero.title2": { en: "Questions, answered plainly", es: "Preguntas, respondidas con claridad" },
+  "faq.hero.subtitle2": {
+    en: "Nine plain answers about the phone number, what happens after you pay, and what the AI can and cannot do.",
+    es: "Nueve respuestas claras sobre el número de teléfono, lo que pasa después de pagar y lo que la IA puede y no puede hacer.",
+  },
+  "faq.n1.q": { en: "Do I get my own phone number?", es: "¿Recibo mi propio número de teléfono?" },
+  "faq.n1.a": {
+    en: "No — and that is deliberate. A second number collides with the one your customers already dial, and two numbers pointing at one business is how calls get missed. You keep your business line exactly as it is. While we connect your line with you, your receptionist answers on the ReceptionAI line and books straight into your dashboard. We set that up with you; it is not something you switch on yourself.",
+    es: "No — y es a propósito. Un segundo número choca con el que tus clientes ya marcan, y dos números apuntando a un mismo negocio es justo como se pierden llamadas. Tú conservas tu línea de negocio tal como está. Mientras conectamos tu línea contigo, tu recepcionista contesta en la línea de ReceptionAI y agenda directo en tu panel. Eso lo configuramos contigo; no es algo que actives tú solo.",
+  },
+  "faq.n2.q": {
+    en: "How do I know it works before I trust it with customers?",
+    es: "¿Cómo sé que funciona antes de confiárselo a mis clientes?",
+  },
+  "faq.n2.a": {
+    en: "Call it and book something. The three steps are in “Test it yourself” on your Getting Started page. The appointment appears on your Schedule screen and the “New booking” alert lands in your inbox — the same path a real customer's booking takes. A caller who leaves an email also gets a confirmation email.",
+    es: "Llama y agenda algo. Los tres pasos están en “Pruébalo tú mismo” en tu página de primeros pasos. La cita aparece en tu pantalla de Agenda y el aviso de “Nueva reserva” llega a tu correo — el mismo camino que toma la reserva de un cliente real. Quien llama y deja un correo también recibe un correo de confirmación.",
+  },
+  "faq.n3.q": { en: "What happens after I pay?", es: "¿Qué pasa después de pagar?" },
+  "faq.n3.a": {
+    en: "Four steps, all in your dashboard: (1) Tell us about your business — name, type, hours and services, about five minutes in Setup. (2) Test your line — call it, book something, and see it on Schedule. (3) Add your team's transfer number — where a caller goes when they press 3. (4) Go live — we confirm everything with you before you point customers at it. You land on that screen when your setup finishes, and the same four steps are in your welcome email.",
+    es: "Cuatro pasos, todos en tu panel: (1) Cuéntanos de tu negocio — nombre, tipo, horarios y servicios, unos cinco minutos en Configuración. (2) Prueba tu línea — llama, agenda algo y míralo en Agenda. (3) Agrega el número de transferencia de tu equipo — a dónde va quien llama cuando presiona 3. (4) Sal en vivo — confirmamos todo contigo antes de que dirijas clientes hacia ella. Llegas a esa pantalla al terminar tu configuración, y los mismos cuatro pasos están en tu correo de bienvenida.",
+  },
+  "faq.n4.q": { en: "Can I upgrade?", es: "¿Puedo subir de plan?" },
+  "faq.n4.a": {
+    en: "Yes. Open Billing in your dashboard and pick the plan you want — it opens a secure checkout for that plan. Because that starts a new subscription, message us first from Help & support and we will move you over and stop the old one, so you are never billed twice. Your first month is always charged at the plan you chose.",
+    es: "Sí. Abre Facturación en tu panel y elige el plan que quieres — se abre un pago seguro para ese plan. Como eso inicia una suscripción nueva, escríbenos primero desde Ayuda y soporte y te cambiamos nosotros, cerrando la anterior, para que nunca se te cobre dos veces. El primer mes siempre se cobra al plan que elegiste.",
+  },
+  "faq.n5.q": { en: "Can I cancel?", es: "¿Puedo cancelar?" },
+  "faq.n5.a": {
+    en: "Yes. Message us from Help & support, or reply to any email from us, and we cancel it before your next renewal — you keep access to the end of the month you have already paid for. We ask one question about why you are leaving, because it is the only way we learn what to fix. A cancel button that ends the billing by itself is not live yet.",
+    es: "Sí. Escríbenos desde Ayuda y soporte, o responde cualquier correo nuestro, y la cancelamos antes de tu próxima renovación — conservas el acceso hasta el final del mes que ya pagaste. Hacemos una pregunta sobre por qué te vas, porque es la única forma en que aprendemos qué arreglar. Un botón de cancelar que termine el cobro por sí solo todavía no está activo.",
+  },
+  "faq.n6.q": { en: "What does it cost per call, or per minute?", es: "¿Cuánto cuesta por llamada o por minuto?" },
+  "faq.n6.a": {
+    en: "Nothing per call. Each plan includes a monthly allowance of AI minutes — Starter 500, Growth 2,000, Scale 10,000+ — and the dashboard meters the minutes your calls actually use. There are no overage charges today: if your volume outgrows your plan, message us and we will move you to a bigger one.",
+    es: "Nada por llamada. Cada plan incluye una asignación mensual de minutos de IA — Starter 500, Growth 2,000, Scale 10,000+ — y el panel mide los minutos que tus llamadas usan de verdad. Hoy no hay cargos por exceso: si tu volumen supera tu plan, escríbenos y te pasamos a uno mayor.",
+  },
+  "faq.n7.q": {
+    en: "Is my customer data safe? Are you HIPAA compliant?",
+    es: "¿Están seguros los datos de mis clientes? ¿Cumplen con HIPAA?",
+  },
+  "faq.n7.a": {
+    en: "We are not HIPAA compliant, and we do not sell to anyone who needs that — please do not use ReceptionAI for protected health information. Your card details never reach our servers; Stripe handles the payment. Call records, transcripts and recordings stay inside your own account: only you and the people you add to your team can see them.",
+    es: "No cumplimos con HIPAA, y no vendemos a quien lo necesite — por favor no uses ReceptionAI para información de salud protegida. Los datos de tu tarjeta nunca llegan a nuestros servidores; Stripe procesa el pago. Las llamadas, transcripciones y grabaciones quedan dentro de tu propia cuenta: solo tú y las personas que agregues a tu equipo pueden verlas.",
+  },
+  "faq.n8.q": { en: "Does it speak Spanish?", es: "¿Habla español?" },
+  "faq.n8.a": {
+    en: "Yes. Callers choose English or Spanish before the menu, and the greeting and the menu are spoken in the language they picked. A Spanish-speaking caller books an appointment the same way an English-speaking one does.",
+    es: "Sí. Quien llama elige inglés o español antes del menú, y el saludo y el menú se dicen en el idioma que eligió. Un cliente que habla español agenda una cita igual que uno que habla inglés.",
+  },
+  "faq.n9.q": { en: "What if the AI cannot answer?", es: "¿Y si la IA no puede responder?" },
+  "faq.n9.a": {
+    en: "Press 3 at any time and it dials your number and bridges the call the moment you answer. If you do not pick up, the caller is told someone will call back and you are alerted. A caller can also leave a voicemail, which reaches you by email with the recording.",
+    es: "Presiona 3 en cualquier momento y marca tu número y conecta la llamada en cuanto contestes. Si no contestas, a quien llama se le dice que alguien devolverá la llamada y a ti te llega un aviso. También puede dejar un mensaje de voz, que te llega por correo con la grabación.",
+  },
+  "faq.selfserve.testLink": {
+    en: "Test it yourself — call the line and book something",
+    es: "Pruébalo tú mismo — llama a la línea y agenda algo",
+  },
+
   /* ─── Footer ─── */
   "footer.tagline": {
     en: "AI-powered receptionist for modern small businesses.",

@@ -80,6 +80,16 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
     `• ${numberLine}`,
     `• Dashboard: ${dashboardUrl}`,
     "",
+    // The four steps from the post-payment screen, in the same order. Nothing here promises a
+    // number, a date or a launch time we cannot hold to — step 4 is us confirming with them.
+    "What happens next — the same four steps are the first screen you see after setup:",
+    "1. Tell us about your business — name, type, hours and services. About 5 minutes.",
+    `2. Test it — call ${DEMO_LINE}, book something, and see the appointment on Schedule.`,
+    "3. Add your team's transfer number — where a caller goes when they press 3. It lives in Settings.",
+    "4. Go live — we confirm everything with you before you point customers at it.",
+    "",
+    "Reply to this email when steps 1–3 are done and we'll take it from there.",
+    "",
     `Want to hear what your receptionist sounds like before your line goes live? Call our demo line: ${DEMO_LINE}`,
     "",
     "Questions? Reply to this email.",

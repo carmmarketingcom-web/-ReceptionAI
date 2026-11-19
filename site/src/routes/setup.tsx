@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "~/lib/api-client";
 import { useSettings, primaryPhoneNumber, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
+import { BUSINESS_TYPES } from "~/lib/business-types";
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
@@ -102,6 +103,10 @@ function SetupPage() {
 
   // Step 1 — what the AI says to callers, and the mobile number we transfer to.
   const [companyName, setCompanyName] = useState("");
+  // What kind of business this is — the same 20-value list Settings offers, saved to
+  // organizations.industry through the same settings endpoint, so the answer is editable
+  // in both places and never lost.
+  const [businessType, setBusinessType] = useState("");
   const [mobile, setMobile] = useState("");
   const [mobileError, setMobileError] = useState("");
   // Skipping is allowed — a paying customer must never be blocked from their dashboard — but it
@@ -136,9 +141,14 @@ function SetupPage() {
   // the number Stripe Checkout collected — so most customers just confirm and press Continue.
   useEffect(() => {
     if (prefilled || !settingsData?.organization) return;
-    const org = settingsData.organization as { name?: string; phone?: string | null };
+    const org = settingsData.organization as { name?: string; phone?: string | null; industry?: string };
     if (org.name) setCompanyName((current) => current || org.name || "");
     if (typeof org.phone === "string" && org.phone.trim()) setMobile(org.phone.trim());
+    // A type already saved (in Settings, or by an earlier run of this wizard) is kept — the
+    // wizard asks once and never overwrites an answer the customer already gave.
+    if (typeof org.industry === "string" && org.industry.trim()) {
+      setBusinessType((current) => current || org.industry || "");
+    }
     setPrefilled(true);
   }, [settingsData, prefilled]);
 
@@ -170,6 +180,7 @@ function SetupPage() {
       if (step === 1) {
         const payload: Record<string, unknown> = {};
         if (companyName.trim()) payload.name = companyName.trim();
+        if (businessType.trim()) payload.industry = businessType.trim();
         if (mobile.trim()) payload.phone = mobile.trim();
         if (Object.keys(payload).length) await api.put("/api/settings", payload);
       }
@@ -224,7 +235,9 @@ function SetupPage() {
   };
 
   const finish = () => {
-    router.navigate({ to: "/dashboard" });
+    // Straight to "what happens next": the four steps between paying and pointing customers
+    // at the line. The dashboard is one click away from there.
+    router.navigate({ to: "/dashboard/getting-started" });
   };
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -286,6 +299,32 @@ function SetupPage() {
                   onKeyDown={(e) => e.key === "Enter" && handleSaveAndContinue()}
                   autoFocus
                 />
+              </div>
+
+              <div className="mt-5">
+                <label htmlFor="setupBusinessType" className="block text-sm font-medium text-gray-700">
+                  What kind of business is it?
+                </label>
+                <select
+                  id="setupBusinessType"
+                  value={businessType}
+                  onChange={(e) => setBusinessType(e.target.value)}
+                  className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="">Choose one…</option>
+                  {businessType && !(BUSINESS_TYPES as readonly string[]).includes(businessType) && (
+                    <option value={businessType}>{businessType}</option>
+                  )}
+                  {BUSINESS_TYPES.map((bt) => (
+                    <option key={bt} value={bt}>
+                      {bt}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-xs text-gray-500">
+                  It helps the AI answer questions about your services. You can change it later in
+                  Settings.
+                </p>
               </div>
 
               <div className="mt-5">

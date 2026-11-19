@@ -1,4 +1,7 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { api } from "~/lib/api-client";
+import { PUBLIC_LINE } from "~/lib/public-config";
 
 export const Route = createFileRoute("/getting-started")({
   component: GettingStartedPage,
@@ -42,6 +45,132 @@ const steps = [
   },
 ];
 
+// What /api/test-call-check returns: the org's newest real call, or nothing at all.
+interface CallCheck {
+  hasCall: boolean;
+  startedAt: string | null;
+  durationSeconds: number | null;
+  booked: number;
+}
+
+function TestItYourself() {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<CallCheck | null>(null);
+  const [failed, setFailed] = useState("");
+
+  const runCheck = async () => {
+    setChecking(true);
+    setFailed("");
+    try {
+      const r = await api.get<CallCheck>("/api/test-call-check");
+      setResult(r);
+    } catch {
+      setResult(null);
+      setFailed("We could not reach your account just now — give it a minute and check again.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // The sentence is built from what the API actually returned. A call we cannot see is
+  // reported as a call we cannot see — never as one that happened.
+  let message = "";
+  if (result?.hasCall && result.startedAt) {
+    const at = new Date(result.startedAt).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const seconds =
+      typeof result.durationSeconds === "number" ? ` that lasted ${result.durationSeconds} seconds` : "";
+    const booked =
+      result.booked === 1
+        ? " and booked one appointment."
+        : result.booked > 1
+          ? ` and booked ${result.booked} appointments.`
+          : ". No appointment was booked on it.";
+    message = `We see a call at ${at}${seconds}${booked}`;
+  } else if (result && !result.hasCall) {
+    message = "We do not see a call yet — give it a minute and check again.";
+  }
+
+  return (
+    <div className="mb-10 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-6">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">📞</span>
+        <h2 className="text-base font-semibold text-gray-900">Test it yourself</h2>
+      </div>
+      <p className="mt-1 text-sm text-gray-600">
+        Before you point customers at it, take the same path they will.
+      </p>
+
+      <ol className="mt-4 space-y-3">
+        <li className="flex gap-3 text-sm text-gray-700">
+          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
+            1
+          </span>
+          <span>
+            Call{" "}
+            <a href={PUBLIC_LINE.tel} className="font-semibold text-indigo-700 underline underline-offset-2">
+              {PUBLIC_LINE.display}
+            </a>{" "}
+            from your phone.
+          </span>
+        </li>
+        <li className="flex gap-3 text-sm text-gray-700">
+          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
+            2
+          </span>
+          <span>
+            Book an appointment for tomorrow at 10am — speak naturally, it understands plain
+            sentences.
+          </span>
+        </li>
+        <li className="flex gap-3 text-sm text-gray-700">
+          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
+            3
+          </span>
+          <span>
+            Come back to{" "}
+            <Link to="/dashboard/schedule" className="font-medium text-indigo-700 underline underline-offset-2">
+              Schedule
+            </Link>
+            : the appointment is there. That is the same path a real customer takes.
+          </span>
+        </li>
+      </ol>
+
+      <div className="mt-5">
+        <button
+          onClick={runCheck}
+          disabled={checking}
+          className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {checking ? "Checking your calls…" : "I just tested it — check my last call"}
+        </button>
+
+        {message && (
+          <p className="mt-3 rounded-lg border border-indigo-200 bg-white px-4 py-3 text-sm text-gray-700">
+            {message}
+          </p>
+        )}
+        {failed && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {failed}
+          </p>
+        )}
+      </div>
+
+      <p className="mt-4 text-xs text-gray-500">
+        Not sure what to expect?{" "}
+        <Link to="/faq" className="font-medium text-indigo-700 underline underline-offset-2">
+          Read the FAQ
+        </Link>
+        .
+      </p>
+    </div>
+  );
+}
+
 export default function GettingStartedPage() {
   return (
     <div className="min-h-dvh bg-gray-50">
@@ -59,12 +188,14 @@ export default function GettingStartedPage() {
 
       {/* Content */}
       <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-        <div className="mb-10">
+        <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Getting Started</h1>
           <p className="mt-2 text-gray-500">
             Follow these 5 steps to get your AI receptionist up and running. Each step takes about a minute.
           </p>
         </div>
+
+        <TestItYourself />
 
         <div className="space-y-4">
           {steps.map((s) => (

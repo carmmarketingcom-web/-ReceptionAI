@@ -41,6 +41,11 @@ export default function Footer() {
                   {t("nav.demo")}
                 </Link>
               </li>
+              <li>
+                <Link to="/faq" className="text-sm text-gray-500 transition hover:text-gray-900">
+                  {t("nav.faq")}
+                </Link>
+              </li>
             </ul>
           </div>
 
