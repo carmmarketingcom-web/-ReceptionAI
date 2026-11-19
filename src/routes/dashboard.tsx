@@ -31,6 +31,7 @@ const navItems = [
     items: [
       { label: "Analytics", icon: "📈", href: "/dashboard/analytics" },
       { label: "Missed Calls", icon: "❌", href: "/dashboard/missed" },
+      { label: "Call outcomes", icon: "📞", href: "/dashboard/call-outcomes" },
       { label: "Campaigns", icon: "📧", href: "/dashboard/campaigns" },
     ],
   },

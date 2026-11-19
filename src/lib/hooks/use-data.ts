@@ -142,6 +142,17 @@ export function updateMissedCallCallback(id: string, callbackStatus: string) {
   });
 }
 
+// ─── Call outcomes (reminder calls + transfers) ───────────────────────────
+// Real rows only: /api/dashboard/call-outcomes reads appointment_reminders
+// (channel='voice', reminder_type='24h_call') and transfer_events for the
+// signed-in organization. There is deliberately NO mock/demo fallback — an
+// empty organization gets empty lists, and the page says so. The shape lives in
+// src/lib/call-outcomes.ts so the server and the page cannot disagree.
+
+export function useCallOutcomes(limit = 50) {
+  return useApiData<unknown>(`/api/dashboard/call-outcomes?limit=${limit}`);
+}
+
 // ─── Team ─────────────────────────────────────────────────────────────────
 // Real accounts only: /api/users reads the users table for the signed-in
 // organization. There is deliberately NO mock/demo fallback here — an empty

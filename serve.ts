@@ -11,6 +11,7 @@ import { neon } from "@neondatabase/serverless";
 import { buildOrgHealth, normalizeOrgHealth } from "./src/lib/org-health";
 import { sumAiMinutes } from "./src/lib/ai-minutes";
 import { resolvePublicBookingOrg, BOOKING_FALLBACK, type PublicBookingOrg } from "./src/lib/public-booking-org";
+import { buildCallOutcomes } from "./src/lib/call-outcomes";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
@@ -1912,7 +1913,7 @@ function armHangup(cid: string, delayMs = 1500): void {
 const pendingHangups = new Set<string>();
 const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; orgId: string | null }>(); // outbound cid → callback info
 const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean; orgId: string | null }>(); // outbound cid → active callback state
-const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null }>(); // outbound owner-leg cid → transfer info
+const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null; source: "inbound" | "reminder_call" }>(); // outbound owner-leg cid → transfer info
 
 // ── Reschedule flow handler ────────────────────────────────────────────────
 async function handleReschedulePhase(cid: string, digit: string, cs: CallState): Promise<void> {
@@ -2636,13 +2637,54 @@ function scheduleCallback(cs: CallState): void {
   }, 2 * 60 * 1000); // 2 minutes
 }
 
+// ── Record a transfer outcome (never breaks the call) ──────────────────
+// One row per transfer attempt in transfer_events (migration 0013) so the dashboard's
+// "Call outcomes" page can show whether the owner actually reached the caller. This runs
+// inside a live call, so it can never throw: a failed write is one log line and the call
+// carries on. `source` says whether the caller pressed 3 on the main line or on a reminder call.
+async function recordTransferEvent(ev: {
+  organizationId: string | null;
+  callerNumber: string | null;
+  targetNumber: string | null;
+  outcome: "bridged" | "missed" | "failed" | "no_target";
+  language: string | null;
+  source: "inbound" | "reminder_call";
+}): Promise<void> {
+  if (!ev.organizationId) return;
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  try {
+    const sql = neon(dbUrl);
+    await sql`
+      INSERT INTO transfer_events
+        (organization_id, caller_number, target_number, outcome, language, source)
+      VALUES (${ev.organizationId}, ${ev.callerNumber || null}, ${ev.targetNumber || null},
+              ${ev.outcome}, ${ev.language || "en"}, ${ev.source})
+    `;
+  } catch (err) {
+    console.error("[Transfer] outcome write failed:", String(err).slice(0, 160));
+  }
+}
+
 // ── Real "talk to the owner" transfer ──────────────────────────────────
-async function transferToOwner(cid: string, cs: CallState): Promise<void> {
+async function transferToOwner(
+  cid: string,
+  cs: CallState,
+  source: "inbound" | "reminder_call" = "inbound"
+): Promise<void> {
   const es = cs.language === "es";
   cs.requestedCallback = true;
   const transferNumber = cs.orgId ? await getTransferNumber(cs.orgId) : null;
   if (!transferNumber || !cs.toNumber) {
-    // No transfer number configured — tell the caller someone will reach out, then end gracefully.
+    // No transfer number configured — nobody to ring. Record it, then end the call gracefully.
+    await recordTransferEvent({
+      organizationId: cs.orgId,
+      callerNumber: cs.callerNumber,
+      targetNumber: null,
+      outcome: "no_target",
+      language: cs.language,
+      source,
+    });
     await speakOnly(cid, es
       ? "Gracias. No hay nadie disponible en este momento, pero le avisaremos al equipo y alguien lo contactará pronto."
       : "Thanks. No one is available right now, but we'll let the team know and someone will reach out shortly.", cs.language);
@@ -2657,6 +2699,15 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
   const webhookUrl = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
   const ownerCid = await dialOutbound(transferNumber, cs.toNumber, webhookUrl);
   if (!ownerCid) {
+    // Telnyx refused the dial (or there is no line to dial from): nobody was rung.
+    await recordTransferEvent({
+      organizationId: cs.orgId,
+      callerNumber: cs.callerNumber,
+      targetNumber: transferNumber,
+      outcome: "failed",
+      language: cs.language,
+      source,
+    });
     cs.transferring = false;
     cs.transferred = false;
     await speakOnly(cid, es
@@ -2693,6 +2744,7 @@ async function transferToOwner(cid: string, cs: CallState): Promise<void> {
     language: cs.language,
     answered: false,
     orgId: cs.orgId,
+    source,
   });
   console.log(`[Transfer] Dialed owner ${transferNumber} (leg ${ownerCid.slice(-8)}) for caller ${cs.callerNumber}`);
 }
@@ -4176,7 +4228,7 @@ async function handleReminderCallDigit(cid: string, digit: string, rc: ReminderC
       voicemail: false,
       callControlId: cid,
     };
-    await transferToOwner(cid, pseudo);
+    await transferToOwner(cid, pseudo, "reminder_call");
     return;
   }
   await repeatReminderOptionsOrClose(cid, rc);
@@ -4729,6 +4781,15 @@ for (let attempt = 1; ; attempt++) {
                 const inbound = calls.get(t.inboundCid);
                 const bridged = await cmd(t.inboundCid, "bridge", { call_control_id: cid });
                 if (bridged && inbound) inbound.transferred = true;
+                // Log `bridged` only when the bridge command actually succeeded.
+                await recordTransferEvent({
+                  organizationId: t.orgId,
+                  callerNumber: t.callerNumber,
+                  targetNumber: t.ownerPhone,
+                  outcome: bridged ? "bridged" : "failed",
+                  language: t.language,
+                  source: t.source,
+                });
                 console.log(`[Transfer] Owner answered; bridge ${bridged ? "ok" : "FAILED"} ${t.inboundCid.slice(-8)} <-> ${cid.slice(-8)}`);
               }
               return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
@@ -5103,6 +5164,15 @@ for (let attempt = 1; ; attempt++) {
               const tState = transferStates.get(cid);
               if (tState) {
                 if (!tState.answered) {
+                  // Owner never picked up. Record it before the owner alert goes out.
+                  await recordTransferEvent({
+                    organizationId: tState.orgId,
+                    callerNumber: tState.callerNumber,
+                    targetNumber: tState.ownerPhone,
+                    outcome: "missed",
+                    language: tState.language,
+                    source: tState.source,
+                  });
                   // Owner missed — text owner to call the caller back
                   await deliverOwnerNotification({
                     orgId: tState.orgId,
@@ -5828,6 +5898,31 @@ for (let attempt = 1; ; attempt++) {
           } catch (err) {
             console.error("[Missed Calls API]", String(err).slice(0, 200));
             return json({ error: "Failed to update missed call" }, 500);
+          }
+        }
+        // ── Call outcomes (reminder calls + transfers) ──
+        // GET /api/dashboard/call-outcomes?limit=50 — org-scoped. Reminder calls are the
+        // appointment_reminders rows the sweep dials (channel='voice', reminder_type='24h_call');
+        // transfers are the transfer_events rows the voice server writes when it rings the owner.
+        // Both come from the shared builder in src/lib/call-outcomes.ts. Real rows only: an org
+        // with no calls gets empty lists and zeroed summaries, never a sample.
+        if (pathname === "/api/dashboard/call-outcomes" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const url = new URL(req.url);
+            const payload = await buildCallOutcomes(
+              sql as any,
+              auth.organizationId,
+              url.searchParams.get("limit")
+            );
+            return json(payload);
+          } catch (err) {
+            console.error("[Call outcomes API]", String(err).slice(0, 200));
+            return json({ error: "Failed to fetch call outcomes" }, 500);
           }
         }
         // ── Analytics (real counts only — no demo arrays, no estimates) ──
