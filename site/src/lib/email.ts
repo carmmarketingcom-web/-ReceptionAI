@@ -5,7 +5,7 @@
 
 const FROM_EMAIL = "ReceptionAI <hello@receptionai.store>";
 
-export async function sendEmail(to: string, subject: string, body: string): Promise<boolean> {
+export async function sendEmail(to: string, subject: string, body: string, replyTo?: string): Promise<boolean> {
   try {
     // In sandbox: use the team's built-in email sender
     // The sendEmail tool is available in the agent sandbox environment
@@ -22,7 +22,7 @@ export async function sendEmail(to: string, subject: string, body: string): Prom
           Authorization: `Bearer ${resendKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ from: FROM_EMAIL, to, subject, text: body }),
+        body: JSON.stringify({ from: FROM_EMAIL, to, subject, text: body, ...(replyTo ? { reply_to: replyTo } : {}) }),
       });
       if (res.ok) {
         console.log(`[Email] Sent successfully via Resend to ${to}`);
