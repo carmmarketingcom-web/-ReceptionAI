@@ -6586,7 +6586,10 @@ for (let attempt = 1; ; attempt++) {
             if (typeof body.phone === "string") await sql`UPDATE organizations SET phone = ${body.phone}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.email === "string") await sql`UPDATE organizations SET email = ${body.email}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.website === "string") await sql`UPDATE organizations SET website = ${body.website}, updated_at = NOW() WHERE id = ${organizationId}`;
-            if (typeof body.transferNumber === "string" || body.transferNumber === null) await sql`UPDATE organizations SET transfer_number = ${body.transferNumber}, updated_at = NOW() WHERE id = ${organizationId}`;
+            // A blank string is "the field was left empty", not "turn press-3 transfer off":
+            // only an explicit null clears the target.
+            const tn = typeof body.transferNumber === "string" ? body.transferNumber.trim() : body.transferNumber;
+            if ((typeof tn === "string" && tn.length > 0) || tn === null) await sql`UPDATE organizations SET transfer_number = ${tn}, updated_at = NOW() WHERE id = ${organizationId}`;
             if (typeof body.smsEnabled === "boolean") await sql`UPDATE organizations SET sms_enabled = ${body.smsEnabled}, updated_at = NOW() WHERE id = ${organizationId}`;
             // Business hours upsert
             if (Array.isArray(body.businessHours)) {

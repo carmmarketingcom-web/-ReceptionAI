@@ -125,15 +125,19 @@ function SettingsPage() {
         closeTime: hours[day].enabled ? hours[day].close : null,
         isClosed: !hours[day].enabled,
       }));
-      await api.put("/api/settings", {
+      // Only send the transfer number when the owner actually has one in the field.
+      // Sending "" nulled organizations.transfer_number, which silently turned press-3
+      // transfer off — the one feature this page can break without saying so.
+      const payload: Record<string, unknown> = {
         name: companyName,
         industry: businessType || undefined,
         timezone,
         businessHours: hoursPayload,
         smsSummaries,
         smsEnabled,
-        transferNumber: transferNumber || null,
-      });
+      };
+      if (transferNumber.trim()) payload.transferNumber = transferNumber.trim();
+      await api.put("/api/settings", payload);
       setToast({ message: "Settings saved successfully", type: "success" });
     } catch {
       setToast({ message: "Failed to save settings. Please try again.", type: "error" });
