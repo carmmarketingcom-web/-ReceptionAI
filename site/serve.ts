@@ -3852,11 +3852,31 @@ async function ensureSupportTicketsSchema(sql: any): Promise<boolean> {
       message text NOT NULL,
       context jsonb NOT NULL DEFAULT '{}'::jsonb,
       status text NOT NULL DEFAULT 'open',
+      resolution text NULL,
+      resolved_at timestamptz NULL,
+      team_reply text NULL,
+      replied_at timestamptz NULL,
       created_at timestamptz NOT NULL DEFAULT NOW(),
       updated_at timestamptz NOT NULL DEFAULT NOW()
     )`;
     await sql`CREATE INDEX IF NOT EXISTS support_tickets_org_created_idx
       ON support_tickets (organization_id, created_at DESC)`;
+    // Migration 0015 adds the four resolution columns. A table created before it needs them
+    // here too, so a deploy works before the file is applied by hand. Each ALTER is guarded on
+    // its own: "the column is already there" must not fail the whole schema check.
+    // A thunk, not a promise: a driver that throws synchronously (SQLite has no
+    // ADD COLUMN IF NOT EXISTS) must be caught here too, not escape the schema check.
+    const addColumn = async (run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch {
+        /* the column already exists */
+      }
+    };
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolution text NULL`);
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolved_at timestamptz NULL`);
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS team_reply text NULL`);
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS replied_at timestamptz NULL`);
     supportTicketsSchemaReady = true;
     return true;
   } catch (err) {
@@ -6654,28 +6674,121 @@ for (let attempt = 1; ; attempt++) {
             // come back through this endpoint.
             const rows = await sql`
               SELECT id, category, severity, subject, message, status, opened_by_email,
-                     created_at, updated_at
+                     resolution, resolved_at, team_reply, replied_at, created_at, updated_at
               FROM support_tickets
               WHERE organization_id = ${organizationId}
               ORDER BY created_at DESC
               LIMIT 50
             `;
-            const tickets = (rows as any[]).map((r: any) => ({
-              id: r.id,
-              shortId: String(r.id || "").slice(0, 8),
-              category: r.category || "other",
-              severity: r.severity || "normal",
-              subject: r.subject || "",
-              message: r.message || "",
-              status: r.status || "open",
-              openedByEmail: r.opened_by_email || null,
-              createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
-              updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
-            }));
-            return json({ tickets });
+            // One shape for GET and PATCH: the page re-renders a row from either without a reload.
+            const { shapeSupportTicket } = await import("./src/lib/support-ticket-resolution");
+            return json({ tickets: (rows as any[]).map(shapeSupportTicket) });
           } catch (err) {
             console.error("[Support API]", String(err).slice(0, 200));
             return json({ error: "Failed to load your reports" }, 500);
+          }
+        }
+        // PATCH /api/support/tickets — the customer closes the loop on their own ticket.
+        // Body: { id, status?, resolution?, reply?, copy? }. Auth'd and org-scoped: another
+        // business's ticket is "not found", never a 403 that would confirm it exists.
+        if (pathname === "/api/support/tickets" && req.method === "PATCH") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const body = (await req.json().catch(() => null)) as any;
+            if (!body || typeof body !== "object") {
+              return json({ error: "Send a JSON body with the ticket id." }, 400);
+            }
+            const id = String(body.id || "").trim();
+            if (!id) return json({ error: "A ticket id is required." }, 400);
+            const {
+              applySupportTicketUpdate,
+              isSupportStatus,
+              parseTicketContext,
+              shapeSupportTicket,
+              SUPPORT_STATUSES,
+            } = await import("./src/lib/support-ticket-resolution");
+            const { buildReplyEmail, buildResolutionEmail, buildTicketCopyEmail } = await import(
+              "./src/lib/support-ticket-email"
+            );
+            let status: any = null;
+            if (body.status !== undefined && body.status !== null && String(body.status).trim() !== "") {
+              if (!isSupportStatus(body.status)) {
+                return json({ error: "status must be one of " + SUPPORT_STATUSES.join(", ") + "." }, 400);
+              }
+              status = body.status;
+            }
+            const resolution =
+              body.resolution === undefined || body.resolution === null ? null : String(body.resolution).trim();
+            if (resolution && resolution.length > 1000) {
+              return json({ error: "Keep what we did to 1000 characters." }, 400);
+            }
+            const reply = body.reply === undefined || body.reply === null ? null : String(body.reply).trim();
+            if (reply && reply.length > 2000) {
+              return json({ error: "Keep the reply to 2000 characters." }, 400);
+            }
+            // "Email me a copy" — the whole record, no status change.
+            const sendCopy = body.copy === true;
+            if (!status && !resolution && !reply && !sendCopy) {
+              return json({ error: "Nothing to change." }, 400);
+            }
+            const sql = neon(dbUrl);
+            if (!(await ensureSupportTicketsSchema(sql))) {
+              return json({ error: "Could not update your report" }, 500);
+            }
+            let row: any = null;
+            if (status || resolution || reply) {
+              // organization_id is in the WHERE clause: another org's ticket cannot be touched.
+              row = await applySupportTicketUpdate(sql, {
+                id,
+                organizationId,
+                status,
+                resolution,
+                reply: reply || null,
+              });
+            } else {
+              const rows = await sql`
+                SELECT * FROM support_tickets
+                WHERE id = ${id} AND organization_id = ${organizationId}
+                LIMIT 1
+              `;
+              row = (rows as any[])[0] || null;
+            }
+            if (!row) return json({ error: "Ticket not found" }, 404);
+            const ticket = shapeSupportTicket(row);
+            const ctx = parseTicketContext(row.context);
+            const emailInput = {
+              ...ticket,
+              businessName: (ctx.organization && ctx.organization.name) || null,
+              contextText: sendCopy ? renderSupportTicketContext(ctx) : null,
+            };
+            // The row is already written. A failed email is logged and reported back, never a
+            // reason to lose the status change the customer can see in the dashboard.
+            const send = async (
+              mail: { to: string; subject: string; text: string; replyTo: string } | null,
+              kind: string,
+            ) => {
+              if (!mail) return false;
+              try {
+                const ok = await deliverEmail(mail.to, mail.subject, mail.text, kind, organizationId, mail.replyTo);
+                if (!ok) console.error(`[Support] ticket ${ticket.id} updated but "${mail.subject}" was NOT sent`);
+                return ok;
+              } catch (mailErr) {
+                console.error(`[Support] ticket ${ticket.id} updated but the email threw:`, String(mailErr).slice(0, 160));
+                return false;
+              }
+            };
+            const resolutionEmailed =
+              status === "resolved" ? await send(buildResolutionEmail(emailInput), "support_ticket_resolved") : false;
+            const replyEmailed = reply ? await send(buildReplyEmail(emailInput), "support_ticket_reply") : false;
+            const copyEmailed = sendCopy ? await send(buildTicketCopyEmail(emailInput), "support_ticket_copy") : false;
+            return json({ ok: true, ticket, resolutionEmailed, replyEmailed, copyEmailed });
+          } catch (err) {
+            console.error("[Support API] PATCH", String(err).slice(0, 200));
+            return json({ error: "Could not update your report" }, 500);
           }
         }
         if (pathname === "/api/settings" && req.method === "GET") {
