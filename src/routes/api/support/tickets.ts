@@ -14,6 +14,14 @@
 import { neon } from "@neondatabase/serverless";
 import { authenticate } from "~/lib/middleware";
 import { sendEmail } from "~/lib/email";
+import {
+  applySupportTicketUpdate,
+  isSupportStatus,
+  parseTicketContext,
+  shapeSupportTicket,
+  SUPPORT_STATUSES,
+} from "~/lib/support-ticket-resolution";
+import { buildReplyEmail, buildResolutionEmail, buildTicketCopyEmail } from "~/lib/support-ticket-email";
 
 const SUPPORT_INBOX = (process.env.SUPPORT_INBOX || "receptionai-0d8b54db@ctomail.io").trim();
 const SUPPORT_CATEGORIES = ["calls", "booking", "billing", "login", "other"];
@@ -41,11 +49,30 @@ async function ensureSchema(sql: any): Promise<boolean> {
       message text NOT NULL,
       context jsonb NOT NULL DEFAULT '{}'::jsonb,
       status text NOT NULL DEFAULT 'open',
+      resolution text NULL,
+      resolved_at timestamptz NULL,
+      team_reply text NULL,
+      replied_at timestamptz NULL,
       created_at timestamptz NOT NULL DEFAULT NOW(),
       updated_at timestamptz NOT NULL DEFAULT NOW()
     )`;
     await sql`CREATE INDEX IF NOT EXISTS support_tickets_org_created_idx
       ON support_tickets (organization_id, created_at DESC)`;
+    // A table created before migration 0015 is missing the four resolution columns. Each ALTER
+    // is its own guarded call: "already there" must not fail the whole schema check.
+    // A thunk, not a promise: a driver that throws synchronously (SQLite has no
+    // ADD COLUMN IF NOT EXISTS) must be caught here too, not escape the schema check.
+    const addColumn = async (run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch {
+        /* the column already exists */
+      }
+    };
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolution text NULL`);
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolved_at timestamptz NULL`);
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS team_reply text NULL`);
+    await addColumn(() => sql`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS replied_at timestamptz NULL`);
     schemaReady = true;
     return true;
   } catch (err) {
@@ -234,28 +261,102 @@ export async function GET({ request }: { request: Request }) {
     const sql = neon(dbUrl);
     if (!(await ensureSchema(sql))) return json({ tickets: [] });
     const rows = await sql`
-      SELECT id, category, severity, subject, message, status, opened_by_email, created_at, updated_at
+      SELECT id, category, severity, subject, message, status, opened_by_email,
+             resolution, resolved_at, team_reply, replied_at, created_at, updated_at
       FROM support_tickets
       WHERE organization_id = ${organizationId}
       ORDER BY created_at DESC
       LIMIT 50`;
-    return json({
-      tickets: (rows as any[]).map((r: any) => ({
-        id: r.id,
-        shortId: String(r.id || "").slice(0, 8),
-        category: r.category || "other",
-        severity: r.severity || "normal",
-        subject: r.subject || "",
-        message: r.message || "",
-        status: r.status || "open",
-        openedByEmail: r.opened_by_email || null,
-        createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
-        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
-      })),
-    });
+    // One shape for GET and PATCH: the page re-renders a row from either without a reload.
+    return json({ tickets: (rows as any[]).map(shapeSupportTicket) });
   } catch (err) {
     console.error("[Support API]", String(err).slice(0, 200));
     return json({ error: "Failed to load your reports" }, 500);
+  }
+}
+
+export async function PATCH({ request }: { request: Request }) {
+  try {
+    const auth = await authenticate(request);
+    if (auth instanceof Response) return auth;
+    const organizationId = auth.organizationId as string;
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) return json({ error: "DB not configured" }, 500);
+    const body = (await request.json().catch(() => null)) as any;
+    if (!body || typeof body !== "object") {
+      return json({ error: "Send a JSON body with the ticket id." }, 400);
+    }
+    const id = String(body.id || "").trim();
+    if (!id) return json({ error: "A ticket id is required." }, 400);
+    let status: any = null;
+    if (body.status !== undefined && body.status !== null && String(body.status).trim() !== "") {
+      if (!isSupportStatus(body.status)) {
+        return json({ error: "status must be one of " + SUPPORT_STATUSES.join(", ") + "." }, 400);
+      }
+      status = body.status;
+    }
+    const resolution =
+      body.resolution === undefined || body.resolution === null ? null : String(body.resolution).trim();
+    if (resolution && resolution.length > 1000) {
+      return json({ error: "Keep what we did to 1000 characters." }, 400);
+    }
+    const reply = body.reply === undefined || body.reply === null ? null : String(body.reply).trim();
+    if (reply && reply.length > 2000) {
+      return json({ error: "Keep the reply to 2000 characters." }, 400);
+    }
+    // "Email me a copy" — the whole record, no status change.
+    const sendCopy = body.copy === true;
+    if (!status && !resolution && !reply && !sendCopy) {
+      return json({ error: "Nothing to change." }, 400);
+    }
+    const sql = neon(dbUrl);
+    if (!(await ensureSchema(sql))) return json({ error: "Could not update your report" }, 500);
+    let row: any = null;
+    if (status || resolution || reply) {
+      // organization_id is in the WHERE clause: another business's ticket is "not found",
+      // never a 403 that would confirm it exists.
+      row = await applySupportTicketUpdate(sql, {
+        id,
+        organizationId,
+        status,
+        resolution,
+        reply: reply || null,
+      });
+    } else {
+      const rows = await sql`
+        SELECT * FROM support_tickets
+        WHERE id = ${id} AND organization_id = ${organizationId}
+        LIMIT 1`;
+      row = (rows as any[])[0] || null;
+    }
+    if (!row) return json({ error: "Ticket not found" }, 404);
+    const ticket = shapeSupportTicket(row);
+    const ctx = parseTicketContext(row.context);
+    const emailInput = {
+      ...ticket,
+      businessName: (ctx.organization && ctx.organization.name) || null,
+      contextText: sendCopy ? renderContext(ctx) : null,
+    };
+    // The row is already written. A failed email is logged and reported, never a reason to
+    // lose the status change the customer can see in the dashboard.
+    const send = async (mail: { to: string; subject: string; text: string; replyTo: string } | null) => {
+      if (!mail) return false;
+      try {
+        const ok = await sendEmail(mail.to, mail.subject, mail.text, mail.replyTo);
+        if (!ok) console.error(`[Support] ticket ${ticket.id} updated but "${mail.subject}" was NOT sent`);
+        return ok;
+      } catch (err) {
+        console.error(`[Support] ticket ${ticket.id} updated but the email threw:`, String(err).slice(0, 160));
+        return false;
+      }
+    };
+    const resolutionEmailed = status === "resolved" ? await send(buildResolutionEmail(emailInput)) : false;
+    const replyEmailed = reply ? await send(buildReplyEmail(emailInput)) : false;
+    const copyEmailed = sendCopy ? await send(buildTicketCopyEmail(emailInput)) : false;
+    return json({ ok: true, ticket, resolutionEmailed, replyEmailed, copyEmailed });
+  } catch (err) {
+    console.error("[Support API] PATCH", String(err).slice(0, 200));
+    return json({ error: "Could not update your report" }, 500);
   }
 }
 

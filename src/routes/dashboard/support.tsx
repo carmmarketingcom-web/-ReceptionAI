@@ -42,8 +42,23 @@ type Ticket = {
   subject: string;
   message: string;
   status: string;
+  openedByEmail: string | null;
+  resolution: string | null;
+  resolvedAt: string | null;
+  teamReply: string | null;
+  repliedAt: string | null;
   createdAt: string | null;
 };
+
+type UpdateResponse = {
+  ok: boolean;
+  ticket: Ticket;
+  resolutionEmailed?: boolean;
+  replyEmailed?: boolean;
+  copyEmailed?: boolean;
+};
+
+type ActionMode = "reply" | "resolve";
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "Time not recorded";
@@ -70,6 +85,12 @@ function SupportPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
+  // Reply / Resolve open a textarea on one row at a time; "Email me a copy" fires straight away.
+  const [openAction, setOpenAction] = useState<{ id: string; mode: ActionMode } | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [rowNotice, setRowNotice] = useState<{ id: string; text: string } | null>(null);
+  const [rowError, setRowError] = useState<{ id: string; text: string } | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") setPage(window.location.pathname);
@@ -111,6 +132,67 @@ function SupportPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function patchTicket(id: string, payload: Record<string, unknown>): Promise<UpdateResponse | null> {
+    setBusyId(id);
+    setRowNotice(null);
+    setRowError(null);
+    try {
+      const data = await apiFetch<UpdateResponse>("/api/support/tickets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...payload }),
+      });
+      // The API returns the updated row, so the list re-renders without a reload.
+      setTickets((prev) => prev.map((t) => (t.id === data.ticket.id ? data.ticket : t)));
+      return data;
+    } catch (err) {
+      setRowError({ id, text: err instanceof ApiError ? err.message : "Could not update this ticket" });
+      return null;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function sendAction(t: Ticket) {
+    if (!openAction || openAction.id !== t.id) return;
+    const text = draft.trim();
+    if (openAction.mode === "reply" && !text) {
+      setRowError({ id: t.id, text: "Write the reply first." });
+      return;
+    }
+    const data =
+      openAction.mode === "resolve"
+        ? await patchTicket(t.id, { status: "resolved", resolution: text })
+        : await patchTicket(t.id, { reply: text });
+    if (!data) return;
+    setOpenAction(null);
+    setDraft("");
+    if (openAction.mode === "resolve") {
+      setRowNotice({
+        id: t.id,
+        text: data.resolutionEmailed
+          ? "Resolved — the customer has been emailed what we did."
+          : "Resolved. There is no email address on this ticket, so nothing was sent.",
+      });
+    } else {
+      setRowNotice({
+        id: t.id,
+        text: data.replyEmailed ? "Reply emailed to the customer." : "Reply saved. It could not be emailed.",
+      });
+    }
+  }
+
+  async function emailCopy(t: Ticket) {
+    const data = await patchTicket(t.id, { copy: true });
+    if (!data) return;
+    setRowNotice({
+      id: t.id,
+      text: data.copyEmailed
+        ? `A copy of this ticket is on its way to ${t.openedByEmail || "the address on the ticket"}.`
+        : "There is no email address on this ticket, so nothing was sent.",
+    });
   }
 
   return (
@@ -236,21 +318,148 @@ function SupportPage() {
         ) : (
           <ul className="divide-y divide-gray-100">
             {tickets.map((t) => (
-              <li key={t.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900">{t.subject}</p>
-                  <p className="mt-0.5 text-xs text-gray-500">
-                    #{t.shortId} · {categoryLabel(t.category)} · {formatWhen(t.createdAt)}
-                  </p>
+              <li key={t.id} className="px-5 py-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-900">{t.subject}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      #{t.shortId} · {categoryLabel(t.category)} · {formatWhen(t.createdAt)}
+                    </p>
+                    {/* What happened, readable without opening an email. */}
+                    {t.resolution && (
+                      <div className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+                        <p className="text-xs font-medium text-emerald-800">What we did</p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-emerald-900">{t.resolution}</p>
+                        {t.resolvedAt && (
+                          <p className="mt-1 text-xs text-emerald-700">Resolved {formatWhen(t.resolvedAt)}</p>
+                        )}
+                      </div>
+                    )}
+                    {!t.resolution && t.resolvedAt && (
+                      <p className="mt-1 text-xs text-emerald-700">Resolved {formatWhen(t.resolvedAt)}</p>
+                    )}
+                    {t.teamReply && (
+                      <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                        <p className="text-xs font-medium text-blue-800">Our reply</p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-blue-900">{t.teamReply}</p>
+                        {t.repliedAt && (
+                          <p className="mt-1 text-xs text-blue-700">Replied {formatWhen(t.repliedAt)}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <span
+                    className={
+                      "inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-medium " +
+                      (STATUS_STYLES[t.status] || STATUS_STYLES.open)
+                    }
+                  >
+                    {STATUS_LABELS[t.status] || t.status}
+                  </span>
                 </div>
-                <span
-                  className={
-                    "inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-medium " +
-                    (STATUS_STYLES[t.status] || STATUS_STYLES.open)
-                  }
-                >
-                  {STATUS_LABELS[t.status] || t.status}
-                </span>
+
+                {t.status !== "closed" && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId === t.id}
+                      onClick={() => {
+                        setOpenAction(
+                          openAction && openAction.id === t.id && openAction.mode === "reply"
+                            ? null
+                            : { id: t.id, mode: "reply" },
+                        );
+                        setDraft("");
+                        setRowError(null);
+                        setRowNotice(null);
+                      }}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                    >
+                      Reply
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === t.id}
+                      onClick={() => {
+                        setOpenAction(
+                          openAction && openAction.id === t.id && openAction.mode === "resolve"
+                            ? null
+                            : { id: t.id, mode: "resolve" },
+                        );
+                        setDraft("");
+                        setRowError(null);
+                        setRowNotice(null);
+                      }}
+                      className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                    >
+                      Resolve
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === t.id}
+                      onClick={() => void emailCopy(t)}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                    >
+                      Email me a copy
+                    </button>
+                  </div>
+                )}
+
+                {openAction && openAction.id === t.id && (
+                  <div className="mt-3">
+                    <label
+                      htmlFor={`ticket-action-${t.id}`}
+                      className="block text-xs font-medium text-gray-700"
+                    >
+                      {openAction.mode === "resolve" ? "What did we do?" : "Your reply"}
+                    </label>
+                    <textarea
+                      id={`ticket-action-${t.id}`}
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      rows={4}
+                      maxLength={openAction.mode === "resolve" ? 1000 : 2000}
+                      placeholder={
+                        openAction.mode === "resolve"
+                          ? "Optional — e.g. Fixed the calendar timezone on your account."
+                          : "Tell the customer what you found."
+                      }
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      {openAction.mode === "resolve"
+                        ? "Leave it empty and the customer is told we checked the report and closed it."
+                        : "Emailed to the address that opened the ticket."}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busyId === t.id}
+                        onClick={() => void sendAction(t)}
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                      >
+                        {busyId === t.id
+                          ? "Sending…"
+                          : openAction.mode === "resolve"
+                            ? "Send and mark resolved"
+                            : "Send reply"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenAction(null);
+                          setDraft("");
+                        }}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {rowNotice?.id === t.id && <p className="mt-2 text-xs text-gray-600">{rowNotice.text}</p>}
+                {rowError?.id === t.id && <p className="mt-2 text-xs text-red-600">{rowError.text}</p>}
               </li>
             ))}
           </ul>
