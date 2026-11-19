@@ -121,6 +121,7 @@ export function buildResolutionEmail(t: SupportTicketEmailInput): TicketEmail | 
   lines.push(indented(resolution || DEFAULT_RESOLUTION_LINE));
   lines.push("");
   lines.push("If it happens again, reply to this email and we will reopen the ticket.");
+  lines.push(`You can also write to ${SUPPORT_REPLY_TO} and quote ticket #${sid}.`);
   lines.push("");
   lines.push(`Ticket: #${sid}`);
   lines.push("— ReceptionAI support");
@@ -150,6 +151,7 @@ export function buildReplyEmail(t: SupportTicketEmailInput): TicketEmail | null 
     indented(reply),
     "",
     "If anything still looks wrong, reply to this email and we will pick it up again.",
+    `You can also write to ${SUPPORT_REPLY_TO} and quote ticket #${sid}.`,
     "",
     `Ticket: #${sid}`,
     "— ReceptionAI support",
