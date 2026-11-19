@@ -2642,6 +2642,41 @@ function scheduleCallback(cs: CallState): void {
 // "Call outcomes" page can show whether the owner actually reached the caller. This runs
 // inside a live call, so it can never throw: a failed write is one log line and the call
 // carries on. `source` says whether the caller pressed 3 on the main line or on a reminder call.
+let transferEventsTableReady: Promise<boolean> | null = null;
+// Create transfer_events on first use — the same pattern 0008/0010 use, so a deploy records
+// transfers before the migration has been applied by hand. One attempt per process.
+function ensureTransferEventsTable(sql: any): Promise<boolean> {
+  if (!transferEventsTableReady) {
+    transferEventsTableReady = (async () => {
+      try {
+        await sql`
+          CREATE TABLE IF NOT EXISTS transfer_events (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            organization_id uuid NOT NULL,
+            conversation_id uuid NULL,
+            caller_number text NULL,
+            target_number text NULL,
+            outcome text NOT NULL,
+            language text NOT NULL DEFAULT 'en',
+            source text NOT NULL DEFAULT 'inbound',
+            created_at timestamptz NOT NULL DEFAULT NOW()
+          )
+        `;
+        await sql`
+          CREATE INDEX IF NOT EXISTS transfer_events_org_created_idx
+            ON transfer_events (organization_id, created_at DESC)
+        `;
+        return true;
+      } catch (err) {
+        console.warn("[Transfer] table ensure skipped:", String(err).slice(0, 120));
+        transferEventsTableReady = null; // retry on the next transfer
+        return false;
+      }
+    })();
+  }
+  return transferEventsTableReady;
+}
+
 async function recordTransferEvent(ev: {
   organizationId: string | null;
   callerNumber: string | null;
@@ -2655,6 +2690,7 @@ async function recordTransferEvent(ev: {
   if (!dbUrl) return;
   try {
     const sql = neon(dbUrl);
+    await ensureTransferEventsTable(sql);
     await sql`
       INSERT INTO transfer_events
         (organization_id, caller_number, target_number, outcome, language, source)

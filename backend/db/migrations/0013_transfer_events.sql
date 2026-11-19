@@ -18,6 +18,8 @@
 -- A write failure here must never break a live call: the server wraps every insert in
 -- try/catch and logs one line. So this table is the record of what we managed to store, not a
 -- guaranteed one-row-per-attempt ledger — the dashboard says so rather than implying otherwise.
+-- The server also issues this CREATE TABLE itself on the first transfer (the same pattern 0008
+-- and 0010 use), so a deploy records transfers before this file has been applied by hand.
 CREATE TABLE IF NOT EXISTS transfer_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL,
