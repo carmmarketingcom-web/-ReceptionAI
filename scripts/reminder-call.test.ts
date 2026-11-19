@@ -236,12 +236,16 @@ test("a due reminder is dialled once; demo, opted-out and past ones are skipped;
 test("the reminder call speaks the script, and 1 confirms", async () => {
   const cid = "rc-cid-1";
   await postEvent("call.initiated", { call_control_id: cid, to: dialled.phone, from: BUSINESS_LINE });
+  // Nothing is spoken at dial time: the phone has not been answered yet, so speaking on
+  // call.initiated played the reminder into silence (fixed 2026-11-18). The script now goes
+  // out on call.answered.
+  expect(telnyx.commands.some((c) => c.cid === cid && c.action === "speak")).toBe(false);
+
+  await postEvent("call.answered", { call_control_id: cid, to: dialled.phone, from: BUSINESS_LINE });
   await waitFor(() => telnyx.commands.find((c) => c.cid === cid && c.action === "speak" && String(c.payload?.payload || "").includes("virtual assistant")));
   // The options are their own utterance (one idea per speak, for natural pacing).
   await waitFor(() => telnyx.commands.find((c) => c.cid === cid && c.action === "speak" && String(c.payload?.payload || "").includes("To confirm, press 1")));
-  expect(telnyx.commands.some((c) => c.cid === cid && c.action === "answer")).toBe(true);
 
-  await postEvent("call.answered", { call_control_id: cid, to: dialled.phone, from: BUSINESS_LINE });
   await postEvent("call.dtmf.received", { call_control_id: cid, digit: "1" });
   expect(reminderRow(dialled.reminderId).result).toBe("confirmed");
 });
