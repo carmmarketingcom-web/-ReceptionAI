@@ -21,8 +21,10 @@ const TIMEZONES = [
 ] as const;
 
 const BUSINESS_TYPES = [
-  "HVAC", "Plumbing", "Electrical", "Dental", "Veterinary",
-  "Law Firm", "Med Spa", "Home Services", "Auto Repair", "Other",
+  "HVAC", "Plumbing", "Electrical", "Roofing", "Dental", "Veterinary",
+  "Law Firm", "Med Spa", "Home Services", "Auto Repair",
+  "Marketing", "Consulting", "Accounting", "Real Estate", "Insurance",
+  "IT Services", "Cleaning Services", "Landscaping", "Salon & Spa", "Other",
 ] as const;
 
 type Hours = Record<Weekday, { open: string; close: string; enabled: boolean }>;
@@ -239,6 +241,11 @@ function SettingsPage() {
               className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
               <option value="">Select type...</option>
+              {/* A type saved before this list grew (or entered some other way) must stay
+                  selected — otherwise saving silently rewrites it to nothing. */}
+              {businessType && !(BUSINESS_TYPES as readonly string[]).includes(businessType) && (
+                <option value={businessType}>{businessType}</option>
+              )}
               {BUSINESS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>

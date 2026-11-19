@@ -181,8 +181,10 @@ export async function PUT({ request }: { request: Request }) {
         await db
           .update(businessHours)
           .set({
-            openTime: bh.openTime || null,
-            closeTime: bh.closeTime || null,
+            // open_time / close_time are NOT NULL in the schema; a day toggled off is
+            // expressed by is_closed, never by a null time.
+            openTime: bh.openTime || "09:00",
+            closeTime: bh.closeTime || "17:00",
             isClosed: bh.isClosed ?? false,
           })
           .where(

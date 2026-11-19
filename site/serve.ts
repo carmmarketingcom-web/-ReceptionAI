@@ -6368,8 +6368,12 @@ for (let attempt = 1; ; attempt++) {
               for (const bh of body.businessHours) {
                 const dow = String(bh?.dayOfWeek ?? "");
                 if (!/^[0-6]$/.test(dow)) continue;
-                const openTime = bh?.openTime || null;
-                const closeTime = bh?.closeTime || null;
+                // business_hours.open_time / close_time are NOT NULL, and the settings page sends
+                // null for every day toggled off (Saturday and Sunday by default) — which made
+                // EVERY save from that page fail with a 500. is_closed is the real signal, so a
+                // closed day stores the default times rather than null.
+                const openTime = bh?.openTime || "09:00";
+                const closeTime = bh?.closeTime || "17:00";
                 const isClosed = !!bh?.isClosed;
                 await sql`
                   INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed, created_at, updated_at)
