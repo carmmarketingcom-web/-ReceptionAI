@@ -724,8 +724,8 @@ export const translations: Record<string, { en: string; es: string }> = {
     es: "¿Están seguros los datos de mis clientes? ¿Cumplen con HIPAA?",
   },
   "faq.n7.a": {
-    en: "We are not HIPAA compliant, and we do not sell to anyone who needs that — please do not use ReceptionAI for protected health information. Your card details never reach our servers; Stripe handles the payment. Call records, transcripts and recordings stay inside your own account: only you and the people you add to your team can see them.",
-    es: "No cumplimos con HIPAA, y no vendemos a quien lo necesite — por favor no uses ReceptionAI para información de salud protegida. Los datos de tu tarjeta nunca llegan a nuestros servidores; Stripe procesa el pago. Las llamadas, transcripciones y grabaciones quedan dentro de tu propia cuenta: solo tú y las personas que agregues a tu equipo pueden verlas.",
+    en: "We are not HIPAA compliant, and we do not sell to anyone who needs that — please do not use ReceptionAI for protected health information. Your card details never reach our servers; Stripe handles the payment. Call records, transcripts and recordings stay inside your own account: only you and the people you add to your team can see them, plus our support team when you ask us to look into a problem.",
+    es: "No cumplimos con HIPAA, y no vendemos a quien lo necesite — por favor no uses ReceptionAI para información de salud protegida. Los datos de tu tarjeta nunca llegan a nuestros servidores; Stripe procesa el pago. Las llamadas, transcripciones y grabaciones quedan dentro de tu propia cuenta: solo tú y las personas que agregues a tu equipo pueden verlas, y nuestro equipo de soporte cuando nos pides revisar un problema.",
   },
   "faq.n8.q": { en: "Does it speak Spanish?", es: "¿Habla español?" },
   "faq.n8.a": {
@@ -734,8 +734,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "faq.n9.q": { en: "What if the AI cannot answer?", es: "¿Y si la IA no puede responder?" },
   "faq.n9.a": {
-    en: "Press 3 at any time and it dials your number and bridges the call the moment you answer. If you do not pick up, the caller is told someone will call back and you are alerted. A caller can also leave a voicemail, which reaches you by email with the recording.",
-    es: "Presiona 3 en cualquier momento y marca tu número y conecta la llamada en cuanto contestes. Si no contestas, a quien llama se le dice que alguien devolverá la llamada y a ti te llega un aviso. También puede dejar un mensaje de voz, que te llega por correo con la grabación.",
+    en: "Press 3 at any time and it dials your number and bridges the call the moment you answer. If you do not pick up, the caller is told someone will call back and you are alerted. A caller can also leave a voicemail, which you can play from your dashboard.",
+    es: "Presiona 3 en cualquier momento y marca tu número y conecta la llamada en cuanto contestes. Si no contestas, a quien llama se le dice que alguien devolverá la llamada y a ti te llega un aviso. También puede dejar un mensaje de voz, que puedes escuchar desde tu panel.",
   },
   "faq.selfserve.testLink": {
     en: "Test it yourself — call the line and book something",
