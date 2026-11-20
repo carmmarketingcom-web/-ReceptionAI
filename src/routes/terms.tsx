@@ -8,11 +8,18 @@ export const Route = createFileRoute("/terms")({
 });
 
 function TermsPage() {
+  return (
+    <LocaleProvider>
+      <TermsContent />
+    </LocaleProvider>
+  );
+}
+
+function TermsContent() {
   useLocale();
   return (
     /* The body is translated for Spanish readers; the English text is the
        governing version, and the page says so under the date. */
-    <LocaleProvider>
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main className="flex-1 bg-white px-4 py-20">
@@ -71,6 +78,5 @@ function TermsPage() {
       </main>
       <Footer />
     </div>
-    </LocaleProvider>
   );
 }

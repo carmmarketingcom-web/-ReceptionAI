@@ -8,11 +8,18 @@ export const Route = createFileRoute("/privacy")({
 });
 
 function PrivacyPage() {
+  return (
+    <LocaleProvider>
+      <PrivacyContent />
+    </LocaleProvider>
+  );
+}
+
+function PrivacyContent() {
   useLocale();
   return (
     /* The body is translated for Spanish readers; the English text is the
        governing version, and the page says so under the date. */
-    <LocaleProvider>
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main className="flex-1 bg-white px-4 py-20">
@@ -48,6 +55,5 @@ function PrivacyPage() {
       </main>
       <Footer />
     </div>
-    </LocaleProvider>
   );
 }
