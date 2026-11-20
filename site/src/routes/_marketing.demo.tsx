@@ -318,12 +318,12 @@ function DemoPage() {
               {
                 icon: "🗣️",
                 title: "A real conversation, in English or Spanish",
-                body: "Press 1 for English or 2 for Spanish before the menu. No phone tree — you can just say what you need.",
+                body: "Press 1 for English or 2 for Spanish, then the menu: 1 appointments, 2 services, 3 a team member, 4 to reschedule, 5 availability, 9 voicemail. Every option works.",
               },
               {
                 icon: "📅",
                 title: "Books on the call, from your real calendar",
-                body: "It reads live availability — your hours, your holidays, appointments already booked and a 15-minute buffer — books the slot, then emails the caller a confirmation.",
+                body: "It reads live availability — your hours, your holidays, appointments already booked and a 15-minute buffer — and books the slot straight into your calendar.",
               },
               {
                 icon: "🔔",
@@ -380,7 +380,7 @@ function DemoPage() {
               { icon: "📅", title: "Auto Scheduling", desc: "Books appointments automatically on your built-in calendar" },
               { icon: "💬", title: "Multi-Channel", desc: "Voice, web chat and email notifications. Text alerts are an optional add-on. WhatsApp and Facebook are in development." },
               { icon: "🌐", title: "Bilingual", desc: "English & Spanish — seamless switching" },
-              { icon: "🔄", title: "Human Handoff", desc: "Smart escalation when needed" },
+              { icon: "🔄", title: "Human Handoff", desc: "Press 3 and the call bridges to your phone — live today. Automatic escalation is coming soon." },
               { icon: "📊", title: "Analytics", desc: "Track calls, bookings, and missed opportunities" },
             ].map((f) => (
               <div key={f.title} className="rounded-xl border border-gray-100 bg-white p-5 text-center shadow-sm">

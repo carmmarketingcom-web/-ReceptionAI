@@ -23,7 +23,7 @@ function TermsPage() {
           <p>By using ReceptionAI ("the Service"), you agree to these Terms. If you do not agree, do not use the Service.</p>
 
           <h2>2. Service Description</h2>
-          <p>ReceptionAI provides an AI-powered virtual receptionist that answers phone calls, text messages, and web chats. The Service uses artificial intelligence and automated systems to respond to inquiries, schedule appointments, and route calls.</p>
+          <p>ReceptionAI provides an AI-powered virtual receptionist that answers phone calls and web chats. The Service uses artificial intelligence and automated systems to respond to inquiries, schedule appointments, and route calls.</p>
 
           <h2>3. No Guarantee of Availability</h2>
           <p>The Service is provided on an <strong>"AS IS" and "AS AVAILABLE"</strong> basis. We do not guarantee uninterrupted access, error-free operation, or that the Service will meet all your requirements. The Service may be unavailable due to maintenance, third-party service outages (including but not limited to telecommunications carriers, cloud providers, and AI model providers), or circumstances beyond our control.</p>

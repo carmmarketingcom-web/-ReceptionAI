@@ -166,7 +166,7 @@ function FaqSection() {
     },
     {
       q: "Will my customers know it's a robot?",
-      a: "They hear a warm, natural voice and a real conversation — not a phone tree. If they ask whether they're talking to an AI, it says so, and it can hand them to a person.",
+      a: "They hear a warm, natural voice and a short press-1-to-9 menu: 1 appointments, 2 services, 3 a team member, 4 to reschedule, 5 availability, 9 voicemail. If they ask whether they're talking to an AI, it says so, and press 3 hands them to a person.",
     },
     {
       q: "Does it work with ServiceTitan?",
