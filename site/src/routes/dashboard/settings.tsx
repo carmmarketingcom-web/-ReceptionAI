@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
-import { api } from "~/lib/api-client";
+import { api, ApiError } from "~/lib/api-client";
 import { useSettings, formatPhoneNumber, NO_PHONE_YET_MESSAGE } from "~/lib/hooks/use-data";
 import { BUSINESS_TYPES } from "~/lib/business-types";
 
@@ -243,6 +243,9 @@ function SettingsPage() {
         />
       </div>
 
+      {/* ── Calendar ──────────────────────────────────────── */}
+      <CalendarSection />
+
       {/* ── Hours ─────────────────────────────────────────── */}
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-gray-900">Business Hours</h2>
@@ -365,6 +368,166 @@ function SettingsPage() {
           onDismiss={() => setToast(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Calendar ───────────────────────────────────────────────────────────────
+// Built-in calendar is the one we run and recommend. Google Calendar / Outlook sync does not
+// exist yet and we hold no OAuth client for either, so there is NO install link to render:
+// this card takes a request and promises only an email when self-install opens.
+
+type CalendarRequest = {
+  id: string;
+  provider: string;
+  note: string | null;
+  status: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+function formatRequestedOn(iso: string | null): string {
+  if (!iso) return "recently";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function CalendarSection() {
+  const [request, setRequest] = useState<CalendarRequest | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // One request per org (provider "both"): after a reload the card still shows its state.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await api.get<{ requests: CalendarRequest[] }>("/api/calendar-request");
+        if (!live) return;
+        const mine = (r?.requests || [])[0] || null;
+        if (mine) {
+          setRequest(mine);
+          setNote(mine.note || "");
+        }
+      } catch {
+        // The cards still render. The Send button reports its own failure.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const send = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ request: CalendarRequest }>("/api/calendar-request", {
+        provider: "both",
+        note,
+      });
+      if (r?.request) setRequest(r.request);
+      setFormOpen(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not send your request. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [note]);
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-lg">🗓️</div>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Calendar</h2>
+          <p className="mt-0.5 text-xs text-gray-500">Where your appointments live.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        {/* Built-in — recommended, and the one actually booking appointments today. */}
+        <div className="rounded-xl border border-green-200 bg-green-50/60 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">Built-in calendar</h3>
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">Recommended</span>
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">In use</span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            Your AI receptionist books into this calendar. It is already working: appointments appear on your
+            Schedule screen, confirmation and reminder emails go out from it, and the 24-hour reminder call
+            is dialled from it. Nothing to install, no Google or Microsoft account needed, and it works for
+            anyone on your team.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            <strong className="font-semibold text-gray-900">We recommend keeping it.</strong> A connected Google
+            or Outlook calendar adds a second copy of the same appointments, and every sync point is something
+            else that can drift or fail. If your team lives in Google Calendar or Outlook all day, tell us and
+            we will set it up with you.
+          </p>
+        </div>
+
+        {/* Google / Outlook — a request, never an install link. */}
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">Google Calendar / Outlook</h3>
+            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">Not connected yet</span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            Two-way sync with Google Calendar and Outlook is not available to install yourself yet. When it
+            opens, you will get a link here that connects your calendar in a couple of clicks.
+          </p>
+
+          {request && !formOpen && (
+            <p className="mt-3 text-xs font-medium text-gray-700">
+              Requested on {formatRequestedOn(request.createdAt)} — we will email you when self-install opens.
+            </p>
+          )}
+
+          {formOpen ? (
+            <div className="mt-3 space-y-2">
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                maxLength={1000}
+                placeholder="Anything we should know? Optional"
+                className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={send}
+                  disabled={busy}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {busy ? "Sending..." : "Send"}
+                </button>
+                <button
+                  onClick={() => {
+                    setFormOpen(false);
+                    setError(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setFormOpen(true)}
+              className="mt-3 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {request ? "Update my request" : "Request a connection"}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

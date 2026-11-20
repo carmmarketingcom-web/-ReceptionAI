@@ -6800,6 +6800,166 @@ for (let attempt = 1; ; attempt++) {
             return json({ error: "Could not save your request" }, 500);
           }
         }
+        // ── Calendar connection request (Google Calendar / Outlook) ────────────
+        // POST /api/calendar-request — auth required, org-scoped. Body: {provider?, note?}
+        // GET  /api/calendar-request — this org's own requests, newest first.
+        // Two-way Google/Outlook sync does not exist yet and the business holds no Google OAuth
+        // client or Microsoft Entra app, so there is no install link to give anyone. This records
+        // the REQUEST and nothing else: nothing is installed, nothing is charged, and the page
+        // promises only an email when self-install opens. One row per org and provider — a second
+        // request updates it rather than duplicating. Keep in sync with
+        // src/routes/api/calendar-request.ts and the other serve.ts tree.
+        if (pathname === "/api/calendar-request" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const body = (await req.json().catch(() => ({}))) as Record<string, any>;
+            const provider = ["google", "outlook", "both"].includes(String(body.provider || ""))
+              ? String(body.provider)
+              : "both";
+            const note = String(body.note ?? "").trim().slice(0, 1000) || null;
+            const sql = neon(dbUrl);
+            // Works before the 0016 migration is applied by hand (same pattern as
+            // texting_requests / support_tickets).
+            await sql`CREATE TABLE IF NOT EXISTS calendar_requests (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              organization_id uuid NOT NULL,
+              requested_by_user_id uuid NULL,
+              requested_by_email text NULL,
+              provider text NOT NULL DEFAULT 'both',
+              note text NULL,
+              status text NOT NULL DEFAULT 'requested',
+              created_at timestamptz NOT NULL DEFAULT NOW(),
+              updated_at timestamptz NOT NULL DEFAULT NOW()
+            )`;
+            await sql`CREATE UNIQUE INDEX IF NOT EXISTS calendar_requests_org_provider_idx
+              ON calendar_requests (organization_id, provider)`;
+            const orgRows = await sql`
+              SELECT o.name, o.email, p.display_name AS plan_name
+              FROM organizations o
+              LEFT JOIN subscriptions s ON s.organization_id = o.id
+              LEFT JOIN subscription_plans p ON p.id = s.plan_id
+              WHERE o.id = ${organizationId}
+              ORDER BY s.created_at DESC
+              LIMIT 1`;
+            const org = (orgRows[0] || {}) as any;
+            const requesterRows = await sql`SELECT email FROM users WHERE id = ${auth.userId || null} LIMIT 1`;
+            const requesterEmail = ((requesterRows[0] as any)?.email as string) || null;
+            const saved = await sql`
+              INSERT INTO calendar_requests
+                (organization_id, requested_by_user_id, requested_by_email, provider, note, status)
+              VALUES
+                (${organizationId}, ${auth.userId || null}, ${requesterEmail}, ${provider}, ${note}, 'requested')
+              ON CONFLICT (organization_id, provider) DO UPDATE
+                SET note = EXCLUDED.note,
+                    requested_by_user_id = EXCLUDED.requested_by_user_id,
+                    requested_by_email = EXCLUDED.requested_by_email,
+                    status = 'requested',
+                    updated_at = NOW()
+              RETURNING id, provider, note, status, created_at, updated_at`;
+            const row = (saved[0] || {}) as any;
+            // The row above is the record. A mail failure is logged and reported, never a reason
+            // to lose a request the customer can already see on the page.
+            let teamNotified = false;
+            try {
+              const apptRows = await sql`SELECT COUNT(*)::int AS n FROM appointments WHERE organization_id = ${organizationId}`;
+              const appointmentCount = Number(((apptRows[0] as any)?.n ?? 0) || 0);
+              const businessName = org.name || "a business";
+              teamNotified = await deliverEmail(
+                SUPPORT_INBOX,
+                `[ReceptionAI] calendar connection requested — ${businessName}`,
+                [
+                  "A customer asked for a Google Calendar / Outlook connection.",
+                  "",
+                  `Business: ${businessName}`,
+                  `Organization id: ${organizationId}`,
+                  `Plan: ${org.plan_name || "(no subscription)"}`,
+                  `Requested by: ${requesterEmail || "(no user email on the record)"}`,
+                  `Provider: ${provider}`,
+                  `Appointments already booked on this org: ${appointmentCount}`,
+                  "",
+                  "--- Note from the customer (verbatim) ---",
+                  note || "(none)",
+                  "--- end of note ---",
+                  "",
+                  requesterEmail
+                    ? `Reply to this email to answer ${requesterEmail} directly.`
+                    : "No customer email on the record — answer from the dashboard.",
+                ].join("\n"),
+                "calendar_request",
+                organizationId,
+                requesterEmail || undefined,
+              );
+              if (!teamNotified) {
+                console.error(`[Calendar request] ${organizationId} saved but the team email did NOT send (SUPPORT_INBOX=${SUPPORT_INBOX})`);
+              }
+            } catch (mailErr) {
+              console.error(`[Calendar request] ${organizationId} saved but the team email threw:`, String(mailErr).slice(0, 160));
+            }
+            return json({
+              ok: true,
+              request: {
+                id: String(row.id || ""),
+                provider: String(row.provider || provider),
+                note: row.note ? String(row.note) : null,
+                status: String(row.status || "requested"),
+                createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+                updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+              },
+              teamNotified,
+            });
+          } catch (err) {
+            console.error("[Calendar request API]", String(err).slice(0, 200));
+            return json({ error: "Could not save your request" }, 500);
+          }
+        }
+        if (pathname === "/api/calendar-request" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const organizationId = auth.organizationId;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            await sql`CREATE TABLE IF NOT EXISTS calendar_requests (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              organization_id uuid NOT NULL,
+              requested_by_user_id uuid NULL,
+              requested_by_email text NULL,
+              provider text NOT NULL DEFAULT 'both',
+              note text NULL,
+              status text NOT NULL DEFAULT 'requested',
+              created_at timestamptz NOT NULL DEFAULT NOW(),
+              updated_at timestamptz NOT NULL DEFAULT NOW()
+            )`;
+            await sql`CREATE UNIQUE INDEX IF NOT EXISTS calendar_requests_org_provider_idx
+              ON calendar_requests (organization_id, provider)`;
+            // organization_id is in the WHERE clause, so another business's request can never
+            // come back through this endpoint.
+            const rows = await sql`
+              SELECT id, provider, note, status, requested_by_email, created_at, updated_at
+              FROM calendar_requests
+              WHERE organization_id = ${organizationId}
+              ORDER BY updated_at DESC`;
+            return json({
+              requests: (rows as any[]).map((r) => ({
+                id: String(r.id),
+                provider: String(r.provider || "both"),
+                note: r.note ? String(r.note) : null,
+                status: String(r.status || "requested"),
+                requestedByEmail: r.requested_by_email ? String(r.requested_by_email) : null,
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+                updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+              })),
+            });
+          } catch (err) {
+            console.error("[Calendar request API] GET", String(err).slice(0, 200));
+            return json({ requests: [] });
+          }
+        }
         // ── Support tickets — a customer reports a problem, the team gets the context ──
         // POST /api/support/tickets — auth required, org-scoped. Body:
         //   {category, severity, subject, message, page}
