@@ -706,13 +706,13 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "faq.n4.q": { en: "Can I upgrade?", es: "¿Puedo subir de plan?" },
   "faq.n4.a": {
-    en: "Yes. Open Billing in your dashboard and pick the plan you want — it opens a secure checkout for that plan. Because that starts a new subscription, message us first from Help & support and we will move you over and stop the old one, so you are never billed twice. Your first month is always charged at the plan you chose.",
-    es: "Sí. Abre Facturación en tu panel y elige el plan que quieres — se abre un pago seguro para ese plan. Como eso inicia una suscripción nueva, escríbenos primero desde Ayuda y soporte y te cambiamos nosotros, cerrando la anterior, para que nunca se te cobre dos veces. El primer mes siempre se cobra al plan que elegiste.",
+    en: "Yes. Once your first month is behind you, Billing shows a small Manage subscription block with an Upgrade button. It opens the Stripe billing portal, where you choose the bigger plan — Stripe changes the subscription you already have rather than starting a second one, so you are never billed twice. Nothing changes until you press it.",
+    es: "Sí. Cuando ya pasó tu primer mes, Facturación muestra un bloque pequeño de Gestionar suscripción con un botón para subir de plan. Abre el portal de Stripe, donde eliges el plan mayor — Stripe cambia la suscripción que ya tienes en lugar de abrir una segunda, así que nunca se te cobra dos veces. Nada cambia hasta que lo pulsas.",
   },
   "faq.n5.q": { en: "Can I cancel?", es: "¿Puedo cancelar?" },
   "faq.n5.a": {
-    en: "Yes. Message us from Help & support, or reply to any email from us, and we cancel it before your next renewal — you keep access to the end of the month you have already paid for. We ask one question about why you are leaving, because it is the only way we learn what to fix. A cancel button that ends the billing by itself is not live yet.",
-    es: "Sí. Escríbenos desde Ayuda y soporte, o responde cualquier correo nuestro, y la cancelamos antes de tu próxima renovación — conservas el acceso hasta el final del mes que ya pagaste. Hacemos una pregunta sobre por qué te vas, porque es la única forma en que aprendemos qué arreglar. Un botón de cancelar que termine el cobro por sí solo todavía no está activo.",
+    en: "Yes. After your first month, Billing shows a small Manage subscription block with a Cancel subscription option. It asks one required question about why you are leaving, with room for a comment, and then cancels at the end of the month you have already paid for — you keep working service to the last day of that month, the page names the exact date, and you can undo it from the same block until then. The first month is not refundable and nothing is prorated back.",
+    es: "Sí. Después de tu primer mes, Facturación muestra un bloque pequeño de Gestionar suscripción con la opción de cancelar. Hace una pregunta obligatoria sobre por qué te vas, con espacio para un comentario, y luego cancela al final del mes que ya pagaste — sigues con el servicio hasta el último día de ese mes, la página indica la fecha exacta, y puedes deshacerlo desde el mismo bloque hasta entonces. El primer mes no es reembolsable y no se devuelve nada a prorrata.",
   },
   "faq.n6.q": { en: "What does it cost per call, or per minute?", es: "¿Cuánto cuesta por llamada o por minuto?" },
   "faq.n6.a": {

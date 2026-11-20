@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "~/lib/api-client";
-import { useConversations, useAppointments } from "~/lib/hooks/use-data";
 
 export const Route = createFileRoute("/dashboard/billing")({
   component: BillingPage,
@@ -229,6 +228,9 @@ function BillingPage() {
         </div>
       </div>
 
+      {/* Manage subscription — small, quiet, and gated (owner 2026-11-19) */}
+      <ManageSubscription />
+
       {/* Usage */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-100 px-5 py-4">
@@ -370,173 +372,273 @@ function BillingPage() {
           </a>
         </div>
 
-        {/* Cancel / Downgrade Section */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-bold text-gray-900">Manage Subscription</h2>
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <CancelSection />
-          </div>
-        </div>
       </div>
     </div>
   );
 }
 
-function CancelSection() {
-  const { data: conversationsData } = useConversations(200, 0);
-  const { data: appointmentsData } = useAppointments({ limit: 200 });
+// ─── Manage subscription (owner 2026-11-19) ─────────────────────────────────
+// The owner asked for "a upgrade option and a cancel option very small available after one month
+// … with a why of canceling". Everything here is read from GET /api/billing/manage and acted on
+// through /api/billing/cancel and /api/billing/resume — real Stripe calls, org-scoped.
+//
+// Nothing renders before 30 days from the first payment, and a business with no Stripe
+// subscription (the founder org, a Carm one-time buyer) is told so instead of being shown a
+// control that cannot work. Upgrade opens the Stripe billing portal, which is the supported path
+// for a plan change. Cancel runs to the END of the paid period and names that exact date, so the
+// customer keeps what they already paid for; the first month is not refundable and nothing is
+// prorated. FOUNDER50 is untouched either way.
+const CANCEL_REASONS = [
+  "Too expensive",
+  "Not enough calls",
+  "Missing a feature",
+  "Closing the business",
+  "Going elsewhere",
+  "Other",
+];
 
-  const conversations = conversationsData?.conversations || [];
-  const appointments = appointmentsData?.appointments || [];
+interface BillingManage {
+  eligible: boolean;
+  reason?: string;
+  plan: string | null;
+  amount: number | null;
+  memberSince: string | null;
+  cancelsAt: string | null;
+  periodEndsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+}
 
-  const today = new Date().toISOString().slice(0, 10);
-  const monthCalls = conversations.filter((c: any) => c.createdAt?.startsWith(today.slice(0, 7))).length;
-  const monthBookings = appointments.filter((a: any) => a.createdAt?.startsWith(today.slice(0, 7))).length;
+function fmtDay(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
 
-  // Flow state: -1 = hidden, 0 = "Cancel" link, then 1-6 = layers
-  const [layer, setLayer] = useState(-1);
-  const [pauseMonths, setPauseMonths] = useState(1);
-  const [surveyAnswer, setSurveyAnswer] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [downgrading, setDowngrading] = useState(false);
+/** The exact last day of the paid month, spelled out: "December 19, 2026". */
+function fmtUntil(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function ManageSubscription() {
+  const [manage, setManage] = useState<BillingManage | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [panel, setPanel] = useState(false);
+  const [reason, setReason] = useState("");
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [done, setDone] = useState(""); // "paused" | "downgraded" | "cancelled"
 
-  if (done) {
-    const messages: Record<string, { title: string; sub: string }> = {
-      paused: { title: "✅ Paused!", sub: `We'll resume your service in ${pauseMonths} month${pauseMonths > 1 ? "s" : ""}. Your data is saved.` },
-      downgraded: { title: "✅ Downgraded to Basic ($69/mo—first year)", sub: "$69/mo for the first 12 months, then $99/mo after. Cancel anytime." },
-      cancelled: { title: "Subscription Canceled", sub: "Your service will end at the end of your billing period. We're sorry to see you go." },
-    };
-    const msg = messages[done] || messages.cancelled;
+  const load = async () => {
+    try {
+      const next = await api.get<BillingManage>("/api/billing/manage");
+      setManage(next);
+      setLoadError("");
+    } catch {
+      setLoadError("Could not load your billing details.");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const openPortal = async () => {
+    setError("");
+    setBusy("portal");
+    try {
+      const res = await api.post<{ url?: string }>("/api/stripe/portal");
+      if (res?.url) window.open(res.url, "_blank");
+      else setError("The billing portal did not return a link. Try again in a minute.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open the billing portal.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const submitCancel = async () => {
+    if (!reason) {
+      setError("Choose a reason for cancelling.");
+      return;
+    }
+    setBusy("cancel");
+    setError("");
+    try {
+      await api.post("/api/billing/cancel", { reason, comment: comment.trim() || undefined });
+      await load();
+      setPanel(false);
+      setComment("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel the subscription.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const undoCancel = async () => {
+    setBusy("undo");
+    setError("");
+    try {
+      await api.post("/api/billing/resume");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not undo the cancellation.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (loadError) {
     return (
-      <div className="text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-2xl">✅</div>
-        <p className="mt-3 text-sm font-semibold text-green-700">{msg.title}</p>
-        <p className="mt-1 text-xs text-gray-500">{msg.sub}</p>
+      <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-900">Manage subscription</h2>
+        <p className="mt-1 text-xs text-gray-500">{loadError}</p>
       </div>
     );
   }
 
-  const handleDowngrade = async () => {
-    setDowngrading(true);
-    setError("");
-    try {
-      await api.post("/api/billing/change-plan", { plan: "basic" });
-      setDone("downgraded");
-    } catch {
-      setError("Failed to change plan. Please try again.");
-    } finally {
-      setDowngrading(false);
-    }
-  };
+  if (!manage) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-900">Manage subscription</h2>
+        <p className="mt-1 text-xs text-gray-400">Loading…</p>
+      </div>
+    );
+  }
 
-  const closeAll = () => { setLayer(-1); setConfirmed(false); setSurveyAnswer(""); };
-
-  return (
-    <div>
-      {layer === -1 && (
-        <button onClick={() => setLayer(0)} className="text-sm font-medium text-gray-400 hover:text-red-500">
-          Cancel Subscription
-        </button>
-      )}
-
-      {/* Layer 0: Usage Stats */}
-      {layer === 0 && (
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-gray-900">
-            {monthCalls > 0
-              ? `Your AI receptionist answered ${monthCalls} call${monthCalls !== 1 ? "s" : ""} and booked ${monthBookings} appointment${monthBookings !== 1 ? "s" : ""} this month.`
-              : "Your AI receptionist is live and ready to answer calls."}
-          </p>
-          <p className="text-sm text-gray-600">Are you sure you want to cancel?</p>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setLayer(1)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">Yes, continue</button>
-            <button onClick={closeAll} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Keep My Subscription</button>
-          </div>
-        </div>
-      )}
-
-      {/* Layer 1: Pause */}
-      {layer === 1 && (
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-gray-900">Going on vacation or taking a break?</p>
-          <p className="text-xs text-gray-500">Pause your subscription instead of canceling. Your data and phone number are saved.</p>
-          <div className="flex gap-3">
-            {[1, 2, 3].map((m) => (
-              <label key={m} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${pauseMonths === m ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-                <input type="radio" name="pause" checked={pauseMonths === m} onChange={() => setPauseMonths(m)} className="sr-only" />
-                {m} month{m > 1 ? "s" : ""}
-              </label>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setDone("paused")} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Pause Subscription</button>
-            <button onClick={() => setLayer(2)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">No, continue canceling</button>
-            <button onClick={closeAll} className="text-sm text-gray-400 hover:text-gray-600">Keep my subscription</button>
-          </div>
-        </div>
-      )}
-
-      {/* Layer 2: Annual */}
-      {layer === 2 && (
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-gray-900">Switch to annual billing and save 20%</p>
-          <p className="text-xs text-gray-500">$99/mo → <span className="font-semibold text-green-700">$79/mo</span> billed annually ($948/yr)</p>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setLayer(3)} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Switch to Annual</button>
-            <button onClick={() => setLayer(3)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">No thanks, continue</button>
-            <button onClick={closeAll} className="text-sm text-gray-400 hover:text-gray-600">Keep my subscription</button>
-          </div>
-        </div>
-      )}
-
-      {/* Layer 3: $69 downgrade (existing) */}
-      {layer === 3 && (
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-gray-900">Before you go... keep your AI receptionist for just $69/mo — first year only. Then $99/mo. Cancel anytime.</p>
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-            <ul className="space-y-1 text-xs text-gray-600">
-              <li className="flex items-center gap-2"><span className="text-green-500">✅</span> $69/mo for your first year</li>
-              <li className="flex items-center gap-2"><span className="text-green-500">✅</span> Keep all your current features</li>
-              <li className="flex items-center gap-2"><span className="text-amber-500">⚠️</span> After 12 months: $99/mo automatically</li>
-              <li className="flex items-center gap-2"><span className="text-green-500">✅</span> Cancel anytime — no contract</li>
-            </ul>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600" />
-              <span className="text-xs text-gray-600">I understand this is $69/mo for the first year only, then $99/mo</span>
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={handleDowngrade} disabled={!confirmed || downgrading} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
-                {downgrading ? "Changing plan..." : "Confirm Downgrade"}
-              </button>
-              <button onClick={() => setLayer(4)} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-500 hover:bg-gray-50">No thanks</button>
-              <button onClick={closeAll} className="text-sm text-gray-400 hover:text-gray-600">Keep my subscription</button>
-            </div>
-            {error && <p className="text-xs text-red-500">{error}</p>}
-          </div>
-        </div>
-      )}
-
-      {/* Layer 4: Exit Survey */}
-      {layer === 4 && (
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-gray-900">We're sorry to see you go. What could we improve?</p>
-          <div className="space-y-2">
-            {["Too expensive", "Missing features", "Not using it enough", "Switching to competitor", "Other"].map((opt) => (
-              <label key={opt} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${surveyAnswer === opt ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-                <input type="radio" name="survey" checked={surveyAnswer === opt} onChange={() => setSurveyAnswer(opt)} className="sr-only" />
-                {opt}
-              </label>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setDone("cancelled")} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Submit & Cancel</button>
-            <button onClick={closeAll} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Keep My Subscription</button>
-          </div>
-          {surveyAnswer && <p className="text-xs text-gray-400">Thank you. Your feedback helps us improve.</p>}
-        </div>
-      )}
+  const shell = (children: React.ReactNode) => (
+    <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+      <h2 className="text-sm font-semibold text-gray-900">Manage subscription</h2>
+      {children}
     </div>
+  );
+
+  if (manage.reason === "no_subscription") {
+    return shell(
+      <p className="mt-1 text-xs text-gray-500">
+        You are on the founder plan; there is nothing to manage.
+      </p>
+    );
+  }
+
+  if (!manage.eligible) {
+    const line =
+      manage.reason === "too_new"
+        ? "Upgrade and cancel open after your first month."
+        : manage.reason === "stripe_unavailable"
+          ? "We could not reach Stripe just now — try again in a minute."
+          : manage.reason === "no_stripe_key"
+            ? "Billing controls are not switched on yet. Message us from Help & support and we will do it for you."
+            : "There is nothing to manage on this plan.";
+    return shell(<p className="mt-1 text-xs text-gray-500">{line}</p>);
+  }
+
+  const price = manage.amount ? `$${(manage.amount / 100).toFixed(0)}/month` : "";
+  const memberSince = fmtDay(manage.memberSince);
+  // The last day of the month they have already paid for — the date cancelling runs to.
+  const paidUntil = fmtUntil(manage.periodEndsAt || manage.cancelsAt);
+
+  return shell(
+    <>
+      <p className="mt-1 text-xs text-gray-500">
+        {manage.plan || "Your plan"}
+        {price ? ` · ${price}` : ""}
+        {memberSince ? ` · member since ${memberSince}` : ""}
+      </p>
+
+      {manage.cancelAtPeriodEnd ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-amber-700">
+            Active until {paidUntil || "the last day of the month you have paid for"}. You can undo this until then.
+          </p>
+          <button
+            onClick={undoCancel}
+            disabled={busy !== ""}
+            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {busy === "undo" ? "Undoing…" : "Undo"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={openPortal}
+            disabled={busy !== ""}
+            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {busy === "portal" ? "Opening…" : "Upgrade"}
+          </button>
+          <button
+            onClick={() => {
+              setPanel(!panel);
+              setError("");
+            }}
+            className="text-xs font-medium text-gray-400 hover:text-red-500"
+          >
+            Cancel subscription
+          </button>
+        </div>
+      )}
+
+      {panel && !manage.cancelAtPeriodEnd && (
+        <div className="mt-3 space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <label className="block text-xs font-medium text-gray-700">
+            Why are you cancelling? <span className="text-red-500">*</span>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900"
+            >
+              <option value="">Choose a reason</option>
+              {CANCEL_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-gray-700">
+            Anything else? (optional)
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900"
+              placeholder="What could we have done better?"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={submitCancel}
+              disabled={busy !== "" || !reason}
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy === "cancel" ? "Cancelling…" : "Confirm cancellation"}
+            </button>
+            <button
+              onClick={() => {
+                setPanel(false);
+                setError("");
+              }}
+              className="text-xs font-medium text-gray-500 hover:text-gray-700"
+            >
+              Keep my plan
+            </button>
+          </div>
+          <p className="text-xs text-gray-500">
+            Your plan stays active until {paidUntil || "the last day of the month you have paid for"}.
+            Cancelling does not end service early and nothing is prorated back. The first month is
+            not refundable, whichever day you cancel.
+          </p>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+        </div>
+      )}
+
+      {error && !panel && <p className="mt-2 text-xs text-red-500">{error}</p>}
+    </>
   );
 }
