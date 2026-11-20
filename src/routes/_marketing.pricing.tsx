@@ -43,7 +43,7 @@ const tiers = [
       "pricing.growth.feature5",
       "pricing.growth.feature6",
     ],
-    comingSoonKeys: ["pricing.growth.feature3"],
+    comingSoonKeys: [],
     popular: true,
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",
     stripePriceId: "price_1TtXMGDqebBmBAbiqd7ybQzy",
