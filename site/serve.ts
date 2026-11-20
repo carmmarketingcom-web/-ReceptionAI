@@ -11,7 +11,7 @@ import { neon } from "@neondatabase/serverless";
 import { buildOrgHealth, normalizeOrgHealth } from "./src/lib/org-health";
 import { resolvePublicBookingOrg, BOOKING_FALLBACK, type PublicBookingOrg } from "./src/lib/public-booking-org";
 import { buildCallOutcomes } from "./src/lib/call-outcomes";
-import { getBillingManage, cancelSubscription, resumeSubscription, applyThreeMonthCredits } from "./src/lib/billing-controls";
+import { getBillingManage, cancelSubscription, resumeSubscription, claimThreeMonthCredit } from "./src/lib/billing-controls";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
@@ -4522,42 +4522,13 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
 // Each run logs one line, so "did the reminders run?" is answerable from the server log.
 // REMINDER_TICK_MS is overridable so a test can prove the timer fires without waiting
 // five minutes; production leaves it unset.
-// ── Three-month credit sweep ────────────────────────────────────────────────
-// The half-month credit the owner asked for ("a half month if they keep it for 3 months"). It is
-// a Stripe CUSTOMER BALANCE credit of half one month's plan price, applied once, the first time a
-// subscription passes 90 days. FOUNDER50 is a different thing and is not touched: the coupon
-// discounts months 1–3, this credit lands on the month-4 invoice and softens the price cliff the
-// coupon creates.
-//
-// Runs on the SAME 5-minute timer as the reminders, at most once a day. Exactly-once does not rest
-// on this guard: `subscription_credits` has a UNIQUE index on organization_id and the claim row is
-// inserted BEFORE Stripe is called, so a restart, a second server or a second sweep in one day can
-// never credit the same customer twice.
-let lastCreditSweepDay = "";
-async function runThreeMonthCreditSweep(): Promise<void> {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) return;
-  const day = new Date().toISOString().slice(0, 10);
-  if (lastCreditSweepDay === day) return;
-  lastCreditSweepDay = day;
-  const stripeKey = process.env.STRIPE_SECRET_KEY || "";
-  if (!stripeKey) {
-    console.log("[Billing] three-month credit sweep skipped — STRIPE_SECRET_KEY is not set");
-    return;
-  }
-  const sql = neon(dbUrl);
-  const res = await applyThreeMonthCredits({
-    sql: sql as any,
-    stripeKey,
-    notify: async (subject: string, body: string) => {
-      const sent = await deliverEmail(SUPPORT_INBOX, subject, body, "billing", null);
-      if (!sent) console.error(`[Billing] credit notice NOT emailed: ${subject}`);
-    },
-  });
-  console.log(
-    `[Billing] three-month credit sweep ${new Date().toISOString()} checked=${res.checked} applied=${res.applied} skipped=${res.skipped} errors=${res.errors}${res.note ? ` note=${res.note}` : ""}`
-  );
-}
+// ── Three-month credit: CLAIMED, never swept ────────────────────────────────
+// The half-month credit ("a half month if they keep it for 3 months") is a Stripe CUSTOMER BALANCE
+// credit of half one month's plan price. Owner amendment 2026-11-20: it is applied ONLY when the
+// customer presses "Claim your half-month credit" on Billing, which reaches
+// POST /api/billing/claim-credit -> claimThreeMonthCredit() in src/lib/billing-controls.ts.
+// Nothing on this timer — or on any other — applies it: if the customer never asks, nothing is
+// ever credited. FOUNDER50 is a different thing and is not touched here.
 
 const REMINDER_TICK_MS = Number(process.env.REMINDER_TICK_MS) || 5 * 60 * 1000;
 const reminderTimerOff = process.env.NODE_ENV === "test" || process.env.REMINDER_TIMER === "off";
@@ -4575,8 +4546,6 @@ if (!reminderTimerOff) {
       console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
       // The timer is also a heartbeat for the balance watchdog (internally throttled).
       void checkTelnyxBalance("reminders-timer").catch(() => {});
-      // Same timer, once a day: the half-month credit for subscriptions past three months.
-      void runThreeMonthCreditSweep().catch((err) => console.error("[Billing] credit sweep threw:", String(err).slice(0, 160)));
     })();
   }, REMINDER_TICK_MS);
 }
@@ -7230,6 +7199,39 @@ for (let attempt = 1; ; attempt++) {
           } catch (err) {
             console.error("[Billing resume]", String(err).slice(0, 200));
             return json({ error: "Could not resume the subscription" }, 500);
+          }
+        }
+        // POST /api/billing/claim-credit — the customer claims the half-month credit (owner
+        // amendment 2026-11-20: it is never automatic). Auth'd, and scoped to the caller's own
+        // organization. Answers applied / already_claimed / not_eligible with the amount. Applying
+        // twice is impossible: subscription_credits is UNIQUE on organization_id and the claim row
+        // is written before Stripe is called.
+        if (pathname === "/api/billing/claim-credit" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const claim = await claimThreeMonthCredit({
+              sql: sql as any,
+              stripeKey: process.env.STRIPE_SECRET_KEY || "",
+              organizationId: auth.organizationId,
+              notify: async (subject: string, body: string) => {
+                const sent = await deliverEmail(SUPPORT_INBOX, subject, `${body}\nOrganization: ${auth.organizationId}`, "billing", auth.organizationId);
+                if (!sent) console.error(`[Billing] credit notice NOT emailed: ${subject}`);
+              },
+            });
+            if (claim.status === "applied") {
+              console.log(`[Billing] half-month credit claimed by org ${auth.organizationId}: ${claim.amount || "amount unknown"}`);
+            }
+            return json(
+              { status: claim.status, amountCents: claim.amountCents, amount: claim.amount, reason: claim.reason, error: claim.error },
+              claim.httpStatus
+            );
+          } catch (err) {
+            console.error("[Billing claim-credit]", String(err).slice(0, 200));
+            return json({ error: "Could not apply the credit just now. Nothing was changed." }, 500);
           }
         }
         // ── Billing API ──────────────────────────────────────────────

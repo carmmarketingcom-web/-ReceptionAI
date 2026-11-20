@@ -380,14 +380,16 @@ function BillingPage() {
 // ─── Manage subscription (owner 2026-11-19) ─────────────────────────────────
 // The owner asked for "a upgrade option and a cancel option very small available after one month
 // … with a why of canceling". Everything here is read from GET /api/billing/manage and acted on
-// through /api/billing/cancel and /api/billing/resume — real Stripe calls, org-scoped.
+// through /api/billing/cancel, /api/billing/resume and /api/billing/claim-credit — real Stripe
+// calls, org-scoped.
 //
 // Nothing renders before 30 days from the first payment, and a business with no Stripe
 // subscription (the founder org, a Carm one-time buyer) is told so instead of being shown a
 // control that cannot work. Upgrade opens the Stripe billing portal, which is the supported path
-// for a plan change. Cancel runs to the END of the paid period, so the customer keeps what they
-// already paid for. The half-month credit after three months is applied by the server's sweep —
-// there is nothing to click here, and FOUNDER50 is untouched either way.
+// for a plan change. Cancel runs to the END of the paid period and names that exact date, so the
+// customer keeps what they already paid for. The half-month credit is CLAIMED, never automatic
+// (owner amendment 2026-11-20): the button appears only when it is genuinely claimable, and it
+// names the amount. FOUNDER50 is untouched either way.
 const CANCEL_REASONS = [
   "Too expensive",
   "Not enough calls",
@@ -404,8 +406,19 @@ interface BillingManage {
   amount: number | null;
   memberSince: string | null;
   cancelsAt: string | null;
+  periodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
   creditApplied: boolean;
+  creditEligible: boolean;
+  creditAmountCents: number | null;
+}
+
+interface ClaimResult {
+  status: "applied" | "already_claimed" | "not_eligible";
+  amountCents: number | null;
+  amount: string | null;
+  reason?: string;
+  error?: string;
 }
 
 function fmtDay(iso: string | null): string {
@@ -413,6 +426,18 @@ function fmtDay(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** The exact last day of the paid month, spelled out: "December 19, 2026". */
+function fmtUntil(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function usd(cents: number | null): string {
+  return typeof cents === "number" && cents > 0 ? `$${(cents / 100).toFixed(2)}` : "";
 }
 
 function ManageSubscription() {
@@ -423,6 +448,7 @@ function ManageSubscription() {
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [claimed, setClaimed] = useState<ClaimResult | null>(null);
 
   const load = async () => {
     try {
@@ -484,6 +510,21 @@ function ManageSubscription() {
     }
   };
 
+  // The half-month credit is claimed by the customer — nothing applies it on its own.
+  const claimCredit = async () => {
+    setBusy("credit");
+    setError("");
+    try {
+      const result = await api.post<ClaimResult>("/api/billing/claim-credit");
+      setClaimed(result);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not apply the credit. Nothing was changed.");
+    } finally {
+      setBusy("");
+    }
+  };
+
   if (loadError) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
@@ -531,6 +572,9 @@ function ManageSubscription() {
 
   const price = manage.amount ? `$${(manage.amount / 100).toFixed(0)}/month` : "";
   const memberSince = fmtDay(manage.memberSince);
+  // The last day of the month they have already paid for — the date cancelling runs to.
+  const paidUntil = fmtUntil(manage.periodEndsAt || manage.cancelsAt);
+  const creditAmount = usd(manage.creditAmountCents ?? (manage.amount ? Math.round(manage.amount / 2) : null));
 
   return shell(
     <>
@@ -540,10 +584,38 @@ function ManageSubscription() {
         {memberSince ? ` · member since ${memberSince}` : ""}
       </p>
 
+      {/* Claim your half-month credit — only when it is really claimable (owner 2026-11-20). */}
+      {manage.creditEligible && !manage.creditApplied && !manage.cancelAtPeriodEnd && (
+        <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+          <button
+            onClick={claimCredit}
+            disabled={busy !== ""}
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {busy === "credit" ? "Claiming…" : `Claim your half-month credit${creditAmount ? ` (${creditAmount})` : ""}`}
+          </button>
+          <p className="mt-2 text-xs text-gray-600">
+            You have been with us for three months{creditAmount ? `, so ${creditAmount} — half a month — is yours` : ""}.
+            It is not applied automatically: press the button and it is credited to your next invoice, once.
+          </p>
+          {claimed?.status === "applied" && (
+            <p className="mt-1 text-xs font-medium text-green-700">
+              Applied{claimed.amount ? ` — ${claimed.amount}` : ""}. It comes off your next invoice.
+            </p>
+          )}
+        </div>
+      )}
+
+      {manage.creditApplied && !manage.creditEligible && (
+        <p className="mt-2 text-xs text-gray-500">
+          Half-month credit claimed — it comes off your next invoice.
+        </p>
+      )}
+
       {manage.cancelAtPeriodEnd ? (
         <div className="mt-3 space-y-2">
           <p className="text-xs text-amber-700">
-            Cancels on {fmtDay(manage.cancelsAt)}. You can undo this until then.
+            Active until {paidUntil || "the last day of the month you have paid for"}. You can undo this until then.
           </p>
           <button
             onClick={undoCancel}
@@ -620,7 +692,9 @@ function ManageSubscription() {
             </button>
           </div>
           <p className="text-xs text-gray-500">
-            Your plan stays active until {fmtDay(manage.cancelsAt) || "the end of the paid month"}.
+            Your plan stays active until {paidUntil || "the last day of the month you have paid for"}.
+            Cancelling does not end service early and nothing is prorated back. The first month is
+            not refundable, whichever day you cancel.
           </p>
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>

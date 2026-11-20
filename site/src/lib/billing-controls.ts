@@ -9,9 +9,9 @@
  * could not cancel anything, and nothing could upgrade a plan except buying a second subscription.
  *
  * This module is the ONE implementation of those controls. Both `serve.ts` trees import it (for
- * `GET /api/billing/manage`, `POST /api/billing/cancel`, `POST /api/billing/resume` and the
- * 5-minute sweep's credit pass) and so do the vite-dev route files under `src/routes/api/billing/`.
- * Keep `site/src/lib/billing-controls.ts` byte-identical to this file.
+ * `GET /api/billing/manage`, `POST /api/billing/cancel`, `POST /api/billing/resume` and
+ * `POST /api/billing/claim-credit`) and so do the vite-dev route files under
+ * `src/routes/api/billing/`. Keep `site/src/lib/billing-controls.ts` byte-identical to this file.
  *
  * THE RULES THIS FILE OBEYS
  * -------------------------
@@ -19,6 +19,10 @@
  *    half-month credit is a separate, once-only customer-balance credit that lands on the invoice
  *    after three months — it exists to soften the price cliff the coupon creates on month 4. A
  *    customer may have both.
+ *  - THE CREDIT IS CLAIMED, NEVER AUTOMATIC (owner amendment 2026-11-20). No timer, no cron and no
+ *    sweep ever applies it: `claimThreeMonthCredit` is reached only from an authenticated
+ *    `POST /api/billing/claim-credit` for the caller's own org. If nobody presses the button,
+ *    nothing is credited.
  *  - The gate is 30 days from the FIRST successful payment: the Stripe subscription's `created`,
  *    or the org's first `checkout.session.completed` in `stripe_events`, whichever exists. The
  *    earlier of the two is used, so a customer is never locked out of cancelling because a
@@ -29,7 +33,7 @@
  *    clear 503 instead of pretending.
  *  - Every write is idempotent: cancelling twice leaves one open cancellation row, resuming clears
  *    it, and the credit is claimed in `subscription_credits` (UNIQUE on organization_id) BEFORE
- *    Stripe is called, so a restart or a second sweep can never credit twice.
+ *    Stripe is called, so a double-click or a retry can never credit twice.
  *
  * No imports: this module is loaded by the Bun server, by the Vite-built route handlers and by
  * `bun test`, so it must stay dependency-free. Stripe and `fetch` are injected by the caller.
@@ -86,8 +90,14 @@ export interface BillingManage {
   memberSince: string | null;
   /** ISO instant the plan ends, when a cancellation is pending. */
   cancelsAt: string | null;
+  /** ISO instant of the paid-through date, whether or not a cancellation is pending. */
+  periodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
   creditApplied: boolean;
+  /** True only when the half-month credit can be claimed right now (90+ days, no credit row). */
+  creditEligible: boolean;
+  /** The half-month credit in cents — what the Claim button names. */
+  creditAmountCents: number | null;
 }
 
 export interface BillingEnv {
@@ -132,6 +142,19 @@ export interface CreditSweepResult {
   skipped: number;
   errors: number;
   note?: string;
+}
+
+/** What `POST /api/billing/claim-credit` answers: the three states the page renders. */
+export interface CreditClaimResult {
+  status: "applied" | "already_claimed" | "not_eligible";
+  /** The half-month credit in cents, when it is known. */
+  amountCents: number | null;
+  /** The same amount as "$49.50", ready to show. */
+  amount: string | null;
+  reason?: string;
+  error?: string;
+  /** The HTTP status the endpoint should answer with. */
+  httpStatus: number;
 }
 
 /** A failure with the HTTP status the endpoint should answer with. */
@@ -345,8 +368,11 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
     amount: null,
     memberSince: null,
     cancelsAt: null,
+    periodEndsAt: null,
     cancelAtPeriodEnd: false,
     creditApplied: false,
+    creditEligible: false,
+    creditAmountCents: null,
   };
 
   await ensureBillingTables(deps.sql);
@@ -378,6 +404,7 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
       amount: dbAmount,
       cancelAtPeriodEnd: row.cancel_at_period_end === true,
       cancelsAt: row.cancel_at_period_end === true ? toIso(row.current_period_end) : null,
+      periodEndsAt: toIso(row.current_period_end),
       reason: "no_stripe_key",
     };
   }
@@ -416,14 +443,28 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
 
   const plan = dbPlan || PLAN_BY_PRICE_ID[priceId] || null;
   const amount = stripeAmount ?? dbAmount;
+  // The half-month credit is CLAIMED, never applied by a timer (owner 2026-11-20). It is offered
+  // only to a live subscription past 90 days that has no credit row yet, and never to one already
+  // cancelled — cancelling must not earn a credit.
+  const creditAmountCents = amount && amount > 0 ? Math.round(amount / 2) : null;
+  const creditEligible =
+    !creditApplied &&
+    !cancelAtPeriodEnd &&
+    !stripeError &&
+    ageDays !== null &&
+    ageDays >= CREDIT_AFTER_DAYS &&
+    creditAmountCents !== null;
   const base: BillingManage = {
     eligible: false,
     plan,
     amount,
     memberSince: startedAt ? startedAt.toISOString() : null,
     cancelsAt: cancelAtPeriodEnd ? periodEndIso : null,
+    periodEndsAt: periodEndIso,
     cancelAtPeriodEnd,
     creditApplied,
+    creditEligible,
+    creditAmountCents,
   };
 
   if (stripeError) return { ...base, reason: "stripe_unavailable" };
@@ -620,19 +661,26 @@ export async function resumeSubscription(deps: ManageDeps): Promise<ResumeResult
   return { ok: true, status: 200, cancelsAt: null };
 }
 
-// ─── The three-month credit ─────────────────────────────────────────────────
+// ─── The three-month credit (claimed, never automatic) ──────────────────────
 
 /**
- * Apply the half-month credit ONCE, the first time a subscription passes 90 days.
+ * Apply the half-month credit ONCE for one org — or for every eligible org when no
+ * `organizationId` filter is given.
+ *
+ * NOTHING CALLS THIS ON A TIMER ANY MORE (owner amendment 2026-11-20): the credit is applied only
+ * when the customer presses "Claim your half-month credit", which reaches `claimThreeMonthCredit`
+ * below. This function is kept as the one place that talks to Stripe about the credit, and the
+ * optional `organizationId` narrows it to the caller's own org.
  *
  * The claim is the INSERT into `subscription_credits` (UNIQUE on organization_id): only the run
- * that wins the insert calls Stripe, and if Stripe rejects it the claim is released so a later
- * sweep can try again. A cancelled subscription is never credited.
- *
- * Called by the in-process 5-minute timer, which runs this at most once a day.
+ * that wins the insert calls Stripe, and if Stripe rejects it the claim is released so a retry can
+ * work. A cancelled subscription is never credited.
  */
 export async function applyThreeMonthCredits(
-  env: BillingEnv & { notify?: (subject: string, body: string) => Promise<void> | void }
+  env: BillingEnv & {
+    organizationId?: string;
+    notify?: (subject: string, body: string) => Promise<void> | void;
+  }
 ): Promise<CreditSweepResult> {
   const result: CreditSweepResult = { checked: 0, applied: 0, skipped: 0, errors: 0 };
   if (!String(env.stripeKey || "").trim()) {
@@ -641,6 +689,7 @@ export async function applyThreeMonthCredits(
   await ensureBillingTables(env.sql);
 
   const now = env.now || new Date();
+  const onlyOrg = env.organizationId ? String(env.organizationId) : null;
   let rows: any[] = [];
   try {
     rows = (await env.sql`
@@ -656,6 +705,7 @@ export async function applyThreeMonthCredits(
         AND LEFT(s.stripe_subscription_id, 4) = 'sub_'
         AND s.stripe_customer_id IS NOT NULL
         AND COALESCE(s.cancel_at_period_end, false) = false
+        AND (${onlyOrg}::text IS NULL OR s.organization_id::text = ${onlyOrg}::text)
         AND NOT EXISTS (
           SELECT 1 FROM subscription_credits c WHERE c.organization_id = s.organization_id
         )
@@ -773,4 +823,148 @@ export async function applyThreeMonthCredits(
   }
 
   return result;
+}
+
+// ─── Claim the credit (owner amendment 2026-11-20) ──────────────────────────
+
+function money(cents: number | null): string | null {
+  return typeof cents === "number" && cents > 0 ? `$${(cents / 100).toFixed(2)}` : null;
+}
+
+/** The org's credit row, if one exists. The amount is what was actually applied. */
+async function readCreditRow(
+  sql: SqlTag,
+  organizationId: string
+): Promise<{ amount_cents: number | null } | null> {
+  try {
+    const rows = (await sql`
+      SELECT amount_cents FROM subscription_credits WHERE organization_id = ${organizationId} LIMIT 1
+    `) as Array<{ amount_cents: number | null }>;
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The customer pressed "Claim your half-month credit".
+ *
+ * The owner's amendment (2026-11-20): the credit is applied ONLY when the customer asks for it.
+ * There is no timer, no cron and no sweep anywhere that reaches Stripe about this credit — this
+ * function is the only path, and the endpoint that calls it is authenticated and scoped to the
+ * caller's own organization.
+ *
+ * Answers one of three states, and nothing else:
+ *   applied         — Stripe took the customer-balance credit just now, recorded once
+ *   already_claimed — a credit row already exists; nothing more is applied, ever
+ *   not_eligible    — no live subscription, under 90 days, cancelled, or no price known
+ */
+export async function claimThreeMonthCredit(
+  deps: ManageDeps & { notify?: (subject: string, body: string) => Promise<void> | void }
+): Promise<CreditClaimResult> {
+  await ensureBillingTables(deps.sql);
+
+  // Already claimed? Say so with the amount that was really applied. Never apply twice.
+  const already = await readCreditRow(deps.sql, deps.organizationId);
+  if (already) {
+    const cents = typeof already.amount_cents === "number" ? already.amount_cents : null;
+    return { status: "already_claimed", amountCents: cents, amount: money(cents), httpStatus: 200 };
+  }
+
+  if (!String(deps.stripeKey || "").trim()) {
+    return {
+      status: "not_eligible",
+      amountCents: null,
+      amount: null,
+      reason: "no_stripe_key",
+      error: reasonMessage("no_stripe_key"),
+      httpStatus: 503,
+    };
+  }
+
+  let row: SubscriptionRow | null = null;
+  try {
+    row = await readSubscriptionRow(deps.sql, deps.organizationId);
+  } catch (err) {
+    return {
+      status: "not_eligible",
+      amountCents: null,
+      amount: null,
+      reason: "unreadable",
+      error: `Could not read the subscription: ${messageOf(err).slice(0, 120)}`,
+      httpStatus: 500,
+    };
+  }
+  if (!row || !isStripeSubscriptionId(row.stripe_subscription_id)) {
+    return {
+      status: "not_eligible",
+      amountCents: null,
+      amount: null,
+      reason: "no_subscription",
+      httpStatus: 200,
+    };
+  }
+  if (row.cancel_at_period_end === true) {
+    return {
+      status: "not_eligible",
+      amountCents: null,
+      amount: null,
+      reason: "cancelled",
+      httpStatus: 200,
+    };
+  }
+
+  // One org only: the claim can never touch anybody else's subscription.
+  const applied = await applyThreeMonthCredits({
+    sql: deps.sql,
+    stripeKey: deps.stripeKey,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+    organizationId: deps.organizationId,
+    notify: deps.notify,
+  });
+
+  if (applied.note === "no_stripe_key") {
+    return {
+      status: "not_eligible",
+      amountCents: null,
+      amount: null,
+      reason: "no_stripe_key",
+      error: reasonMessage("no_stripe_key"),
+      httpStatus: 503,
+    };
+  }
+
+  if (applied.applied > 0) {
+    const claimed = await readCreditRow(deps.sql, deps.organizationId);
+    const cents = typeof claimed?.amount_cents === "number" ? claimed.amount_cents : null;
+    return { status: "applied", amountCents: cents, amount: money(cents), httpStatus: 200 };
+  }
+
+  // Another press won the race (or the row landed between the two reads).
+  const raced = await readCreditRow(deps.sql, deps.organizationId);
+  if (raced) {
+    const cents = typeof raced.amount_cents === "number" ? raced.amount_cents : null;
+    return { status: "already_claimed", amountCents: cents, amount: money(cents), httpStatus: 200 };
+  }
+
+  if (applied.errors > 0) {
+    return {
+      status: "not_eligible",
+      amountCents: null,
+      amount: null,
+      reason: "stripe_failed",
+      error:
+        "Stripe could not apply the credit just now, so nothing was changed. Try again in a minute — if it keeps failing, message us from Help & support.",
+      httpStatus: 502,
+    };
+  }
+
+  return {
+    status: "not_eligible",
+    amountCents: null,
+    amount: null,
+    reason: "too_young",
+    httpStatus: 200,
+  };
 }

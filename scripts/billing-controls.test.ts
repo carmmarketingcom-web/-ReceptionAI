@@ -17,6 +17,7 @@ import {
   cancelSubscription,
   resumeSubscription,
   applyThreeMonthCredits,
+  claimThreeMonthCredit,
 } from "../src/lib/billing-controls";
 
 const REPO = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
@@ -58,6 +59,10 @@ function fakeSql(state: FakeState) {
     if (/FROM subscriptions s/.test(text)) return state.sweepRows || [];
     if (/SELECT 1 AS one FROM subscription_credits/.test(text)) {
       return state.creditExists ? [{ one: 1 }] : [];
+    }
+    if (/SELECT amount_cents FROM subscription_credits/.test(text)) {
+      const org = String(params[0] || "");
+      return claimed.has(org) ? [{ amount_cents: 9950 }] : [];
     }
     if (/FROM stripe_events/.test(text)) return [{ first_at: state.firstCheckout ?? null }];
     if (/UPDATE subscriptions/.test(text)) {
@@ -441,6 +446,72 @@ test("a rejected Stripe credit releases the claim so a later sweep can try again
   expect(state.writes).toContain("release-credit");
 });
 
+// ── 5b. The credit is CLAIMED on request, never applied by a timer ──────────
+
+test("claiming the credit applies it once and then answers already_claimed", async () => {
+  const state: FakeState = {
+    subRow: subRow(),
+    writes: [],
+    sweepRows: [
+      {
+        organization_id: "org-1",
+        stripe_subscription_id: "sub_test_1",
+        stripe_customer_id: "cus_test_1",
+        created_at: daysAgo(100).toISOString(),
+        plan_name: "Growth",
+        price_monthly_cents: 19900,
+      },
+    ],
+  };
+  const stripe = fakeStripe({ sub: subscription(100) });
+  const deps = {
+    sql: fakeSql(state) as any,
+    stripeKey: "sk_test_x",
+    fetchImpl: stripe.fetchImpl,
+    now: NOW,
+    organizationId: "org-1",
+  };
+
+  const first = await claimThreeMonthCredit(deps);
+  expect(first.status).toBe("applied");
+  expect(first.amountCents).toBe(9950);
+  expect(first.amount).toBe("$99.50");
+  expect(stripe.calls.filter((c) => /balance_transactions/.test(c.url)).length).toBe(1);
+  expect(state.writes).toContain("claim-credit");
+
+  const second = await claimThreeMonthCredit({ ...deps, sql: fakeSql(state) as any });
+  expect(second.status).toBe("already_claimed");
+  expect(second.amountCents).toBe(9950);
+  expect(stripe.calls.filter((c) => /balance_transactions/.test(c.url)).length).toBe(1);
+});
+
+test("the credit cannot be claimed before 90 days or without a Stripe key", async () => {
+  const state: FakeState = { subRow: subRow(), writes: [] };
+  const stripe = fakeStripe({ sub: subscription(60) });
+
+  const young = await claimThreeMonthCredit({
+    sql: fakeSql(state) as any,
+    stripeKey: "sk_test_x",
+    fetchImpl: stripe.fetchImpl,
+    now: NOW,
+    organizationId: "org-1",
+  });
+  expect(young.status).toBe("not_eligible");
+  expect(stripe.calls.filter((c) => /balance_transactions/.test(c.url)).length).toBe(0);
+  expect(state.writes).toEqual([]);
+
+  const noKey = await claimThreeMonthCredit({
+    sql: fakeSql(state) as any,
+    stripeKey: "",
+    fetchImpl: stripe.fetchImpl,
+    now: NOW,
+    organizationId: "org-1",
+  });
+  expect(noKey.status).toBe("not_eligible");
+  expect(noKey.httpStatus).toBe(503);
+  expect(state.writes).toEqual([]);
+});
+
 // ── 6. Both trees, the page and the FAQ stay in step ────────────────────────
 
 test("the billing-controls lib and the three handlers are identical in both trees", () => {
@@ -462,11 +533,14 @@ test("the billing-controls lib and the three handlers are identical in both tree
   expect(a).toContain("resumeSubscription(");
   expect(a).not.toContain("FOUNDER50");
   expect(a).not.toContain("coupon");
-  // The once-a-day credit runs on the existing 5-minute timer, not a new one.
-  expect(root).toContain("void runThreeMonthCreditSweep()");
-  expect(site).toContain("void runThreeMonthCreditSweep()");
-  expect(root).toContain("if (lastCreditSweepDay === day) return;");
-  expect(site).toContain("if (lastCreditSweepDay === day) return;");
+  // No timer, cron or sweep may ever apply the credit (owner amendment 2026-11-20): the customer
+  // claims it from the Billing page, and that endpoint is the only path.
+  expect(root).not.toContain("runThreeMonthCreditSweep");
+  expect(site).not.toContain("runThreeMonthCreditSweep");
+  expect(root).not.toContain("lastCreditSweepDay");
+  expect(site).not.toContain("lastCreditSweepDay");
+  expect(a).toContain('"/api/billing/claim-credit"');
+  expect(a).toContain("claimThreeMonthCredit(");
 });
 
 test("the Billing page gates the controls and asks why, in both trees", () => {
@@ -478,6 +552,10 @@ test("the Billing page gates the controls and asks why, in both trees", () => {
   expect(rootPage).toContain("You are on the founder plan; there is nothing to manage.");
   expect(rootPage).toContain("Your plan stays active until");
   expect(rootPage).toContain("You can undo this until then.");
+  // The credit is claimed, never automatic, and the button names the amount.
+  expect(rootPage).toContain("/api/billing/claim-credit");
+  expect(rootPage).toContain("Claim your half-month credit");
+  expect(rootPage).toContain("Active until ");
   for (const reason of CANCEL_REASONS) expect(rootPage).toContain(`"${reason}"`);
   // The mock funnel that could not cancel anything is gone.
   expect(rootPage).not.toContain("CancelSection");
@@ -496,9 +574,15 @@ test("FAQ answers 4 and 5 describe what the code does, in both languages", () =>
   expect(faq5).toContain("Después de tu primer mes");
   expect(faq5).toContain("end of the month you have already paid for");
   expect(faq5).toContain("al final del mes que ya pagaste");
-  // The credit, stated in both languages.
+  // The credit is stated in both languages, and it is CLAIMED, never automatic.
   expect(faq5).toContain("half-month credit");
   expect(faq5).toContain("crédito de medio mes");
+  expect(faq5).toContain("it is not automatic");
+  expect(faq5).toContain("no es automático");
+  expect(faq5).toContain("Claim your half-month credit");
+  expect(faq5).toContain("reclamar tu crédito de medio mes");
+  expect(faq5).toContain("last day of that month");
+  expect(faq5).toContain("último día de ese mes");
   // Nothing still claims the cancel button is missing or that it is done by email.
   expect(faq5).not.toContain("not live yet");
   expect(faq5).not.toContain("todavía no está activo");
