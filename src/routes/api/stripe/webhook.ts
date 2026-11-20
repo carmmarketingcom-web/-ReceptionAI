@@ -22,7 +22,7 @@ import { DEFAULT_TIMEZONE, normalizeZip, preferredAreaCode, zipRegion } from "..
  * browser, and a link a customer cannot open is worse than no link.
  */
 function siteBaseUrl(): string {
-  return (process.env.PUBLIC_BASE_URL || "https://receptionai.store").replace(/\/+$/, "");
+  return (process.env.PUBLIC_BASE_URL || "https://www.receptionai.store").replace(/\/+$/, "");
 }
 
 /**

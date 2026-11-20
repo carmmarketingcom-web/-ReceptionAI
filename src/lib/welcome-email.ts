@@ -14,8 +14,27 @@
  */
 import { sendEmail } from "./email";
 
-export const DASHBOARD_URL = "https://receptionai.store/login";
+export const DASHBOARD_URL = "https://www.receptionai.store/login";
 export const DEMO_LINE = "(727) 966-7556";
+
+/**
+ * The phone line of the email, with the number a human can read and dial.
+ * E.164 is what Telnyx speaks; "(727) 910-1304" is what a customer expects to see.
+ */
+export function formatPhoneNumber(raw?: string | null): string | null {
+  const digits = (raw || "").replace(/\D/g, "");
+  const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  if (ten.length !== 10) return raw ? raw.trim() : null;
+  return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+}
+
+function phoneLine(phoneNumber?: string | null, pendingPort?: boolean): string {
+  const pretty = formatPhoneNumber(phoneNumber);
+  if (pretty) return `Phone number: ${pretty}`;
+  if (pendingPort)
+    return "Phone number: your existing number is being ported to us — we'll email you the moment it is live.";
+  return "Phone number: being set up — we'll email it to you as soon as it is live. Nothing for you to do.";
+}
 
 export interface WelcomeEmailInput {
   /** First name if we have one; the greeting degrades to "Hi there". */
@@ -51,11 +70,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   const businessName = (input.businessName || "").trim() || "your business";
   const planLine = `${input.planLabel}${input.planNote || ""}`;
 
-  const numberLine = input.phoneNumber
-    ? `Phone number: ${input.phoneNumber}`
-    : input.pendingPort
-      ? "Phone number: your existing number is being ported to us — we'll email you the moment it is live."
-      : "Phone number: being set up — we'll email it to you as soon as it is live. Nothing for you to do.";
+  const numberLine = phoneLine(input.phoneNumber, input.pendingPort);
 
   const wayIn = input.setPasswordUrl
     ? [
