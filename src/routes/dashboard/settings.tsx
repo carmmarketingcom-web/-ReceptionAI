@@ -70,10 +70,6 @@ function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Calendar connection state
-  const [calStatus, setCalStatus] = useState<{ connected: boolean; email: string | null; configured: boolean } | null>(null);
-  const [calBusy, setCalBusy] = useState(false);
-
   // Phone numbers — the business's real line(s) from `phone_numbers` (org-scoped, via
   // GET /api/settings). No number yet is an honest state; we never render a generated one.
   const phoneNumbers = data?.phoneNumbers ?? [];
@@ -139,65 +135,6 @@ function SettingsPage() {
       setSaving(false);
     }
   }, [companyName, businessType, timezone, hours, smsSummaries, transferNumber]);
-
-  // ── Calendar connection ───────────────────────────────────────────────
-  const loadCalStatus = useCallback(async () => {
-    try {
-      const s = await api.get<{ connected: boolean; email: string | null; configured: boolean }>("/api/calendar/status");
-      setCalStatus(s);
-    } catch {
-      setCalStatus(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadCalStatus();
-    // Handle OAuth return (e.g. /dashboard/settings?calendar=connected&email=...)
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const calState = params.get("calendar");
-      if (calState === "connected") {
-        const email = params.get("email");
-        setToast({ message: `Google Calendar connected${email ? ` (${email})` : ""}`, type: "success" });
-        loadCalStatus();
-      } else if (calState === "error") {
-        setToast({ message: "Calendar connection failed. Please try again.", type: "error" });
-      }
-      if (calState) {
-        window.history.replaceState({}, "", "/dashboard/settings");
-      }
-    }
-  }, [loadCalStatus]);
-
-  const handleConnectGoogle = useCallback(async () => {
-    setCalBusy(true);
-    try {
-      const r = await api.get<{ url: string }>("/api/calendar/connect/google");
-      if (r?.url) {
-        window.location.href = r.url;
-        return;
-      }
-      setToast({ message: "Google Calendar is not configured on the server yet.", type: "error" });
-    } catch (e) {
-      setToast({ message: e instanceof ApiError ? e.message : "Failed to start calendar connection", type: "error" });
-    } finally {
-      setCalBusy(false);
-    }
-  }, []);
-
-  const handleDisconnect = useCallback(async () => {
-    setCalBusy(true);
-    try {
-      await api.post("/api/calendar/disconnect");
-      setCalStatus(null);
-      setToast({ message: "Google Calendar disconnected", type: "success" });
-      loadCalStatus();
-    } catch (e) {
-      setToast({ message: e instanceof ApiError ? e.message : "Failed to disconnect", type: "error" });
-    } finally {
-      setCalBusy(false);
-    }
-  }, [loadCalStatus]);
 
   if (loading) {
     return (
@@ -306,6 +243,9 @@ function SettingsPage() {
         />
       </div>
 
+      {/* ── Calendar ──────────────────────────────────────── */}
+      <CalendarSection />
+
       {/* ── Hours ─────────────────────────────────────────── */}
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-gray-900">Business Hours</h2>
@@ -360,54 +300,6 @@ function SettingsPage() {
           >
             Open Schedule
           </a>
-        </div>
-      </div>
-
-      {/* ── Calendar Connections ──────────────────────────── */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-50 text-lg">🔗</div>
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">Calendar Connections</h2>
-            <p className="mt-0.5 text-xs text-gray-500">Mirror new and changed appointments to your own Google Calendar.</p>
-          </div>
-        </div>
-        <div className="mt-4">
-          {calStatus?.connected ? (
-            <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <span className="text-lg">✅</span>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Google Calendar connected</p>
-                  {calStatus.email && <p className="text-xs text-gray-500">{calStatus.email}</p>}
-                </div>
-              </div>
-              <button
-                onClick={handleDisconnect}
-                disabled={calBusy}
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-              >
-                {calBusy ? "..." : "Disconnect"}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <span className="text-lg">📅</span>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">No calendar connected</p>
-                  <p className="text-xs text-gray-500">Connect Google Calendar to mirror bookings automatically.</p>
-                </div>
-              </div>
-              <button
-                onClick={handleConnectGoogle}
-                disabled={calBusy}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {calBusy ? "Connecting..." : "Connect Google"}
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -476,6 +368,166 @@ function SettingsPage() {
           onDismiss={() => setToast(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Calendar ───────────────────────────────────────────────────────────────
+// Built-in calendar is the one we run and recommend. Google Calendar / Outlook sync does not
+// exist yet and we hold no OAuth client for either, so there is NO install link to render:
+// this card takes a request and promises only an email when self-install opens.
+
+type CalendarRequest = {
+  id: string;
+  provider: string;
+  note: string | null;
+  status: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+function formatRequestedOn(iso: string | null): string {
+  if (!iso) return "recently";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function CalendarSection() {
+  const [request, setRequest] = useState<CalendarRequest | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // One request per org (provider "both"): after a reload the card still shows its state.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await api.get<{ requests: CalendarRequest[] }>("/api/calendar-request");
+        if (!live) return;
+        const mine = (r?.requests || [])[0] || null;
+        if (mine) {
+          setRequest(mine);
+          setNote(mine.note || "");
+        }
+      } catch {
+        // The cards still render. The Send button reports its own failure.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const send = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ request: CalendarRequest }>("/api/calendar-request", {
+        provider: "both",
+        note,
+      });
+      if (r?.request) setRequest(r.request);
+      setFormOpen(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not send your request. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [note]);
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-lg">🗓️</div>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Calendar</h2>
+          <p className="mt-0.5 text-xs text-gray-500">Where your appointments live.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        {/* Built-in — recommended, and the one actually booking appointments today. */}
+        <div className="rounded-xl border border-green-200 bg-green-50/60 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">Built-in calendar</h3>
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">Recommended</span>
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">In use</span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            Your AI receptionist books into this calendar. It is already working: appointments appear on your
+            Schedule screen, confirmation and reminder emails go out from it, and the 24-hour reminder call
+            is dialled from it. Nothing to install, no Google or Microsoft account needed, and it works for
+            anyone on your team.
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            <strong className="font-semibold text-gray-900">We recommend keeping it.</strong> A connected Google
+            or Outlook calendar adds a second copy of the same appointments, and every sync point is something
+            else that can drift or fail. If your team lives in Google Calendar or Outlook all day, tell us and
+            we will set it up with you.
+          </p>
+        </div>
+
+        {/* Google / Outlook — a request, never an install link. */}
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">Google Calendar / Outlook</h3>
+            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">Not connected yet</span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            Two-way sync with Google Calendar and Outlook is not available to install yourself yet. When it
+            opens, you will get a link here that connects your calendar in a couple of clicks.
+          </p>
+
+          {request && !formOpen && (
+            <p className="mt-3 text-xs font-medium text-gray-700">
+              Requested on {formatRequestedOn(request.createdAt)} — we will email you when self-install opens.
+            </p>
+          )}
+
+          {formOpen ? (
+            <div className="mt-3 space-y-2">
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                maxLength={1000}
+                placeholder="Anything we should know? Optional"
+                className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={send}
+                  disabled={busy}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {busy ? "Sending..." : "Send"}
+                </button>
+                <button
+                  onClick={() => {
+                    setFormOpen(false);
+                    setError(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setFormOpen(true)}
+              className="mt-3 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {request ? "Update my request" : "Request a connection"}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
