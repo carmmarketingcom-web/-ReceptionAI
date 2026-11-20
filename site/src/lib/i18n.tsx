@@ -393,10 +393,10 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "pricing.growth.feature1": { en: "2 phone lines", es: "2 líneas telefónicas" },
   "pricing.growth.feature2": { en: "2,000 AI-minutes/month", es: "2,000 minutos de IA/mes" },
-  "pricing.growth.feature3": { en: "WhatsApp & Facebook integration", es: "Integración con WhatsApp y Facebook" },
+  "pricing.growth.feature3": { en: "Everything in Starter", es: "Todo lo de Starter" },
   "pricing.growth.feature4": { en: "Advanced analytics dashboard", es: "Panel de analíticas avanzadas" },
-  "pricing.growth.feature5": { en: "Team management", es: "Gestión de equipo" },
-  "pricing.growth.feature6": { en: "Priority email & chat support", es: "Soporte prioritario por correo y chat" },
+  "pricing.growth.feature5": { en: "Priority email & chat support", es: "Soporte prioritario por correo y chat" },
+  "pricing.growth.feature6": { en: "Voicemail with playable recordings", es: "Buzón de voz con grabaciones reproducibles" },
 
   "pricing.scale.name": { en: "Scale", es: "Scale" },
   "pricing.scale.price": { en: "$399", es: "$399" },

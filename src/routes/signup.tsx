@@ -101,7 +101,7 @@ function SignupPage() {
 
   const plans = [
     { value: "starter", label: "Starter — $99/mo", desc: "1 line, 500 AI-minutes, email notifications + web chat" },
-    { value: "growth", label: "Growth — $199/mo", desc: "2 lines, 2,000 AI-minutes, WhatsApp + analytics" },
+    { value: "growth", label: "Growth — $199/mo", desc: "2 lines, 2,000 AI-minutes, analytics dashboard" },
     { value: "scale", label: "Scale — $399/mo", desc: "Unlimited lines, 10K+ minutes, custom AI, priority support" },
   ];
 
@@ -118,7 +118,7 @@ function SignupPage() {
     },
     growth: {
       icon: "globe",
-      features: ["2 phone lines", "2,000 AI-minutes/mo", "WhatsApp + Facebook", "Analytics dashboard"],
+      features: ["2 phone lines", "2,000 AI-minutes/mo", "Advanced analytics", "Priority support"],
     },
     scale: {
       icon: "sparkle",
@@ -390,9 +390,9 @@ function SignupPage() {
 
             {/* Honest caveat — plans are monthly, and not every listed feature is live yet */}
             <p className="mt-3 text-center text-xs text-gray-500">
-              Plans are month-to-month, no contracts. Some Growth and Scale features — WhatsApp +
-              Facebook messaging, advanced analytics, per-member routing — are still in
-              development.{" "}
+              Plans are month-to-month, no contracts. WhatsApp and Facebook messaging are
+              still in development and are not part of any plan today — we'll say so here when they
+              ship.{" "}
               <a href="/features" className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-700">
                 See the Features page
               </a>
