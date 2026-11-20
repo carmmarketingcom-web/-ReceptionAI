@@ -321,7 +321,7 @@ test("both servers serve /api/stripe/session-status, and the page polls it", asy
     expect(src).toContain('pathname === "/api/stripe/session-status"');
     expect(src).toContain("./src/lib/stripe-session-status");
   }
-  for (const f of ["src/routes/signup/success.tsx", "site/src/routes/signup/success.tsx"]) {
+  for (const f of ["src/routes/signup_.success.tsx", "site/src/routes/signup_.success.tsx"]) {
     const src = await read(f);
     expect(src).toContain("/api/stripe/session-status?session_id=");
     expect(src).toContain("session_id");
