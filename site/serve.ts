@@ -1650,7 +1650,8 @@ async function deliverOwnerNotification(opts: {
 const TEXTING_CONSENT_TEXT =
   "I agree to receive call and appointment alert texts from ReceptionAI at this number. " +
   "Message frequency varies. Message & data rates may apply. Reply STOP to opt out, HELP for help. " +
-  "Consent is not a condition of purchase.";
+  "Consent is not a condition of purchase. We never share your mobile number with third parties " +
+  "or affiliates for marketing.";
 // ── Platform alerts (ReceptionAI's own owner, not a customer business) ──────
 // Same env-only routing rule as SUPPORT_ALERT_TO: no address is ever hardcoded.
 async function platformAlertEmailRecipients(): Promise<string[]> {
