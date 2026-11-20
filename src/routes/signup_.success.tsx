@@ -17,7 +17,7 @@ import { t } from "~/lib/i18n";
  *
  * Nothing here is ever the signup form and nothing is ever a bare error.
  */
-export const Route = createFileRoute("/signup/success")({
+export const Route = createFileRoute("/signup_/success")({
   component: SuccessPage,
   validateSearch: (search: Record<string, unknown>) => ({
     plan: (search.plan as string) || "growth",
