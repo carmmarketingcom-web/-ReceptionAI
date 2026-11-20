@@ -201,9 +201,6 @@ function SettingsPage() {
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Phone Numbers</h2>
-          <button className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
-            + Add number
-          </button>
         </div>
         <div className="mt-4 space-y-2">
           {phoneNumbers.length === 0 ? (
