@@ -38,6 +38,9 @@ export const translations: Record<string, { en: string; es: string }> = {
   "lang.switchTo": { en: "Ver en español", es: "Switch to English" },
   "lang.label.en": { en: "EN", es: "EN" },
   "lang.label.es": { en: "ES", es: "ES" },
+  "Live": { en: "Live", es: "Activa" },
+  "Partial": { en: "Partial", es: "Parcial" },
+  "Coming Soon": { en: "Coming Soon", es: "Próximamente" },
 
   /* ─── Home — Hero ─── */
   /* Mirrors _marketing.index.tsx HeroSection verbatim. Nothing here promises a
