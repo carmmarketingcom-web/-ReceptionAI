@@ -14,6 +14,7 @@ import { buildCallOutcomes } from "./src/lib/call-outcomes";
 import { getBillingManage, cancelSubscription, resumeSubscription } from "./src/lib/billing-controls";
 import {
   processCancellationLifecycle,
+  ensureLifecycleTables,
   readNumberDisposition,
   cancellationEmail,
   OUT_OF_SERVICE_EN,
