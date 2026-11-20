@@ -5482,7 +5482,14 @@ for (let attempt = 1; ; attempt++) {
               }
               const speakCs = calls.get(cid);
               if (speakCs?.transferring) {
-                // Dialing the owner — wait for the bridge; do not re-prompt.
+                // Dialing the owner — wait for the bridge; do not re-prompt. The segment counter
+                // still has to be released: "Transferring now. Please hold." ends while we are
+                // ringing the owner, and a counter left standing meant the NEXT line on this leg
+                // (the "we'll call you back" one when the owner misses) never reached
+                // finishSpeaking — so the caller was never hung up and sat on a dead line.
+                const leftWhileTransferring = Math.max(0, (speakSegments.get(cid) || 1) - 1);
+                if (leftWhileTransferring === 0) speakSegments.delete(cid);
+                else speakSegments.set(cid, leftWhileTransferring);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
               // `call.speak.ended` fires once PER speak command and the segments of a queued
@@ -6055,6 +6062,18 @@ for (let attempt = 1; ; attempt++) {
                         ? "No hay nadie disponible en este momento. Le pediremos que lo llamen pronto."
                         : "No one is available right now. We'll have them call you back shortly.", tState.language);
                       pendingHangups.add(tState.inboundCid);
+                    } else {
+                      // The same again for option 3 pressed from INSIDE a 24h reminder call: that
+                      // leg lives in reminderCallStates, so neither branch above found it and the
+                      // reminded customer heard "Transferring now. Please hold.", the owner's phone
+                      // rang out, and then nothing at all — a silent line that was never hung up.
+                      const rcLeg = reminderCallStates.get(tState.inboundCid);
+                      if (rcLeg) {
+                        await speakOnly(tState.inboundCid, tState.language === "es"
+                          ? "No hay nadie disponible en este momento. Le pediremos que lo llamen pronto."
+                          : "No one is available right now. We'll have them call you back shortly.", tState.language);
+                        pendingHangups.add(tState.inboundCid);
+                      }
                     }
                   }
                 } else {

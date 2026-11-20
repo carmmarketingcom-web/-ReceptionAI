@@ -12,6 +12,7 @@
  *     business line, to the customer — and only once;
  *   • demo bookings, opted-out contacts and past appointments are skipped with a reason;
  *   • an appointment whose business is outside 09:00–20:00 local is DEFERRED, not dialled;
+ *   • nothing is spoken at dial time: the script goes out on call.answered (fixed 2026-11-18);
  *   • 1 → confirmed, 2 → cancelled + owner email, 9 → opt-out on the contact, 3 → dials the
  *     owner's mobile (the same transfer the main line uses).
  *
@@ -260,7 +261,10 @@ test("2 cancels the appointment and emails the owner", async () => {
   const s = seed({});
   const cid = await waitFor(() => { const n = telnyx.dials.length; return n > 1 && reminderRow(s.reminderId).result === "dialed" ? `rc-cid-${n}` : null; });
   await postEvent("call.initiated", { call_control_id: cid, to: s.phone, from: BUSINESS_LINE });
-  await new Promise((r) => setTimeout(r, 700)); // the menu is spoken on a 600 ms timer
+  // Nothing at dial time — the leg is only ringing. The script goes out on call.answered.
+  expect(telnyx.commands.some((c) => c.cid === cid && c.action === "speak")).toBe(false);
+  await postEvent("call.answered", { call_control_id: cid, to: s.phone, from: BUSINESS_LINE });
+  await waitFor(() => telnyx.commands.find((c) => c.cid === cid && c.action === "speak" && String(c.payload?.payload || "").includes("press 2")));
   await postEvent("call.dtmf.received", { call_control_id: cid, digit: "2" });
   expect(reminderRow(s.reminderId).result).toBe("cancelled");
   expect(apptRow(s.apptId).status).toBe("cancelled");
@@ -273,7 +277,8 @@ test("9 opts the contact out of reminder calls", async () => {
   const s = seed({});
   const cid = await waitFor(() => { const n = telnyx.dials.length; return n > 2 && reminderRow(s.reminderId).result === "dialed" ? `rc-cid-${n}` : null; });
   await postEvent("call.initiated", { call_control_id: cid, to: s.phone, from: BUSINESS_LINE });
-  await new Promise((r) => setTimeout(r, 700));
+  await postEvent("call.answered", { call_control_id: cid, to: s.phone, from: BUSINESS_LINE });
+  await waitFor(() => telnyx.commands.find((c) => c.cid === cid && c.action === "speak" && String(c.payload?.payload || "").includes("press 9")));
   await postEvent("call.dtmf.received", { call_control_id: cid, digit: "9" });
   expect(reminderRow(s.reminderId).result).toBe("optout");
   const contact = db.query(`SELECT reminder_calls_opt_out FROM contacts WHERE id = ?`).get(s.contactId) as any;
@@ -284,7 +289,8 @@ test("3 transfers to the owner's mobile, the way the main line does", async () =
   const s = seed({});
   const cid = await waitFor(() => { const n = telnyx.dials.length; return n > 3 && reminderRow(s.reminderId).result === "dialed" ? `rc-cid-${n}` : null; });
   await postEvent("call.initiated", { call_control_id: cid, to: s.phone, from: BUSINESS_LINE });
-  await new Promise((r) => setTimeout(r, 700));
+  await postEvent("call.answered", { call_control_id: cid, to: s.phone, from: BUSINESS_LINE });
+  await waitFor(() => telnyx.commands.find((c) => c.cid === cid && c.action === "speak" && String(c.payload?.payload || "").includes("press 3")));
   await postEvent("call.dtmf.received", { call_control_id: cid, digit: "3" });
   await waitFor(() => telnyx.dials.find((d) => d.to === OWNER_MOBILE));
   expect(telnyx.dials.find((d) => d.to === OWNER_MOBILE)!.from).toBe(BUSINESS_LINE);
