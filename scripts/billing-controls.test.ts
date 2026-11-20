@@ -533,14 +533,15 @@ test("the billing-controls lib and the three handlers are identical in both tree
   expect(a).toContain("resumeSubscription(");
   expect(a).not.toContain("FOUNDER50");
   expect(a).not.toContain("coupon");
-  // No timer, cron or sweep may ever apply the credit (owner amendment 2026-11-20): the customer
-  // claims it from the Billing page, and that endpoint is the only path.
+  // Nothing applies a credit — no timer, no sweep, and no endpoint either (owner 2026-11-20:
+  // the credit is internal, applied by the team by hand in Stripe, and never mentioned to a
+  // customer anywhere).
   expect(root).not.toContain("runThreeMonthCreditSweep");
   expect(site).not.toContain("runThreeMonthCreditSweep");
   expect(root).not.toContain("lastCreditSweepDay");
   expect(site).not.toContain("lastCreditSweepDay");
-  expect(a).toContain('"/api/billing/claim-credit"');
-  expect(a).toContain("claimThreeMonthCredit(");
+  expect(a).not.toContain("/api/billing/claim-credit");
+  expect(a).not.toContain("claimThreeMonthCredit(");
 });
 
 test("the Billing page gates the controls and asks why, in both trees", () => {
@@ -552,9 +553,10 @@ test("the Billing page gates the controls and asks why, in both trees", () => {
   expect(rootPage).toContain("You are on the founder plan; there is nothing to manage.");
   expect(rootPage).toContain("Your plan stays active until");
   expect(rootPage).toContain("You can undo this until then.");
-  // The credit is claimed, never automatic, and the button names the amount.
-  expect(rootPage).toContain("/api/billing/claim-credit");
-  expect(rootPage).toContain("Claim your half-month credit");
+  // No credit is ever offered to a customer: no button, no endpoint, no copy.
+  expect(rootPage).not.toContain("/api/billing/claim-credit");
+  expect(rootPage).not.toContain("Claim your half-month credit");
+  expect(rootPage).not.toContain("credit");
   expect(rootPage).toContain("Active until ");
   for (const reason of CANCEL_REASONS) expect(rootPage).toContain(`"${reason}"`);
   // The mock funnel that could not cancel anything is gone.
@@ -574,13 +576,9 @@ test("FAQ answers 4 and 5 describe what the code does, in both languages", () =>
   expect(faq5).toContain("Después de tu primer mes");
   expect(faq5).toContain("end of the month you have already paid for");
   expect(faq5).toContain("al final del mes que ya pagaste");
-  // The credit is stated in both languages, and it is CLAIMED, never automatic.
-  expect(faq5).toContain("half-month credit");
-  expect(faq5).toContain("crédito de medio mes");
-  expect(faq5).toContain("it is not automatic");
-  expect(faq5).toContain("no es automático");
-  expect(faq5).toContain("Claim your half-month credit");
-  expect(faq5).toContain("reclamar tu crédito de medio mes");
+  // No credit is ever mentioned to a customer, in either language.
+  expect(faq5).not.toContain("credit");
+  expect(faq5).not.toContain("crédito");
   expect(faq5).toContain("last day of that month");
   expect(faq5).toContain("último día de ese mes");
   // Nothing still claims the cancel button is missing or that it is done by email.

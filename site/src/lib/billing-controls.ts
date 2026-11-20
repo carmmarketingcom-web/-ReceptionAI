@@ -93,11 +93,6 @@ export interface BillingManage {
   /** ISO instant of the paid-through date, whether or not a cancellation is pending. */
   periodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
-  creditApplied: boolean;
-  /** True only when the half-month credit can be claimed right now (90+ days, no credit row). */
-  creditEligible: boolean;
-  /** The half-month credit in cents — what the Claim button names. */
-  creditAmountCents: number | null;
 }
 
 export interface BillingEnv {
@@ -318,17 +313,6 @@ async function firstCheckoutAt(sql: SqlTag, stripeCustomerId: string): Promise<s
   }
 }
 
-async function hasCredit(sql: SqlTag, organizationId: string): Promise<boolean> {
-  try {
-    const rows = (await sql`
-      SELECT 1 AS one FROM subscription_credits WHERE organization_id = ${organizationId} LIMIT 1
-    `) as any[];
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
-}
-
 function toIso(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) return new Date(value * 1000).toISOString();
   if (typeof value === "string" && value) {
@@ -370,9 +354,6 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
     cancelsAt: null,
     periodEndsAt: null,
     cancelAtPeriodEnd: false,
-    creditApplied: false,
-    creditEligible: false,
-    creditAmountCents: null,
   };
 
   await ensureBillingTables(deps.sql);
@@ -385,13 +366,12 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
     row = null;
   }
 
-  const creditApplied = await hasCredit(deps.sql, deps.organizationId);
   const dbPlan = row?.plan_name || null;
   const dbAmount = typeof row?.price_monthly_cents === "number" ? row.price_monthly_cents : null;
 
   if (!row || !isStripeSubscriptionId(row.stripe_subscription_id)) {
     // The founder org, a Carm one-time buyer and a brand-new org all land here.
-    return { ...empty, creditApplied, plan: dbPlan, amount: dbAmount, reason: "no_subscription" };
+    return { ...empty, plan: dbPlan, amount: dbAmount, reason: "no_subscription" };
   }
 
   const subId = String(row.stripe_subscription_id);
@@ -399,7 +379,6 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
   if (!String(deps.stripeKey || "").trim()) {
     return {
       ...empty,
-      creditApplied,
       plan: dbPlan,
       amount: dbAmount,
       cancelAtPeriodEnd: row.cancel_at_period_end === true,
@@ -443,17 +422,6 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
 
   const plan = dbPlan || PLAN_BY_PRICE_ID[priceId] || null;
   const amount = stripeAmount ?? dbAmount;
-  // The half-month credit is CLAIMED, never applied by a timer (owner 2026-11-20). It is offered
-  // only to a live subscription past 90 days that has no credit row yet, and never to one already
-  // cancelled — cancelling must not earn a credit.
-  const creditAmountCents = amount && amount > 0 ? Math.round(amount / 2) : null;
-  const creditEligible =
-    !creditApplied &&
-    !cancelAtPeriodEnd &&
-    !stripeError &&
-    ageDays !== null &&
-    ageDays >= CREDIT_AFTER_DAYS &&
-    creditAmountCents !== null;
   const base: BillingManage = {
     eligible: false,
     plan,
@@ -462,9 +430,6 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
     cancelsAt: cancelAtPeriodEnd ? periodEndIso : null,
     periodEndsAt: periodEndIso,
     cancelAtPeriodEnd,
-    creditApplied,
-    creditEligible,
-    creditAmountCents,
   };
 
   if (stripeError) return { ...base, reason: "stripe_unavailable" };
