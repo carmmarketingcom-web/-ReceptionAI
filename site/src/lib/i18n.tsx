@@ -162,8 +162,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "feature.analytics.title": { en: "Call Outcomes & Missed Calls", es: "Resultados de Llamadas y Llamadas Perdidas" },
   "feature.analytics.desc": {
-    en: "See call activity, missed calls and real outcomes in your dashboard. The advanced analytics dashboard is in progress.",
-    es: "Mira la actividad de llamadas, las llamadas perdidas y los resultados reales en tu panel. El panel de analíticas avanzadas está en desarrollo.",
+    en: "See call activity, missed calls and real outcomes in your dashboard — the analytics dashboard is live in your account.",
+    es: "Mira la actividad de llamadas, las llamadas perdidas y los resultados reales en tu panel — el panel de analíticas ya está disponible en tu cuenta.",
   },
 
   /* ─── Home — Numbered setup ─── */
@@ -363,10 +363,6 @@ export const translations: Record<string, { en: string; es: string }> = {
     en: "Good to know: WhatsApp + Facebook messaging and the unified inbox are in development — you'll get them the moment they launch.",
     es: "Ten en cuenta: la mensajería de WhatsApp + Facebook y la bandeja de entrada unificada están en desarrollo — las tendrás en cuanto se lancen.",
   },
-  "pricing.caveat2": {
-    en: "Growth includes analytics and team tools in their current form; advanced analytics and per-member routing are still in progress.",
-    es: "Growth incluye analíticas y herramientas de equipo en su forma actual; las analíticas avanzadas y el enrutamiento por miembro del equipo siguen en desarrollo.",
-  },
   "pricing.caveatLink": {
     en: "See the status of every feature",
     es: "Consulta el estado de cada función",
@@ -395,7 +391,6 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.growth.feature2": { en: "2,000 AI-minutes/month", es: "2,000 minutos de IA/mes" },
   "pricing.growth.feature3": { en: "WhatsApp & Facebook integration", es: "Integración con WhatsApp y Facebook" },
   "pricing.growth.feature4": { en: "Advanced analytics dashboard", es: "Panel de analíticas avanzadas" },
-  "pricing.growth.feature5": { en: "Team management", es: "Gestión de equipo" },
   "pricing.growth.feature6": { en: "Priority email & chat support", es: "Soporte prioritario por correo y chat" },
 
   "pricing.scale.name": { en: "Scale", es: "Scale" },
@@ -528,8 +523,8 @@ export const translations: Record<string, { en: string; es: string }> = {
   "pricing.faq.title": { en: "Frequently Asked Questions", es: "Preguntas Frecuentes" },
   "pricing.faq1.q": { en: "Can I switch plans later?", es: "¿Puedo cambiar de plan más adelante?" },
   "pricing.faq1.a": {
-    en: "Yes! You can upgrade or downgrade at any time. Changes take effect immediately, and we'll prorate your billing.",
-    es: "¡Sí! Puedes subir o bajar de plan en cualquier momento. Los cambios se aplican de inmediato y prorrateamos tu facturación.",
+    en: "Yes. Once your first month is behind you, Billing shows a Manage subscription block where you can move to a bigger plan; Stripe changes the subscription you already have rather than starting a second one. The month you have already paid for is charged in full and is not prorated — nothing changes until you confirm it.",
+    es: "Sí. Cuando ya pasó tu primer mes, Facturación muestra un bloque de Gestionar suscripción donde puedes pasar a un plan mayor; Stripe cambia la suscripción que ya tienes en lugar de abrir una segunda. El mes que ya pagaste se cobra completo y no se prorratea — nada cambia hasta que lo confirmes.",
   },
   "pricing.faq2.q": { en: "What happens if I run out of AI-minutes?", es: "¿Qué pasa si se me acaban los minutos de IA?" },
   "pricing.faq2.a": {
@@ -688,16 +683,16 @@ export const translations: Record<string, { en: string; es: string }> = {
   },
   "faq.n1.q": { en: "Do I get my own phone number?", es: "¿Recibo mi propio número de teléfono?" },
   "faq.n1.a": {
-    en: "No — and that is deliberate. A second number collides with the one your customers already dial, and two numbers pointing at one business is how calls get missed. You keep your business line exactly as it is. While we connect your line with you, your receptionist answers on the ReceptionAI line and books straight into your dashboard. We set that up with you; it is not something you switch on yourself.",
-    es: "No — y es a propósito. Un segundo número choca con el que tus clientes ya marcan, y dos números apuntando a un mismo negocio es justo como se pierden llamadas. Tú conservas tu línea de negocio tal como está. Mientras conectamos tu línea contigo, tu recepcionista contesta en la línea de ReceptionAI y agenda directo en tu panel. Eso lo configuramos contigo; no es algo que actives tú solo.",
+    en: "Yes. Your plan includes a phone number for your business — Starter one line, Growth two — and extra numbers are $15 a month each. Your receptionist answers on that number, and we set it up with you during onboarding. If you would rather keep the number your customers already dial, ask your carrier to forward it to your ReceptionAI number.",
+    es: "Sí. Tu plan incluye un número de teléfono para tu negocio — Starter una línea, Growth dos — y cada número extra cuesta $15 al mes. Tu recepcionista contesta en ese número y lo configuramos contigo durante la puesta en marcha. Si prefieres conservar el número que tus clientes ya marcan, pide a tu operador que lo reenvíe a tu número de ReceptionAI.",
   },
   "faq.n2.q": {
     en: "How do I know it works before I trust it with customers?",
     es: "¿Cómo sé que funciona antes de confiárselo a mis clientes?",
   },
   "faq.n2.a": {
-    en: "Call it and book something. The three steps are in “Test it yourself” on your Getting Started page. The appointment appears on your Schedule screen and the “New booking” alert lands in your inbox — the same path a real customer's booking takes. A caller who leaves an email also gets a confirmation email.",
-    es: "Llama y agenda algo. Los tres pasos están en “Pruébalo tú mismo” en tu página de primeros pasos. La cita aparece en tu pantalla de Agenda y el aviso de “Nueva reserva” llega a tu correo — el mismo camino que toma la reserva de un cliente real. Quien llama y deja un correo también recibe un correo de confirmación.",
+    en: "Call it and book something. The three steps are in “Test it yourself” on your Getting Started page. The appointment appears on your Schedule screen and the “New booking” alert lands in your inbox — the same path a real customer's booking takes.",
+    es: "Llama y agenda algo. Los tres pasos están en “Pruébalo tú mismo” en tu página de primeros pasos. La cita aparece en tu pantalla de Agenda y el aviso de “Nueva reserva” llega a tu correo — el mismo camino que toma la reserva de un cliente real.",
   },
   "faq.n3.q": { en: "What happens after I pay?", es: "¿Qué pasa después de pagar?" },
   "faq.n3.a": {

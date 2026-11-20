@@ -99,7 +99,7 @@ const liveFeatures = [
   {
     icon: "clock",
     title: "Confirmations & Reminders",
-    desc: "A booking made on your website emails the caller a confirmation, then reminders 24 hours and 2 hours before the appointment.",
+    desc: "A booking made on your website emails the person who booked a confirmation, then reminders 24 hours and 2 hours before the appointment.",
   },
   {
     icon: "sms",
@@ -148,26 +148,18 @@ const roadmapFeatures: {
   {
     icon: "chart",
     title: "Advanced Analytics",
-    status: "partial",
+    status: "live",
     plan: "growth",
     desc: "Deeper reporting on call volume, booking rates, peak hours and outcomes, instead of a summary of what happened.",
-    note: "Live: call activity, missed calls, and outcomes. Advanced analytics dashboard: in progress.",
-  },
-  {
-    icon: "globe",
-    title: "Team Management",
-    status: "partial",
-    plan: "growth",
-    desc: "Add your team, then send work to the right person by schedule, role and skill.",
-    note: "Live: team members appear in the dashboard with your organization's real data. Per-member schedules and routing: coming.",
+    note: "Live: the analytics dashboard in your account — call volume, missed calls and real outcomes.",
   },
   {
     icon: "phone",
     title: "Call Recordings",
-    status: "partial",
+    status: "live",
     plan: "scale",
     desc: "Listen back to a call from the dashboard; the recording and the missed-call alert are already captured.",
-    note: "Live: call and voicemail capture + missed-call alerts. Audio playback: coming.",
+    note: "Live: every call and voicemail is captured, missed-call alerts go out, and voicemail recordings play back in your dashboard.",
   },
 ];
 
@@ -292,7 +284,7 @@ export default function FeaturesPage() {
               Where the bigger features stand
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-gray-400">
-              Four of these are partly live and two are still being built. Read the note on each
+              Two of these run today, two are partly live and one is still being built. Read the note on each
               card — that is the part that tells you what you would actually get today.
             </p>
           </div>
