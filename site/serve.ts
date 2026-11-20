@@ -1912,8 +1912,21 @@ function armHangup(cid: string, delayMs = 1500): void {
 }
 const pendingHangups = new Set<string>();
 const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; orgId: string | null }>(); // outbound cid → callback info
-const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean; pressed?: boolean; orgId: string | null }>(); // outbound cid → active callback state
-const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null; source: "inbound" | "reminder_call" }>(); // outbound owner-leg cid → transfer info
+// One state per dialled missed-call callback (phase 2, SPEC_CALLBACK_PHASE2.md):
+//   prompted  — how many times the menu has been spoken, so silence repeats it ONCE and then closes;
+//   pressed   — a key has been handled: nothing may re-arm a gather over the goodbye that follows;
+//   outcome   — which branch took the press. Only a transfer still sends the "someone will reach
+//               out" text on hangup; a booking sends its own confirmation, an opt-out sends nothing;
+//   callState — the real booking conversation press 1 starts, the same one an inbound caller gets.
+type CallbackState = {
+  orgName: string; language: string; callerNumber: string; businessNumber: string;
+  answered: boolean; pressed?: boolean; orgId: string | null;
+  prompted?: number;
+  outcome?: "transfer" | "optout" | "booked" | null;
+  callState?: CallState | null;
+};
+const callbackStates = new Map<string, CallbackState>(); // outbound cid → active callback state
+const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null; source: "inbound" | "reminder_call" | "callback" }>(); // outbound owner-leg cid → transfer info
 
 // ── Reschedule flow handler ────────────────────────────────────────────────
 async function handleReschedulePhase(cid: string, digit: string, cs: CallState): Promise<void> {
@@ -2620,9 +2633,17 @@ async function handleBookingPhase(cid: string, digit: string, cs: CallState): Pr
 function scheduleCallback(cs: CallState): void {
   if (!cs.toNumber || !cs.callerNumber) return;
   const webhookUrl = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
-  const lang = cs.language || "en";
 
   setTimeout(async () => {
+    // The contact row decides two things before we dial: whether this caller pressed 9 on any
+    // automated call (the store the reminder sweep reads), and which language to speak — a caller
+    // we already know prefers Spanish gets the Spanish menu, not the English default.
+    const prefs = cs.orgId ? await callerCallPrefs(cs.orgId, cs.callerNumber) : null;
+    if (prefs?.optedOut) {
+      console.log(`[Callback] skipped — ${String(cs.callerNumber).slice(-4)} opted out of automated calls`);
+      return;
+    }
+    const lang = prefs?.preferredLanguage === "es" ? "es" : (cs.language || "en");
     const outboundCid = await dialOutbound(cs.callerNumber, cs.toNumber, webhookUrl);
     if (outboundCid) {
       pendingCallbacks.set(outboundCid, {
@@ -2637,11 +2658,81 @@ function scheduleCallback(cs: CallState): void {
   }, 2 * 60 * 1000); // 2 minutes
 }
 
+// What this caller's contact row says before we dial a callback: opted out of automated calls, and
+// which language they prefer. A press-9 on any earlier automated call is honoured here, and a known
+// Spanish speaker hears the Spanish menu. A read failure must never silence a legitimate callback,
+// so it answers "not opted out, no preference".
+async function callerCallPrefs(
+  orgId: string, phone: string,
+): Promise<{ optedOut: boolean; preferredLanguage: string | null }> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return { optedOut: false, preferredLanguage: null };
+  try {
+    const sql = neon(dbUrl);
+    const rows = await sql`SELECT reminder_calls_opt_out, preferred_language FROM contacts WHERE organization_id = ${orgId} AND phone = ${phone} LIMIT 1`;
+    return {
+      optedOut: rows[0]?.reminder_calls_opt_out === true,
+      preferredLanguage: (rows[0]?.preferred_language as string) || null,
+    };
+  } catch {
+    return { optedOut: false, preferredLanguage: null };
+  }
+}
+
+// ── Missed-call callback menu (phase 2, owner-approved 11-20) ───────────────
+// 1 books a real appointment, 3 reaches the business, 9 stops these calls. EN and ES carry the
+// same three offers — the Spanish path is not a stub. `speakLines` splits the prompt into its
+// sentences, so the pacing of phase 1 is unchanged and the gather still arms on the last segment.
+function callbackMenuLines(cb: { orgName: string; language: string }): string[] {
+  return cb.language === "es"
+    ? [`Hola, somos ${cb.orgName}. Disculpe que no pudimos atender su llamada. Presione 1 para agendar una cita, presione 3 para hablar con nosotros ahora, o presione 9 para no recibir más llamadas.`]
+    : [`Hi, this is ${cb.orgName}. Sorry we missed your call. Press 1 to book an appointment, press 3 to speak with us now, or press 9 to stop these calls.`];
+}
+function callbackRepeatLine(lang: string): string {
+  return lang === "es"
+    ? "Presione 1 para agendar, 3 para hablar con nosotros, o 9 para no recibir más llamadas."
+    : "Press 1 to book, 3 to speak with us, or 9 to stop these calls.";
+}
+function callbackGoodbyeLine(lang: string): string {
+  return lang === "es" ? "Gracias por su tiempo. Adiós." : "Thanks for your time. Goodbye.";
+}
+
+// The transfer machinery takes a CallState; a callback leg has none of its own, so this is the same
+// minimal one the reminder-call transfer builds for option 3. Every value comes from the state
+// captured at dial time — nothing is re-read from the database.
+function callbackCallState(cb: CallbackState, cid: string): CallState {
+  return {
+    callerNumber: cb.callerNumber,
+    toNumber: cb.businessNumber,
+    dtmfHistory: ["3"],
+    startTime: new Date(),
+    orgId: cb.orgId,
+    orgName: cb.orgName,
+    isDemo: false,
+    previousVisits: 0,
+    appointmentIntent: false,
+    appointmentBooked: false,
+    language: cb.language,
+    phase: "menu",
+    answered: true,
+    callbackSent: true,
+    surveySent: false,
+    gatherTimeouts: 0,
+    transferred: false,
+    transferring: false,
+    requestedCallback: false,
+    voicemail: false,
+    callControlId: cid,
+  };
+}
+
 // ── Record a transfer outcome (never breaks the call) ──────────────────
 // One row per transfer attempt in transfer_events (migration 0013) so the dashboard's
 // "Call outcomes" page can show whether the owner actually reached the caller. This runs
 // inside a live call, so it can never throw: a failed write is one log line and the call
-// carries on. `source` says whether the caller pressed 3 on the main line or on a reminder call.
+// carries on. `source` says whether the caller pressed 3 on the main line, on a reminder call, or
+// on a missed-call callback (`callback`, phase 2). The column is plain text — no constraint to
+// migrate — so the new value needs no DDL, only this union.
 let transferEventsTableReady: Promise<boolean> | null = null;
 // Create transfer_events on first use — the same pattern 0008/0010 use, so a deploy records
 // transfers before the migration has been applied by hand. One attempt per process.
@@ -2683,7 +2774,7 @@ async function recordTransferEvent(ev: {
   targetNumber: string | null;
   outcome: "bridged" | "missed" | "failed" | "no_target";
   language: string | null;
-  source: "inbound" | "reminder_call";
+  source: "inbound" | "reminder_call" | "callback";
 }): Promise<void> {
   if (!ev.organizationId) return;
   const dbUrl = process.env.DATABASE_URL;
@@ -2706,7 +2797,7 @@ async function recordTransferEvent(ev: {
 async function transferToOwner(
   cid: string,
   cs: CallState,
-  source: "inbound" | "reminder_call" = "inbound"
+  source: "inbound" | "reminder_call" | "callback" = "inbound"
 ): Promise<void> {
   const es = cs.language === "es";
   cs.requestedCallback = true;
@@ -4196,19 +4287,28 @@ async function cancelAppointmentFromReminderCall(rc: ReminderCallState): Promise
 }
 
 // 9 — stop calling this customer. Kept per contact, so it survives a re-booking.
-async function optOutOfReminderCalls(rc: ReminderCallState): Promise<void> {
-  await recordReminderCall(rc, "optout");
+// ONE store for every automated call we place: `contacts.reminder_calls_opt_out` is what the
+// reminder sweep already reads, so a caller who presses 9 on a reminder call or on a missed-call
+// callback is suppressed in exactly the same place — no reminder call and no callback ever again.
+// Never called without an org id: no row may be written without one.
+async function optOutContactFromCalls(orgId: string | null, phone: string | null, tag: string): Promise<void> {
+  if (!orgId || !phone) return;
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) return;
   try {
     const sql = neon(dbUrl);
     await sql`
       UPDATE contacts SET reminder_calls_opt_out = true, updated_at = NOW()
-      WHERE organization_id = ${rc.organizationId} AND phone = ${rc.phone}
+      WHERE organization_id = ${orgId} AND phone = ${phone}
     `;
   } catch (err) {
-    console.error("[ReminderCall] opt-out write failed:", String(err).slice(0, 120));
+    console.error(`[${tag}] opt-out write failed:`, String(err).slice(0, 120));
   }
+}
+
+async function optOutOfReminderCalls(rc: ReminderCallState): Promise<void> {
+  await recordReminderCall(rc, "optout");
+  await optOutContactFromCalls(rc.organizationId, rc.phone, "ReminderCall");
 }
 
 // Silence, or a key we don't use: say the options once more, then close the call politely.
@@ -4813,10 +4913,7 @@ for (let attempt = 1; ; attempt++) {
                 // A short beat so the media path is up before the first word. `speakLines` (not
                 // `speakOnly`) so the return value tells us whether Telnyx accepted anything.
                 setTimeout(async () => {
-                  const es = cbAnswered.language === "es";
-                  const spoken = await speakLines(cid, [es
-                    ? `Hola, somos ${cbAnswered.orgName}. Disculpe que no pudimos atender su llamada. Presione 1 para agendar una cita.`
-                    : `Hi, this is ${cbAnswered.orgName}. Sorry we missed your call. Press 1 to book an appointment.`], cbAnswered.language);
+                  const spoken = await speakLines(cid, callbackMenuLines(cbAnswered), cbAnswered.language);
                   // Telnyx refused every line: no `call.speak.ended` will ever arrive, so the
                   // gather would never arm and the customer would hear silence again. Close the
                   // dead line instead of leaving it open.
@@ -4879,17 +4976,29 @@ for (let attempt = 1; ; attempt++) {
               // once, when the audio has actually finished, never mid-prompt.
               const cbSpeak = callbackStates.get(cid);
               if (cbSpeak) {
-                // A press is already being handled: the DTMF branch has queued the goodbye and the
-                // hangup, so re-arming here would gather (and could re-prompt) over it.
-                if (cbSpeak.pressed) {
-                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
-                }
                 const cbSegsLeft = speakSegments.get(cid) || 0;
                 if (cbSegsLeft > 1) {
                   speakSegments.set(cid, cbSegsLeft - 1);
                   return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
                 }
                 speakSegments.delete(cid);
+                // A goodbye is playing: close the call when it ends, never re-arm a gather over it.
+                if (pendingHangups.has(cid)) {
+                  pendingHangups.delete(cid);
+                  armHangup(cid, 1200);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                // A press is already being handled (transfer, opt-out, goodbye): nothing re-arms.
+                if (cbSpeak.pressed) {
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                // Press 1 opened the real booking conversation: its prompts gather exactly the way
+                // an inbound booking does (8 s, one at a time, hangup once the goodbye is queued).
+                if (cbSpeak.callState) {
+                  finishSpeaking(cid);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                // The menu: one 10 s DTMF gather, armed when the last line has finished playing.
                 armGather(cid, { type: "dtmf", minimum_digits: 1, maximum_digits: 1, timeout_millis: 10000 });
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
@@ -4938,23 +5047,139 @@ for (let attempt = 1; ; attempt++) {
               const cbState = callbackStates.get(cid);
               if (cbState) {
                 const es = cbState.language === "es";
-                if (digit === "1") {
-                  cbState.answered = true;
-                  // `answered` now means "picked up" (set on `call.answered`); `pressed` is what the
-                  // hangup handler keys on, so the "someone will reach out" text still only goes to
-                  // a caller who actually pressed 1.
-                  cbState.pressed = true;
-                  await speakOnly(cid, es
-                    ? "Gracias. Alguien lo contactará pronto. ¡Que tenga un buen día!"
-                    : "Thank you. Someone will reach out shortly. Have a great day!", cbState.language);
-                  setTimeout(() => cmd(cid, "hangup"), 2000);
-                } else {
-                  await speakOnly(cid, es
-                    ? "Gracias por su tiempo. ¡Que tenga un buen día!"
-                    : "Thank you for your time. Have a great day!", cbState.language);
-                  setTimeout(() => cmd(cid, "hangup"), 2000);
+                const cbRespond = () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+
+                // One press is handled once. Telnyx can deliver the same digit twice (duplicate
+                // gathers, provider retries) — on a callback that would mean a second booking from
+                // the same press, so the same 700 ms guard the main line uses applies here too.
+                {
+                  const cbNow = Date.now();
+                  const cbPrev = lastDtmf.get(cid);
+                  if (cbPrev && cbPrev.digit === digit && cbNow - cbPrev.ts < 700) {
+                    console.log(`[Callback] duplicate ${digit} ignored (+${cbNow - cbPrev.ts}ms)`);
+                    return cbRespond();
+                  }
+                  lastDtmf.set(cid, { digit, ts: cbNow });
                 }
-                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                gatherActive.delete(cid); // this press satisfied the active gather
+
+                // Press 1 opened the real booking conversation: these digits belong to it, not to
+                // the menu (slots 1-4, then the waitlist offer if there was no availability).
+                const bcs = cbState.callState;
+                if (bcs) {
+                  if (bcs.phase === "booking_slots") {
+                    await handleBookingPhase(cid, digit, bcs);
+                    // A booked appointment (or a waitlist decision) ends this conversation: nothing
+                    // else may be booked from a stray key.
+                    if (bcs.appointmentBooked || bcs.phase === "menu") cbState.pressed = true;
+                    return cbRespond();
+                  }
+                  if (bcs.phase === "waitlist") {
+                    if (digit === "1") {
+                      if (bcs.orgId && bcs.callerNumber) {
+                        const today = new Date();
+                        const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+                        await addToWaitlist(bcs.callerNumber, bcs.orgId, date, bcs.callerFirstName || "Caller");
+                      }
+                      await speakOnly(cid, es
+                        ? "Está en la lista de espera. El equipo puede ver que está esperando. Gracias. Adiós."
+                        : "You're on the waitlist. The team can see you are waiting. Thank you. Goodbye.", cbState.language);
+                    } else {
+                      await speakOnly(cid, es
+                        ? "Gracias. Avisaremos al equipo de su llamada. Adiós."
+                        : "Thanks. We'll let the team know you called. Goodbye.", cbState.language);
+                    }
+                    bcs.phase = "menu";
+                    pendingHangups.add(cid);
+                    return cbRespond();
+                  }
+                }
+                // One press is handled once: a duplicate delivery after the goodbye must not
+                // re-speak it, re-book it or re-dial the owner.
+                if (cbState.pressed) return cbRespond();
+                cbState.answered = true;
+
+                if (digit === "1") {
+                  // Real booking with live availability — the same flow a caller on the business
+                  // line gets: next open slots in the org's timezone, a real appointment row, the
+                  // owner's "New booking" email and the 24h reminder call. Nothing is written
+                  // without an org id, so a leg with no org gets the honest callback instead.
+                  cbState.outcome = "booked";
+                  if (!cbState.orgId) {
+                    cbState.pressed = true;
+                    await speakOnly(cid, es
+                      ? "Gracias. Avisaremos al equipo de su llamada y alguien lo contactará pronto. Adiós."
+                      : "Thank you. We'll let the team know you called and someone will reach out shortly. Goodbye.", cbState.language);
+                    pendingHangups.add(cid);
+                    return cbRespond();
+                  }
+                  let firstName: string | undefined;
+                  try {
+                    firstName = (await lookupCallerHistory(cbState.callerNumber, cbState.orgId))?.firstName || undefined;
+                  } catch { /* the booking still works with the default name */ }
+                  const bcsNew: CallState = {
+                    callerNumber: cbState.callerNumber,
+                    toNumber: cbState.businessNumber,
+                    dtmfHistory: ["1"],
+                    startTime: new Date(),
+                    orgId: cbState.orgId,
+                    orgName: cbState.orgName,
+                    isDemo: false,
+                    previousVisits: 0,
+                    callerFirstName: firstName,
+                    appointmentIntent: true,
+                    appointmentBooked: false,
+                    language: cbState.language,
+                    phase: "booking_slots",
+                    answered: true,
+                    callbackSent: true,
+                    surveySent: false,
+                    gatherTimeouts: 0,
+                    transferred: false,
+                    transferring: false,
+                    requestedCallback: false,
+                    voicemail: false,
+                    callControlId: cid,
+                  };
+                  cbState.callState = bcsNew;
+                  calls.set(cid, bcsNew); // so speak.ended/hangup take the normal booking path
+                  await startVoiceBooking(cid, bcsNew);
+                  return cbRespond();
+                }
+
+                if (digit === "3") {
+                  // The same transfer the main line uses: dial the org's transfer number from the
+                  // business line and bridge on answer, recorded in transfer_events as `callback`.
+                  // If the owner never answers, the caller is told someone will call back and the
+                  // owner is alerted — that path is shared with the reminder call, not duplicated.
+                  cbState.outcome = "transfer";
+                  cbState.pressed = true;
+                  await transferToOwner(cid, callbackCallState(cbState, cid), "callback");
+                  return cbRespond();
+                }
+
+                if (digit === "9") {
+                  // The store the reminder sweep already reads. Never written without an org id.
+                  cbState.outcome = "optout";
+                  cbState.pressed = true;
+                  await optOutContactFromCalls(cbState.orgId, cbState.callerNumber, "Callback");
+                  await speakOnly(cid, es
+                    ? "No recibirá más llamadas de nuestra parte. Adiós."
+                    : "You won't receive any more calls from us. Goodbye.", cbState.language);
+                  pendingHangups.add(cid);
+                  return cbRespond();
+                }
+
+                // A key we don't use: say the options once more, then close the call politely.
+                if ((cbState.prompted || 0) >= 1) {
+                  cbState.pressed = true;
+                  await speakOnly(cid, callbackGoodbyeLine(cbState.language), cbState.language);
+                  pendingHangups.add(cid);
+                } else {
+                  cbState.prompted = 1;
+                  await speakOnly(cid, callbackRepeatLine(cbState.language), cbState.language);
+                }
+                return cbRespond();
               }
 
               // Idempotency: one press can be delivered more than once (duplicate armed
@@ -5167,6 +5392,32 @@ for (let attempt = 1; ; attempt++) {
             // ── Gather ended (timeout, no DTMF) ─────────────────────
             else if (ev === "call.gather.ended") {
               gatherActive.delete(cid);
+              // Callback call: silence repeats the menu ONCE, then the call closes politely. Never
+              // leave the line open, never speak into a leg nobody is on.
+              const cbGather = callbackStates.get(cid);
+              if (cbGather) {
+                const gatheredCb = String(p.data?.payload?.digits ?? "").trim();
+                const cbDone = () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                // A gather that ended WITH digits is answered by call.dtmf.received, which owns the
+                // response; a press already handled owns the goodbye.
+                if (gatheredCb || cbGather.pressed) return cbDone();
+                if (cbGather.callState) {
+                  // Silence mid-booking: there is no menu to fall back to on a callback.
+                  cbGather.pressed = true;
+                  await speakOnly(cid, callbackGoodbyeLine(cbGather.language), cbGather.language);
+                  pendingHangups.add(cid);
+                  return cbDone();
+                }
+                if ((cbGather.prompted || 0) >= 1) {
+                  cbGather.pressed = true;
+                  await speakOnly(cid, callbackGoodbyeLine(cbGather.language), cbGather.language);
+                  pendingHangups.add(cid);
+                } else {
+                  cbGather.prompted = 1;
+                  await speakLines(cid, callbackMenuLines(cbGather), cbGather.language);
+                }
+                return cbDone();
+              }
               // Reminder call: silence gets the options once more, then a polite goodbye.
               const rcGather = reminderCallStates.get(cid);
               if (rcGather) {
@@ -5302,6 +5553,17 @@ for (let attempt = 1; ; attempt++) {
                       ? "No hay nadie disponible en este momento. Le pediremos que lo llamen pronto."
                       : "No one is available right now. We'll have them call you back shortly.", tState.language);
                     pendingHangups.add(tState.inboundCid);
+                  } else {
+                    // A missed-call callback leg is not in `calls` (only press 1 puts it there), so
+                    // tell that caller too instead of leaving them on a silent line.
+                    const cbLeg = callbackStates.get(tState.inboundCid);
+                    if (cbLeg) {
+                      cbLeg.pressed = true;
+                      await speakOnly(tState.inboundCid, tState.language === "es"
+                        ? "No hay nadie disponible en este momento. Le pediremos que lo llamen pronto."
+                        : "No one is available right now. We'll have them call you back shortly.", tState.language);
+                      pendingHangups.add(tState.inboundCid);
+                    }
                   }
                 } else {
                   // Owner hung up after talking — end the caller leg too
@@ -5326,7 +5588,9 @@ for (let attempt = 1; ; attempt++) {
               // Clean up callback state if it was a callback call
               if (callbackStates.has(cid)) {
                 const cbState = callbackStates.get(cid);
-                if (cbState && cbState.pressed && cbState.callerNumber && cbState.businessNumber && (await smsEnabledForOrg(cbState.orgId))) {
+                // Only a transfer still promises "someone will reach out": a booking sends its own
+                // confirmation and an opt-out must never be texted again.
+                if (cbState && cbState.outcome === "transfer" && cbState.callerNumber && cbState.businessNumber && (await smsEnabledForOrg(cbState.orgId))) {
                   // Send confirmation SMS (opt-in only)
                   await sendSms(smsSenderForOrg(cbState.businessNumber), cbState.callerNumber,
                     cbState.language === "es"

@@ -311,7 +311,7 @@ function CallOutcomesPage() {
                           )}
                         </td>
                         <td className="whitespace-nowrap py-3 pr-4 text-gray-600">
-                          {t.source === "reminder_call" ? "Reminder call" : "Inbound call"}
+                          {t.source === "reminder_call" ? "Reminder call" : t.source === "callback" ? "Callback call" : "Inbound call"}
                         </td>
                       </tr>
                     );
