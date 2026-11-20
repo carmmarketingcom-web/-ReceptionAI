@@ -11,6 +11,7 @@ import { neon } from "@neondatabase/serverless";
 import { buildOrgHealth, normalizeOrgHealth } from "./src/lib/org-health";
 import { resolvePublicBookingOrg, BOOKING_FALLBACK, type PublicBookingOrg } from "./src/lib/public-booking-org";
 import { buildCallOutcomes } from "./src/lib/call-outcomes";
+import { getBillingManage, cancelSubscription, resumeSubscription, applyThreeMonthCredits } from "./src/lib/billing-controls";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
@@ -4521,6 +4522,43 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
 // Each run logs one line, so "did the reminders run?" is answerable from the server log.
 // REMINDER_TICK_MS is overridable so a test can prove the timer fires without waiting
 // five minutes; production leaves it unset.
+// ── Three-month credit sweep ────────────────────────────────────────────────
+// The half-month credit the owner asked for ("a half month if they keep it for 3 months"). It is
+// a Stripe CUSTOMER BALANCE credit of half one month's plan price, applied once, the first time a
+// subscription passes 90 days. FOUNDER50 is a different thing and is not touched: the coupon
+// discounts months 1–3, this credit lands on the month-4 invoice and softens the price cliff the
+// coupon creates.
+//
+// Runs on the SAME 5-minute timer as the reminders, at most once a day. Exactly-once does not rest
+// on this guard: `subscription_credits` has a UNIQUE index on organization_id and the claim row is
+// inserted BEFORE Stripe is called, so a restart, a second server or a second sweep in one day can
+// never credit the same customer twice.
+let lastCreditSweepDay = "";
+async function runThreeMonthCreditSweep(): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  const day = new Date().toISOString().slice(0, 10);
+  if (lastCreditSweepDay === day) return;
+  lastCreditSweepDay = day;
+  const stripeKey = process.env.STRIPE_SECRET_KEY || "";
+  if (!stripeKey) {
+    console.log("[Billing] three-month credit sweep skipped — STRIPE_SECRET_KEY is not set");
+    return;
+  }
+  const sql = neon(dbUrl);
+  const res = await applyThreeMonthCredits({
+    sql: sql as any,
+    stripeKey,
+    notify: async (subject: string, body: string) => {
+      const sent = await deliverEmail(SUPPORT_INBOX, subject, body, "billing", null);
+      if (!sent) console.error(`[Billing] credit notice NOT emailed: ${subject}`);
+    },
+  });
+  console.log(
+    `[Billing] three-month credit sweep ${new Date().toISOString()} checked=${res.checked} applied=${res.applied} skipped=${res.skipped} errors=${res.errors}${res.note ? ` note=${res.note}` : ""}`
+  );
+}
+
 const REMINDER_TICK_MS = Number(process.env.REMINDER_TICK_MS) || 5 * 60 * 1000;
 const reminderTimerOff = process.env.NODE_ENV === "test" || process.env.REMINDER_TIMER === "off";
 
@@ -4537,6 +4575,8 @@ if (!reminderTimerOff) {
       console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
       // The timer is also a heartbeat for the balance watchdog (internally throttled).
       void checkTelnyxBalance("reminders-timer").catch(() => {});
+      // Same timer, once a day: the half-month credit for subscriptions past three months.
+      void runThreeMonthCreditSweep().catch((err) => console.error("[Billing] credit sweep threw:", String(err).slice(0, 160)));
     })();
   }, REMINDER_TICK_MS);
 }
@@ -7101,6 +7141,95 @@ for (let attempt = 1; ; attempt++) {
           } catch (err) {
             console.error("[Settings PUT]", String(err).slice(0, 200));
             return json({ error: "Failed to update settings" }, 500);
+          }
+        }
+        // ── Billing controls (owner 2026-11-19) ──────────────────────
+        // GET  /api/billing/manage — what the Billing page shows: plan, price, member since,
+        //      whether the 30-day gate is open, whether a cancellation is pending and whether the
+        //      three-month credit has already been applied. Real rows and real Stripe only.
+        // POST /api/billing/cancel — cancel at the END of the paid period, require one of the six
+        //      reasons, store it, email the team. Never cancels without STRIPE_SECRET_KEY.
+        // POST /api/billing/resume — undo a pending cancellation.
+        // The logic lives in src/lib/billing-controls.ts so both serve.ts trees and the vite-dev
+        // route files cannot drift. FOUNDER50 is not read, changed or capped anywhere here.
+        if (pathname === "/api/billing/manage" && req.method === "GET") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const manage = await getBillingManage({
+              sql: sql as any,
+              stripeKey: process.env.STRIPE_SECRET_KEY || "",
+              organizationId: auth.organizationId,
+            });
+            return json(manage);
+          } catch (err) {
+            console.error("[Billing manage]", String(err).slice(0, 200));
+            return json({ error: "Could not read billing settings" }, 500);
+          }
+        }
+        if (pathname === "/api/billing/cancel" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const body = (await req.json().catch(() => ({}))) as { reason?: string; comment?: string };
+            let requestedByEmail: string | null = null;
+            try {
+              const userRows = await sql`SELECT email FROM users WHERE id = ${auth.userId} LIMIT 1`;
+              requestedByEmail = userRows[0]?.email || null;
+            } catch { /* the reason is still stored without an email */ }
+            const result = await cancelSubscription({
+              sql: sql as any,
+              stripeKey: process.env.STRIPE_SECRET_KEY || "",
+              organizationId: auth.organizationId,
+              reason: String(body.reason || ""),
+              comment: body.comment ? String(body.comment) : null,
+              requestedByEmail,
+            });
+            if (!result.ok) return json({ error: result.error }, result.status);
+            // The team hears about every cancellation with the plan, the tenure, the reason and
+            // this org's last 30 days, so the reason can be acted on instead of just recorded.
+            const lines = [
+              `Plan: ${result.plan || "unknown"}${result.amount ? ` ($${(result.amount / 100).toFixed(2)}/mo)` : ""}`,
+              `Member since: ${result.memberSince ? new Date(result.memberSince).toISOString().slice(0, 10) : "unknown"} (${result.tenureDays ?? "?"} days)`,
+              `Reason: ${String(body.reason || "")}`,
+              `Comment: ${body.comment ? String(body.comment) : "(none)"}`,
+              `Plan stays active until: ${result.cancelsAt ? new Date(result.cancelsAt).toISOString().slice(0, 10) : "unknown"}`,
+              `Last 30 days: ${result.usage?.calls ?? 0} calls answered, ${result.usage?.bookings ?? 0} appointments booked`,
+              `Requested by: ${requestedByEmail || "unknown"}`,
+              `Organization: ${auth.organizationId}`,
+            ];
+            const subject = `Cancellation: ${result.plan || "plan"} — ${String(body.reason || "")}`;
+            const sent = await deliverEmail(SUPPORT_INBOX, subject, lines.join("\n"), "billing", auth.organizationId);
+            if (!sent) console.error(`[Billing cancel] org ${auth.organizationId} cancelled but the team email did NOT send`);
+            return json({ cancelled: true, cancelsAt: result.cancelsAt, plan: result.plan, amount: result.amount });
+          } catch (err) {
+            console.error("[Billing cancel]", String(err).slice(0, 200));
+            return json({ error: "Could not cancel the subscription" }, 500);
+          }
+        }
+        if (pathname === "/api/billing/resume" && req.method === "POST") {
+          try {
+            const auth = await requireOrgAuth(req);
+            if (auth instanceof Response) return auth;
+            const dbUrl = process.env.DATABASE_URL;
+            if (!dbUrl) return json({ error: "DB not configured" }, 500);
+            const sql = neon(dbUrl);
+            const result = await resumeSubscription({
+              sql: sql as any,
+              stripeKey: process.env.STRIPE_SECRET_KEY || "",
+              organizationId: auth.organizationId,
+            });
+            if (!result.ok) return json({ error: result.error }, result.status);
+            return json({ resumed: true, cancelsAt: null });
+          } catch (err) {
+            console.error("[Billing resume]", String(err).slice(0, 200));
+            return json({ error: "Could not resume the subscription" }, 500);
           }
         }
         // ── Billing API ──────────────────────────────────────────────
