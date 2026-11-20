@@ -292,12 +292,12 @@ test("VERIFY 3a — the Carm welcome email carries a working, single-use set-pas
   console.log("VERIFY 3a subject:", carmMail!.subject);
   console.log("VERIFY 3a body:\n" + carmMail!.body);
   expect(carmMail!.body).toContain("Bayside Dental");
-  expect(carmMail!.body).toContain("https://receptionai.store/login");
+  expect(carmMail!.body).toContain("https://www.receptionai.store/login");
   expect(carmMail!.body).toContain("(727) 966-7556");
-  expect(carmMail!.body).toContain("https://receptionai.store/set-password?token=");
+  expect(carmMail!.body).toContain("https://www.receptionai.store/set-password?token=");
   expect(carmMail!.body).not.toMatch(/2 min|within \d+ (hours|minutes)/i);
 
-  const link = carmMail!.body.match(/https:\/\/receptionai\.store\/set-password\?token=(\S+)/)![1];
+  const link = carmMail!.body.match(/https:\/\/www\.receptionai\.store\/set-password\?token=(\S+)/)![1];
   const token = decodeURIComponent(link);
 
   const user = db.query("SELECT id, email, password_hash FROM users WHERE email = 'owner@baysidedental.example'").get() as any;
@@ -349,7 +349,7 @@ test("VERIFY 3d — self-serve buyer with a chosen password gets a login link an
   expect(selfMail).toBeTruthy();
   console.log("VERIFY 3d body:\n" + selfMail!.body);
   expect(selfMail!.body).toContain("Acme HVAC");
-  expect(selfMail!.body).toContain("https://receptionai.store/login");
+  expect(selfMail!.body).toContain("https://www.receptionai.store/login");
   expect(selfMail!.body).toContain("the password you chose at checkout");
   expect(selfMail!.body).not.toContain("/set-password?token=");
   expect(selfMail!.body).not.toMatch(/2 min/i);

@@ -6,73 +6,15 @@
  * - customer.subscription.updated → Update subscription status
  * - customer.subscription.deleted → Mark subscription canceled
  * - invoice.paid / invoice.payment_failed → Update payment status
+ *
+ * The onboarding body itself lives in `src/lib/provisioning.ts` — the SAME function
+ * `GET /api/stripe/session-status` calls, so a payment produces one account whether the webhook
+ * or the customer's browser gets there first.
  */
 
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { neon } from "@neondatabase/serverless";
-import bcrypt from "bcryptjs";
-import { buyPhoneNumber, type PurchasedNumber } from "../../../lib/telnyx";
-import { createSetPasswordLink } from "../../../lib/set-password";
-import { sendWelcomeEmail } from "../../../lib/welcome-email";
-import { DEFAULT_TIMEZONE, normalizeZip, preferredAreaCode, zipRegion } from "../../../lib/us-zip";
-
-/**
- * Where links in customer email should point. Never derived from a header: a webhook has no
- * browser, and a link a customer cannot open is worse than no link.
- */
-function siteBaseUrl(): string {
-  return (process.env.PUBLIC_BASE_URL || "https://www.receptionai.store").replace(/\/+$/, "");
-}
-
-/**
- * Where the business is: its timezone and the area code its number should be bought in.
- * The ZIP comes from the signup form (metadata.postalCode); the owner's mobile — which Stripe
- * Checkout collects — is the second opinion for the area code. An unknown ZIP is not an error:
- * the org still gets created, on the documented default timezone, and the miss is logged.
- */
-function resolveRegion(rawZip: unknown, customerPhone: unknown, label: string) {
-  const zip = normalizeZip(rawZip);
-  const region = zip ? zipRegion(zip) : null;
-  const timezone = region?.timezone || DEFAULT_TIMEZONE;
-  const areaCode = preferredAreaCode(zip, typeof customerPhone === "string" ? customerPhone : "");
-  if (!zip) {
-    console.warn(`[Stripe] ${label}: no ZIP supplied — defaulting to timezone ${DEFAULT_TIMEZONE}, any-area-code number`);
-  } else if (!region) {
-    console.warn(`[Stripe] ${label}: ZIP ${zip} not in the region table — defaulting to timezone ${DEFAULT_TIMEZONE}, any-area-code number`);
-  } else {
-    console.log(`[Stripe] ${label}: ZIP ${zip} → timezone ${timezone}, area code ${areaCode || "(none)"}`);
-  }
-  return { zip, timezone, areaCode };
-}
-
-/**
- * Buy a number in the customer's own area code, and fall back to any US number rather than
- * fail provisioning. Which path was taken is always in the logs.
- */
-async function buyNumberForRegion(areaCode: string, label: string): Promise<PurchasedNumber | null> {
-  if (areaCode) {
-    const local = await buyPhoneNumber(areaCode);
-    if (local) {
-      console.log(`[Telnyx] Bought local number ${local.phoneNumber} in area code ${areaCode} (${label})`);
-      return local;
-    }
-    console.warn(`[Telnyx] No numbers available in area code ${areaCode} (${label}) — falling back to any US number`);
-  } else {
-    console.log(`[Telnyx] No area code known (${label}) — buying any US number`);
-  }
-  const fallback = await buyPhoneNumber();
-  if (fallback) {
-    console.log(`[Telnyx] Bought fallback US number ${fallback.phoneNumber} (${label}, no area-code match)`);
-  }
-  return fallback;
-}
-
-/** A phone number for logs: last four digits only. The owner's mobile is never printed in full. */
-function maskPhone(input: unknown): string {
-  const digits = typeof input === "string" ? input.replace(/[^0-9]/g, "") : "";
-  return digits.length >= 4 ? `…${digits.slice(-4)}` : "(none)";
-}
+import { findProvisionedOrgId, getSql, provisionCheckoutSession } from "../../../lib/provisioning";
 
 function verifyStripeSignature(
   rawBody: string,
@@ -104,55 +46,6 @@ function verifyStripeSignature(
     return timingSafeEqual(sigBuffer, expectedBuffer);
   } catch {
     return false;
-  }
-}
-
-function getSql() {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) throw new Error("DATABASE_URL not set");
-  return neon(dbUrl);
-}
-
-/**
- * Alert the owner over SMS — the SAME mechanism as the support alerts in serve.ts
- * (`SUPPORT_ALERT_TO` / `SUPPORT_ALERT_FROM`, sent through Telnyx). The destination is
- * env-only: the owner's personal number is never written in source.
- *
- * Never throws and never rejects — a provisioning flow must not fail because an alert
- * could not be delivered. A failure is logged loudly with the provider's own error so a
- * charged customer with a broken setup can never be silent.
- */
-async function sendOwnerAlert(text: string): Promise<void> {
-  const to = process.env.SUPPORT_ALERT_TO || "";
-  const from = process.env.SUPPORT_ALERT_FROM || "";
-  const apiKey = process.env.TELNYX_API_KEY || "";
-  if (!to || !from || !apiKey) {
-    console.error(
-      `[Stripe] OWNER ALERT NOT SENT (SUPPORT_ALERT_TO / SUPPORT_ALERT_FROM / TELNYX_API_KEY not all set): ${text}`
-    );
-    return;
-  }
-  try {
-    const res = await fetch("https://api.telnyx.com/v2/messages", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to,
-        text,
-        ...(process.env.TELNYX_CONNECTION_ID ? { messaging_profile_id: process.env.TELNYX_CONNECTION_ID } : {}),
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.error(
-        `[Stripe] OWNER ALERT SMS REJECTED (${res.status}): ${detail.slice(0, 200)} — alert was: ${text}`
-      );
-      return;
-    }
-    console.log(`[Stripe] Owner alert sent: ${text.replace(/\s+/g, " ").slice(0, 90)}`);
-  } catch (err) {
-    console.error(`[Stripe] OWNER ALERT SMS FAILED: ${String(err).slice(0, 200)} — alert was: ${text}`);
   }
 }
 
@@ -299,67 +192,11 @@ async function releaseStripeEventClaim(eventId: string, cause: unknown): Promise
   }
 }
 
-/**
- * Has this payment already been provisioned?
- *
- * The event ledger stops the SAME event running twice. This stops the SAME PURCHASE running
- * under a different event id — Stripe can send checkout.session.completed and
- * payment_intent.succeeded for one payment, and a retry can arrive with a fresh id.
- */
-async function findProvisionedOrgId(
-  sql: ReturnType<typeof getSql>,
-  opts: { stripeCustomerId?: string; checkoutSessionId?: string }
-): Promise<string | null> {
-  const { stripeCustomerId, checkoutSessionId } = opts;
-  if (checkoutSessionId) {
-    const bySession = (await sql`
-      SELECT organization_id FROM subscriptions WHERE stripe_subscription_id = ${checkoutSessionId} LIMIT 1
-    `) as Array<{ organization_id: string }>;
-    if (bySession[0]?.organization_id) return bySession[0].organization_id;
-  }
-  if (stripeCustomerId) {
-    const byCustomer = (await sql`
-      SELECT id FROM organizations WHERE stripe_customer_id = ${stripeCustomerId} LIMIT 1
-    `) as Array<{ id: string }>;
-    if (byCustomer[0]?.id) return byCustomer[0].id;
-    const subByCustomer = (await sql`
-      SELECT organization_id FROM subscriptions WHERE stripe_customer_id = ${stripeCustomerId} LIMIT 1
-    `) as Array<{ organization_id: string }>;
-    if (subByCustomer[0]?.organization_id) return subByCustomer[0].organization_id;
-  }
-  return null;
-}
-
-/**
- * The number this org ended up with, for the welcome email. "Live" is a fact read from the DB,
- * never an assumption — the email must not claim a line that does not exist.
- */
-async function describeProvisionedNumber(
-  sql: ReturnType<typeof getSql>,
-  orgId: string
-): Promise<{ phoneNumber: string | null; pendingPort: boolean }> {
-  try {
-    const rows = (await sql`
-      SELECT phone_number, is_active, metadata FROM phone_numbers
-      WHERE organization_id = ${orgId}
-      ORDER BY created_at ASC
-      LIMIT 5
-    `) as Array<{ phone_number: string; is_active: boolean | string; metadata: any }>;
-    const active = rows.find((r) => r.is_active === true || r.is_active === "1");
-    return {
-      phoneNumber: active?.phone_number || null,
-      pendingPort: rows.some((r) => (r.metadata?.status || "") === "pending_port"),
-    };
-  } catch (err) {
-    console.error(`[Stripe] Could not read phone numbers for org ${orgId}:`, String(err).slice(0, 200));
-    return { phoneNumber: null, pendingPort: false };
-  }
-}
-
 async function processStripeEvent(event: any) {
   switch (event.type) {
     case "checkout.session.completed":
-      await handleCheckoutCompleted(event.data.object);
+      // The one shared provisioning function — identical to what the thank-you page triggers.
+      await provisionCheckoutSession(event.data.object);
       break;
     case "payment_intent.succeeded":
       await handlePaymentIntentSucceeded(event.data.object);
@@ -404,7 +241,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: any) {
   }
 
   const sql = getSql();
-  const existing = await findProvisionedOrgId(sql, { stripeCustomerId: customerId });
+  const existing = await findProvisionedOrgId(sql, { stripeCustomerId: customerId || undefined });
   if (existing) {
     console.log(`[Stripe] payment_intent.succeeded ${id}: customer ${customerId || "(none)"} already provisioned as org ${existing} — nothing to do`);
     return;
@@ -413,7 +250,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: any) {
   const session = await fetchCheckoutSessionForPaymentIntent(id);
   if (session) {
     console.log(`[Stripe] payment_intent.succeeded ${id}: resolved checkout session ${session.id} — provisioning from it`);
-    await handleCarmOneTimeCheckout(session);
+    await provisionCheckoutSession(session);
     return;
   }
 
@@ -451,467 +288,41 @@ async function fetchCheckoutSessionForPaymentIntent(paymentIntentId: string): Pr
 }
 
 /**
- * Handle checkout.session.completed — FULL ONBOARDING FLOW:
- * a. Extract metadata from the checkout session
- * b. Create organization
- * c. Create user (admin/owner)
- * d. If !useExistingNumber: buy phone number via Telnyx → insert into phone_numbers
- * e. If useExistingNumber: insert existingPhoneNumber with status 'pending_port'
- * f. Store stripeCustomerId on organization
- * g. Create subscription record
+ * Alert the owner over SMS. Kept here for the one path this file still owns
+ * (payment_intent.succeeded with nothing to provision); the provisioning flow has its own copy
+ * in src/lib/provisioning.ts.
  */
-// ── Carm Marketing one-time (founding) checkout detection ──────────────
-// Carm Marketing sells done-for-you plans via one-time Payment Links.
-// Plan tier is encoded in the Stripe *price* metadata (plan_tier, rate),
-// not in the session metadata (Payment Links don't carry session metadata).
-const CARM_PRICE_ID_MAP: Record<string, { tier: string; rate: string; fee?: boolean }> = {
-  "price_1UQbimDqebBmBAbiCEqpXbSE": { tier: "starter", rate: "founding" },
-  "price_1UQbimDqebBmBAbixJIL7zIJ": { tier: "pro", rate: "founding" },
-  "price_1UQbilDqebBmBAbilu2uxOsf": { tier: "growth", rate: "founding" },
-  "price_1UQbilDqebBmBAbicvA3Q9Yu": { tier: "setup", rate: "founding", fee: true },
-};
-
-const PLAN_LABELS: Record<string, string> = { starter: "Starter", growth: "Growth", scale: "Scale" };
-
-// Map Carm tier → self-serve plan name (provisioning parity).
-function mapCarmTierToPlan(tier: string): string {
-  switch (tier) {
-    case "pro": return "growth";
-    case "growth": return "scale";
-    case "starter":
-    default: return "starter";
+async function sendOwnerAlert(text: string): Promise<void> {
+  const to = process.env.SUPPORT_ALERT_TO || "";
+  const from = process.env.SUPPORT_ALERT_FROM || "";
+  const apiKey = process.env.TELNYX_API_KEY || "";
+  if (!to || !from || !apiKey) {
+    console.error(
+      `[Stripe] OWNER ALERT NOT SENT (SUPPORT_ALERT_TO / SUPPORT_ALERT_FROM / TELNYX_API_KEY not all set): ${text}`
+    );
+    return;
   }
-}
-
-async function fetchCheckoutLineItems(sessionId: string): Promise<any[]> {
-  const key = process.env.STRIPE_SECRET_KEY || "";
-  if (!key || !sessionId) return [];
   try {
-    const res = await fetch(
-      `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}/line_items?limit=10&expand[]=data.price`,
-      { headers: { Authorization: `Bearer ${key}` } }
-    );
-    if (!res.ok) return [];
-    const data = await res.json().catch(() => null);
-    return data?.data || [];
-  } catch (e) {
-    console.warn("[Stripe] line_items fetch failed", String(e).slice(0, 120));
-    return [];
-  }
-}
-
-// Determine the Carm tier/rate for a one-time checkout session.
-// Returns null if it's not a recognizable Carm checkout (graceful fallback).
-async function resolveCarmCheckout(session: any): Promise<{ tier: string; rate: string; priceId: string } | null> {
-  const items = await fetchCheckoutLineItems(session.id);
-  for (const item of items) {
-    const price = item?.price || {};
-    const priceId = price.id || "";
-    const tier = price.metadata?.plan_tier || "";
-    const rate = price.metadata?.rate || "";
-    if (tier && !price.metadata?.fee) {
-      return { tier, rate: rate || "founding", priceId };
-    }
-    const known = CARM_PRICE_ID_MAP[priceId];
-    if (known && !known.fee) {
-      return { tier: known.tier, rate: known.rate, priceId };
-    }
-  }
-  return null;
-}
-
-// Provision an org for a one-time Carm Marketing (founding client) payment.
-// Mirrors the self-serve flow: org + admin user + Telnyx number + business hours.
-async function handleCarmOneTimeCheckout(session: any): Promise<void> {
-  const checkoutSessionId = session.id;
-  const stripeCustomerId = session.customer || "";
-  const customerDetails = session.customer_details || {};
-  const email = session.metadata?.email || customerDetails.email || "";
-  const name = session.metadata?.name || customerDetails.name || "";
-  const amountTotal = session.amount_total || 0;
-
-  console.log(`[Stripe] One-time (Carm) checkout: session=${checkoutSessionId}, customer=${stripeCustomerId}, amount=${amountTotal}`);
-
-  const resolved = await resolveCarmCheckout(session);
-  if (!resolved) {
-    console.warn(`[Stripe] Unrecognized one-time checkout (no matching price metadata) — session=${checkoutSessionId}; skipping provisioning (no crash).`);
-    return;
-  }
-  const { tier, rate, priceId } = resolved;
-  if (!email) {
-    console.warn(`[Stripe] Missing customer email for one-time checkout ${checkoutSessionId} — skipping provisioning`);
-    return;
-  }
-  const meta = session.metadata || {};
-  const isSelfServe = !!(meta.email && meta.plan);
-  // Timezone + area code from the customer's own ZIP. Carm payment links carry no ZIP, so this
-  // path can legitimately fall through to the defaults — logged, never fatal.
-  const region = resolveRegion(
-    meta.postalCode || customerDetails.address?.postal_code,
-    customerDetails.phone,
-    "Carm one-time"
-  );
-  const plan = isSelfServe
-    ? (["starter", "growth", "scale"].includes(meta.plan) ? meta.plan : "starter")
-    : (rate === "standard" ? tier : mapCarmTierToPlan(tier));
-  // The org name is what the AI says out loud ("Thanks for calling {name}"), so it must be the
-  // customer's own business name — never a staff-facing label like "New Carm Client — …".
-  // Fall back to the customer's name, then the email local part, before a generic placeholder.
-  const companyName = (meta.companyName || "").trim() || name || email.split("@")[0] || "Business";
-  const orgName = companyName;
-  const passwordHash = meta.password ? await bcrypt.hash(meta.password, 10) : generateRandomHash();
-
-  console.log(`[Stripe] Provisioning client: tier=${tier} rate=${rate} plan=${plan} org="${orgName}" email=${email}`);
-
-  const sql = getSql();
-
-  // Already provisioned? One payment must never buy two accounts. This catches the same
-  // purchase arriving under a different event id (payment_intent.succeeded next to
-  // checkout.session.completed, or a retry that Stripe re-labelled).
-  const alreadyProvisioned = await findProvisionedOrgId(sql, {
-    stripeCustomerId: stripeCustomerId || undefined,
-    checkoutSessionId,
-  });
-  if (alreadyProvisioned) {
-    console.log(
-      `[Stripe] Carm checkout ${checkoutSessionId} already provisioned as org ${alreadyProvisioned} — skipping (no second org, user, number or subscription)`
-    );
-    await sendOwnerAlert(
-      `⚠️ ReceptionAI: duplicate Carm provisioning attempt blocked\n` +
-      `Session: ${checkoutSessionId}\n` +
-      `Stripe customer: ${stripeCustomerId || "unknown"}\n` +
-      `Existing org: ${alreadyProvisioned}\n` +
-      `Nothing was created. Check Stripe for a duplicate charge for ${email}.`
-    );
-    return;
-  }
-
-  const orgId = crypto.randomUUID();
-  const userId = crypto.randomUUID();
-  const slug = `${isSelfServe ? "" : "carm-"}${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}`;
-
-  await sql`
-    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale, postal_code)
-    VALUES (${orgId}, ${orgName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', ${region.timezone}, 'en', ${region.zip || null})
-  `;
-
-  // The owner's mobile, collected by Stripe Checkout: it is the destination for press-3
-  // transfers, post-call summaries and missed-call alerts. Never overwrite a value that is
-  // already set — the customer's own entry in Settings wins.
-  if (typeof customerDetails.phone === "string" && customerDetails.phone.trim()) {
-    await sql`
-      UPDATE organizations SET phone = ${customerDetails.phone.trim()}, updated_at = NOW()
-      WHERE id = ${orgId} AND (phone IS NULL OR phone = '')
-    `;
-    console.log(`[Stripe] Owner mobile stored from checkout: ${maskPhone(customerDetails.phone)}`);
-  }
-
-  await sql`
-    INSERT INTO users (id, organization_id, email, name, role, password_hash)
-    VALUES (${userId}, ${orgId}, ${email}, ${name || "Owner"}, 'owner', ${passwordHash})
-  `;
-
-  // Phone number (same as self-serve: buy via Telnyx, in the customer's area code when known)
-  const purchased = await buyNumberForRegion(region.areaCode, `Carm org ${orgId}`);
-  if (purchased) {
-    await sql`
-      INSERT INTO phone_numbers (id, organization_id, phone_number, provider, telnyx_number_id, is_active, capabilities)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${purchased.phoneNumber}, 'telnyx', ${purchased.telnyxNumberId}, true, '{"voice":true,"sms":true,"mms":false}'::jsonb)
-    `;
-  } else {
-    // Same rule as the self-serve path: a paying customer with no number is never silent.
-    console.error(`[Stripe] Failed to buy phone number for Carm client — org ${orgId} has no number (${email})`);
-    await sendOwnerAlert(
-      `🚨 ReceptionAI: number purchase FAILED (Carm client)\n` +
-      `Business: ${orgName}\n` +
-      `Email: ${email}\n` +
-      `Stripe customer: ${stripeCustomerId || "unknown"}\n` +
-      `Plan: ${plan} (${rate})\n` +
-      `They have paid and have no phone number. Buy a number for org ${orgId} or refund.`
-    );
-  }
-
-  // Subscription record (one-time; no Stripe subscription object).
-  const planRows = await sql`SELECT id FROM subscription_plans WHERE name = ${plan} LIMIT 1`;
-  const planId = planRows[0]?.id || null;
-  if (planId) {
-    await sql`
-      INSERT INTO subscriptions (id, organization_id, plan_id, stripe_subscription_id, stripe_customer_id, status, billing_cycle, metadata)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${planId}, ${checkoutSessionId}, ${stripeCustomerId}, 'active', 'monthly', ${JSON.stringify({ source: isSelfServe ? "self-serve" : "carm", rate, tier, price_id: priceId, amount_total: amountTotal })}::jsonb)
-    `;
-  }
-
-  // Default business hours (Mon-Fri 9-5)
-  for (let day = 1; day <= 5; day++) {
-    await sql`
-      INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, '09:00', '17:00', false)
-    `;
-  }
-  for (const day of [0, 6]) {
-    await sql`
-      INSERT INTO business_hours (id, organization_id, day_of_week, is_closed)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, true)
-    `;
-  }
-
-  console.log(`[Stripe] Carm onboarding complete for org ${orgId} (${orgName})`);
-
-  // ── The way in ────────────────────────────────────────────────────────────────────────────
-  // This buyer never chose a password, so the hash above is unknowable by design. Without a
-  // link they cannot reach the dashboard they paid for: that was the defect. A single-use,
-  // 7-day set-password link in their welcome email is the fix.
-  let setPasswordUrl: string | null = null;
-  try {
-    setPasswordUrl = await createSetPasswordLink({
-      userId,
-      email,
-      organizationId: orgId,
-      baseUrl: siteBaseUrl(),
+    const res = await fetch("https://api.telnyx.com/v2/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to,
+        text,
+        ...(process.env.TELNYX_CONNECTION_ID ? { messaging_profile_id: process.env.TELNYX_CONNECTION_ID } : {}),
+      }),
     });
-    console.log(`[Stripe] Set-password link created for ${email} (org ${orgId})`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error(
+        `[Stripe] OWNER ALERT SMS REJECTED (${res.status}): ${detail.slice(0, 200)} — alert was: ${text}`
+      );
+      return;
+    }
+    console.log(`[Stripe] Owner alert sent: ${text.replace(/\s+/g, " ").slice(0, 90)}`);
   } catch (err) {
-    // A paid customer with no way in is an emergency, not a log line.
-    console.error(`[Stripe] SET-PASSWORD LINK FAILED for ${email} (org ${orgId}):`, String(err).slice(0, 300));
-    await sendOwnerAlert(
-      `🚨 ReceptionAI: Carm client has no set-password link\n` +
-      `Business: ${orgName}\nEmail: ${email}\nOrg: ${orgId}\n` +
-      `They paid and cannot sign in. Send them a reset link or create the password by hand.`
-    );
-  }
-
-  const { phoneNumber, pendingPort } = await describeProvisionedNumber(sql, orgId);
-  const sent = await sendWelcomeEmail({
-    name,
-    businessName: orgName,
-    email,
-    planLabel: PLAN_LABELS[plan] || plan,
-    planNote: rate === "founding" ? " (founding client rate)" : "",
-    phoneNumber,
-    pendingPort,
-    setPasswordUrl,
-    dashboardUrl: `${siteBaseUrl()}/login`,
-  });
-  if (sent) {
-    console.log(`[Stripe] Welcome email sent to ${email} (Carm one-time, set-password link ${setPasswordUrl ? "included" : "MISSING"})`);
-  } else {
-    console.error(
-      `[Stripe] WELCOME EMAIL FAILED for ${email} (org ${orgId}) — this Carm customer has received nothing; contact them manually`
-    );
-  }
-}
-
-async function handleCheckoutCompleted(session: any) {
-  // One-time (payment mode) checkout — Carm Marketing Payment Links carry no subscription object.
-  if (!session.subscription) {
-    await handleCarmOneTimeCheckout(session).catch((err) =>
-      console.error("[Stripe] Carm one-time checkout failed:", String(err).slice(0, 300))
-    );
-    return;
-  }
-  const {
-    id: checkoutSessionId,
-    customer: stripeCustomerId,
-    subscription: stripeSubscriptionId,
-    metadata = {},
-    customer_details = {},
-  } = session;
-
-  // Trimmed: the org name is spoken to every caller, so stray whitespace from the signup form
-  // must never reach it. An all-whitespace value falls through to the missing-name guard below.
-  const companyName = (metadata.companyName || "").trim();
-  const email = metadata.email || customer_details.email || "";
-  const name = metadata.name || customer_details.name || "";
-  const plan = metadata.plan || "starter";
-  const useExistingNumber = metadata.useExistingNumber === "true";
-  const existingPhoneNumber = metadata.existingPhoneNumber || "";
-  const password = metadata.password || "";
-  // Their own timezone and their own area code, from the ZIP they gave at signup. Never fatal:
-  // a missing or unknown ZIP falls back to the documented defaults and says so in the log.
-  const region = resolveRegion(
-    metadata.postalCode || customer_details.address?.postal_code,
-    customer_details.phone,
-    `self-serve ${checkoutSessionId}`
-  );
-
-  console.log(
-    `[Stripe] Checkout completed: session=${checkoutSessionId}, ` +
-    `customer=${stripeCustomerId}, plan=${plan}, company="${companyName}", ` +
-    `useExisting=${useExistingNumber}`
-  );
-
-  if (!companyName || !email) {
-    console.warn("[Stripe] Missing companyName or email in metadata — skipping onboarding");
-    return;
-  }
-
-  const sql = getSql();
-  const orgId = crypto.randomUUID();
-  const userId = crypto.randomUUID();
-  const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60);
-
-  // Already provisioned? Same rule as the Carm path: one payment, one account. A retry that
-  // arrives under a different event id must not create a second org, number or subscription.
-  const alreadyProvisioned = await findProvisionedOrgId(sql, {
-    stripeCustomerId: typeof stripeCustomerId === "string" ? stripeCustomerId : undefined,
-    checkoutSessionId,
-  });
-  if (alreadyProvisioned) {
-    console.log(
-      `[Stripe] Checkout ${checkoutSessionId} already provisioned as org ${alreadyProvisioned} - skipping (no second org, user, number or subscription)`
-    );
-    await sendOwnerAlert(
-      `⚠️ ReceptionAI: duplicate self-serve provisioning attempt blocked\n` +
-      `Session: ${checkoutSessionId}\n` +
-      `Stripe customer: ${stripeCustomerId || "unknown"}\n` +
-      `Existing org: ${alreadyProvisioned}\n` +
-      `Nothing was created. Check Stripe for a duplicate charge for ${email}.`
-    );
-    return;
-  }
-
-  // b. Create organization
-  await sql`
-    INSERT INTO organizations (id, name, slug, email, stripe_customer_id, industry, timezone, locale, postal_code)
-    VALUES (${orgId}, ${companyName}, ${slug}, ${email}, ${stripeCustomerId}, 'Service', ${region.timezone}, 'en', ${region.zip || null})
-  `;
-  console.log(`[Stripe] Created org: ${orgId} — "${companyName}" (timezone ${region.timezone})`);
-
-  // The owner's mobile from Stripe Checkout — the destination for press-3 transfers, post-call
-  // summaries, missed-call alerts and callback requests. Only fills an empty column: a number the
-  // customer typed themselves is never overwritten.
-  if (typeof customer_details.phone === "string" && customer_details.phone.trim()) {
-    await sql`
-      UPDATE organizations SET phone = ${customer_details.phone.trim()}, updated_at = NOW()
-      WHERE id = ${orgId} AND (phone IS NULL OR phone = '')
-    `;
-    console.log(`[Stripe] Owner mobile stored from checkout: ${maskPhone(customer_details.phone)}`);
-  } else {
-    console.warn(`[Stripe] No owner mobile from checkout for org ${orgId} — the setup step must collect it`);
-  }
-
-  // c. Create user (owner) with password hash
-  const passwordHash = password ? await bcrypt.hash(password, 10) : null;
-  await sql`
-    INSERT INTO users (id, organization_id, email, name, role, password_hash)
-    VALUES (${userId}, ${orgId}, ${email}, ${name}, 'owner', ${passwordHash || generateRandomHash()})
-  `;
-  console.log(`[Stripe] Created user: ${userId} — ${email}${password ? " (with password)" : " (no password in metadata)"}`);
-
-  // d/e. Phone number provisioning
-  if (!useExistingNumber) {
-    // Buy a new number via Telnyx — in the customer's own area code when we know it.
-    console.log(`[Stripe] Buying new phone number via Telnyx (area code ${region.areaCode || "any"})...`);
-    const purchased = await buyNumberForRegion(region.areaCode, `org ${orgId}`);
-
-    if (purchased) {
-      await sql`
-        INSERT INTO phone_numbers (id, organization_id, phone_number, provider, telnyx_number_id, is_active, capabilities)
-        VALUES (${crypto.randomUUID()}, ${orgId}, ${purchased.phoneNumber}, 'telnyx', ${purchased.telnyxNumberId}, true, '{"voice":true,"sms":true,"mms":false}'::jsonb)
-      `;
-      console.log(`[Stripe] Purchased number: ${purchased.phoneNumber} (telnyx: ${purchased.telnyxNumberId})`);
-    } else {
-      // A charged customer with no phone number is invisible unless we say so out loud.
-      console.error(`[Stripe] Failed to buy phone number — org ${orgId} created WITHOUT a number (${email})`);
-      await sendOwnerAlert(
-        `🚨 ReceptionAI: number purchase FAILED\n` +
-        `Business: ${companyName}\n` +
-        `Email: ${email}\n` +
-        `Stripe customer: ${stripeCustomerId || "unknown"}\n` +
-        `Plan: ${plan}\n` +
-        `They have been charged and have no phone number. Buy a number for org ${orgId} or refund.`
-      );
-    }
-  } else if (existingPhoneNumber) {
-    // Store existing number as pending port
-    await sql`
-      INSERT INTO phone_numbers (id, organization_id, phone_number, provider, is_active, capabilities, metadata)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${existingPhoneNumber}, 'telnyx', false, '{"voice":false,"sms":false,"mms":false}'::jsonb, '{"status":"pending_port"}'::jsonb)
-    `;
-    console.log(`[Stripe] Stored existing number as pending_port: ${existingPhoneNumber}`);
-  }
-
-  // f. stripeCustomerId is already stored on the org (see b)
-
-  // g. Create subscription record
-  if (stripeSubscriptionId) {
-    const planIdMap: Record<string, string> = {
-      starter: "starter",
-      growth: "growth",
-      scale: "scale",
-    };
-
-    // Find plan ID from DB or use the plan name directly
-    const planRows = await sql`
-      SELECT id FROM subscription_plans WHERE name = ${plan} LIMIT 1
-    `;
-    const planId = planRows[0]?.id || planIdMap[plan] || null;
-
-    await sql`
-      INSERT INTO subscriptions (id, organization_id, plan_id, stripe_subscription_id, stripe_customer_id, status, billing_cycle)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${planId ? planId : null}, ${stripeSubscriptionId}, ${stripeCustomerId}, 'active', 'monthly')
-    `;
-    console.log(`[Stripe] Created subscription: ${stripeSubscriptionId}`);
-  }
-
-  // Create default business hours (Mon-Fri 9-5)
-  for (let day = 1; day <= 5; day++) {
-    await sql`
-      INSERT INTO business_hours (id, organization_id, day_of_week, open_time, close_time, is_closed)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, '09:00', '17:00', false)
-    `;
-  }
-  for (const day of [0, 6]) {
-    await sql`
-      INSERT INTO business_hours (id, organization_id, day_of_week, is_closed)
-      VALUES (${crypto.randomUUID()}, ${orgId}, ${String(day)}, true)
-    `;
-  }
-
-  console.log(`[Stripe] Onboarding complete for org ${orgId}`);
-
-  // h. Send the welcome email - and only claim what is actually true.
-  //
-  // A self-serve buyer chose a password at checkout, so their email carries a login link and no
-  // token. If the password never made it into metadata, the hash stored above is unknowable by
-  // anyone - the same trap as the Carm path - so they get a single-use set-password link.
-  let setPasswordUrl: string | null = null;
-  if (!password) {
-    try {
-      setPasswordUrl = await createSetPasswordLink({
-        userId,
-        email,
-        organizationId: orgId,
-        baseUrl: siteBaseUrl(),
-      });
-      console.log(`[Stripe] Set-password link created for ${email} (org ${orgId}, no password at checkout)`);
-    } catch (err) {
-      console.error(`[Stripe] SET-PASSWORD LINK FAILED for ${email} (org ${orgId}):`, String(err).slice(0, 300));
-      await sendOwnerAlert(
-        `🚨 ReceptionAI: customer has no way to sign in\n` +
-        `Business: ${companyName}\nEmail: ${email}\nOrg: ${orgId}\n` +
-        `No password at checkout and no set-password link was created. Send them a reset link.`
-      );
-    }
-  }
-
-  const { phoneNumber, pendingPort } = await describeProvisionedNumber(sql, orgId);
-  const sent = await sendWelcomeEmail({
-    name,
-    businessName: companyName,
-    email,
-    planLabel: PLAN_LABELS[plan] || plan,
-    phoneNumber,
-    pendingPort,
-    setPasswordUrl,
-    dashboardUrl: `${siteBaseUrl()}/login`,
-  });
-  if (sent) {
-    console.log(`[Stripe] Welcome email sent to ${email} (number ${phoneNumber ? "live" : "pending"})`);
-  } else {
-    console.error(
-      `[Stripe] WELCOME EMAIL FAILED for ${email} (org ${orgId}) - the customer has received nothing; contact them manually`
-    );
+    console.error(`[Stripe] OWNER ALERT SMS FAILED: ${String(err).slice(0, 200)} — alert was: ${text}`);
   }
 }
 
@@ -983,8 +394,4 @@ function mapStripeStatus(
     paused: "paused",
   };
   return map[stripeStatus] || "incomplete";
-}
-
-function generateRandomHash(): string {
-  return bcrypt.hashSync(crypto.randomUUID(), 10);
 }
