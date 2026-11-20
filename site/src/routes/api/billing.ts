@@ -47,10 +47,10 @@ const PLANS = [
     features: [
       "2 phone lines",
       "2,000 AI-minutes/month",
-      "WhatsApp & Facebook integration",
+      "Everything in Starter",
       "Advanced analytics dashboard",
-      "Team management",
       "Priority email & chat support",
+      "Voicemail with playable recordings",
     ],
     stripePriceId: "price_1TxrJCP7NtNpgQdeNBA9dxqn",
     stripePaymentLink: "https://buy.stripe.com/eVq14ng2w90tfrZ4PfaVa03",

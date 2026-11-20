@@ -32,7 +32,7 @@ const mockMessages: Record<string, { name: string; initials: string; channel: st
     name: "John Smith", initials: "JS", channel: "💬 Chat", phone: "(555) 987-6543", email: "john.smith@email.com", status: "active",
     messages: [
       { role: "customer", content: "Hi, I'm looking at your website. Can you tell me about your pricing?", time: "11:30 AM" },
-      { role: "ai", content: "Of course! We have three plans: Starter at $99/mo, Growth at $199/mo, and Scale at $399/mo. The Growth plan is our most popular — it includes 2 phone lines, 2,000 AI-minutes, and WhatsApp integration. Would you like more details on any specific plan?", time: "11:30 AM" },
+      { role: "ai", content: "Of course! We have three plans: Starter at $99/mo, Growth at $199/mo, and Scale at $399/mo. The Growth plan is our most popular — it includes 2 phone lines, 2,000 AI-minutes, and an analytics dashboard. Would you like more details on any specific plan?", time: "11:30 AM" },
       { role: "customer", content: "The Growth plan sounds interesting. How many team members can use it?", time: "11:32 AM" },
       { role: "ai", content: "The Growth plan includes full team management with no limit on team members. Each team member gets their own dashboard access with role-based permissions. Would you like to schedule a demo?", time: "11:32 AM" },
       { role: "customer", content: "Yes, please! Can we do it this week?", time: "11:33 AM" },
