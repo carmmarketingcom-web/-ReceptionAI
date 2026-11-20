@@ -84,8 +84,8 @@ test("the public GET /api/health payload is unchanged: platform shape, still no 
 test("src/lib/org-health.ts is byte-identical in both trees", () => {
   expect(siteLib).toBe(rootLib);
   // Every org-scoped query is tenant-scoped: phone number, last call, demo count,
-  // appointments — plus the organization row itself, keyed by id.
-  expect((rootLib.match(/organization_id = \$\{organizationId\}/g) || []).length).toBe(4);
+  // appointments, reminders — plus the organization row itself, keyed by id.
+  expect((rootLib.match(/organization_id = \$\{organizationId\}/g) || []).length).toBe(5);
   expect(rootLib).toContain("WHERE id = ${organizationId}");
 });
 

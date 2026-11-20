@@ -48,6 +48,15 @@ export interface OrgHealthTexting {
   delivering: boolean | null;
 }
 
+export interface OrgHealthReminders {
+  /** Reminders and follow-ups for this org still waiting to send. */
+  pending: number;
+  /** Claims a dead tick abandoned: failed on purpose, never re-sent (last 7 days). */
+  stuckClaims: number;
+  /** Follow-ups expired because they were more than 24 hours late (last 7 days). */
+  expired: number;
+}
+
 export interface OrgHealthLastCall {
   found: boolean;
   callerNumber: string | null;
@@ -75,6 +84,7 @@ export interface OrgHealth {
   lastCall: OrgHealthLastCall;
   webhookStatus: OrgHealthWebhook;
   scheduleStatus: { upcoming: number };
+  reminders: OrgHealthReminders;
   /** True only when every check we could run came back healthy. */
   allOk: boolean;
   /** Names of checks that could not be verified from our side (e.g. "webhook"). */
@@ -236,7 +246,29 @@ export async function buildOrgHealth(sql: SqlTag, organizationId: string): Promi
     upcoming = 0;
   }
 
-  // 7. Aggregate + honest tips.
+  // 7. Reminders and follow-ups. Every send is claimed before it goes out, so a claim
+  //    abandoned by a crashed or restarted tick is marked failed instead of being re-sent.
+  //    That means the customer never gets that reminder, and this count is the only place it
+  //    can be seen. Seven days, so one recovery does not sit on the page forever.
+  const reminders: OrgHealthReminders = { pending: 0, stuckClaims: 0, expired: 0 };
+  try {
+    const reminderRows = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE status = 'failed' AND error_message = 'claimed but never sent') AS stuck_claims,
+        COUNT(*) FILTER (WHERE status = 'expired') AS expired
+      FROM appointment_reminders
+      WHERE organization_id = ${organizationId}
+        AND updated_at >= NOW() - INTERVAL '7 days'
+    `;
+    reminders.pending = countOf({ n: reminderRows[0]?.pending });
+    reminders.stuckClaims = countOf({ n: reminderRows[0]?.stuck_claims });
+    reminders.expired = countOf({ n: reminderRows[0]?.expired });
+  } catch {
+    // No table, or a schema older than 0018: report zeros rather than inventing numbers.
+  }
+
+  // 8. Aggregate + honest tips.
   const unknowns: string[] = [];
   if (!webhookStatus.known) unknowns.push("webhook");
 
@@ -262,6 +294,11 @@ export async function buildOrgHealth(sql: SqlTag, organizationId: string): Promi
   if (texting.addonEnabled && texting.delivering === false) {
     tips.push("Text alerts are switched on, but no text has been delivered yet. Email is carrying every notification in the meantime.");
   }
+  if (reminders.stuckClaims > 0) {
+    tips.push(
+      `${reminders.stuckClaims} reminder${reminders.stuckClaims === 1 ? "" : "s"} stopped mid-send when the server restarted. We did not send ${reminders.stuckClaims === 1 ? "it" : "them"} a second time, so the customer was never reminded — check those appointments by hand.`,
+    );
+  }
 
   return {
     organization: { id: org?.id || organizationId, name: org?.name || null, timezone: org?.timezone || null },
@@ -270,6 +307,7 @@ export async function buildOrgHealth(sql: SqlTag, organizationId: string): Promi
     lastCall,
     webhookStatus,
     scheduleStatus: { upcoming },
+    reminders,
     allOk,
     unknowns,
     tips,
@@ -317,6 +355,7 @@ export function normalizeOrgHealth(raw: unknown): NormalizedOrgHealth {
   const call = asObject(src.lastCall);
   const hook = asObject(src.webhookStatus);
   const sched = asObject(src.scheduleStatus);
+  const reminders = asObject(src.reminders);
   const org = asObject(src.organization);
 
   const provisioned = phone.provisioned === true;
@@ -355,6 +394,11 @@ export function normalizeOrgHealth(raw: unknown): NormalizedOrgHealth {
       source: asString(hook.source) || "none",
     },
     scheduleStatus: { upcoming: asNumber(sched.upcoming) || 0 },
+    reminders: {
+      pending: asNumber(reminders.pending) || 0,
+      stuckClaims: asNumber(reminders.stuckClaims) || 0,
+      expired: asNumber(reminders.expired) || 0,
+    },
     allOk: src.allOk === true,
     unknowns: Array.isArray(src.unknowns) ? src.unknowns.filter((u: unknown) => typeof u === "string") : [],
     tips: Array.isArray(src.tips) ? src.tips.filter((t: unknown) => typeof t === "string") : [],
