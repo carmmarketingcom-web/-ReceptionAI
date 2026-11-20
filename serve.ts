@@ -4489,7 +4489,6 @@ async function ensureReminderCallSchema(sql: any): Promise<void> {
 let reminderClaimSchemaReady = false;
 async function ensureReminderClaimSchema(sql: any): Promise<void> {
   if (reminderClaimSchemaReady) return;
-  reminderClaimSchemaReady = true;
   try {
     await sql`ALTER TABLE appointment_reminders ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`;
     await sql`ALTER TABLE appointment_reminders ADD COLUMN IF NOT EXISTS provider_message_id TEXT`;
@@ -4506,8 +4505,11 @@ async function ensureReminderClaimSchema(sql: any): Promise<void> {
       )
     `;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS appointment_reminders_appt_kind ON appointment_reminders (appointment_id, reminder_type)`;
+    reminderClaimSchemaReady = true;
   } catch (err) {
-    console.warn("[Reminders] claim schema ensure skipped:", String(err).slice(0, 120));
+    // Leave the flag false: a sweep that runs against a table without claimed_at would fail
+    // every tick until the process restarted. Retrying next sweep costs one idempotent DDL.
+    console.warn("[Reminders] claim schema ensure failed, will retry next sweep:", String(err).slice(0, 120));
   }
 }
 
