@@ -1117,6 +1117,51 @@ export const translations: Record<string, { en: string; es: string }> = {
   "login.startTrial": { en: "Get Started", es: "Comenzar" },
   "login.pleaseWait": { en: "Please wait...", es: "Espere por favor..." },
   "login.fillFields": { en: "Please fill in all fields.", es: "Por favor completa todos los campos." },
+  /* ─── After payment — /signup/success (the thank-you page) ─── */
+  /* A paying customer must never land back on the signup form. Every string here is about a
+     payment that already happened: the number we bought, the email we sent, the way in. */
+  "success.waiting.title": { en: "Payment received", es: "Pago recibido" },
+  "success.waiting.settingUp": { en: "Setting up", es: "Configurando" },
+  "success.waiting.note": {
+    en: "We're buying your phone number and switching on your receptionist. This usually takes a few seconds.",
+    es: "Estamos comprando tu número de teléfono y activando tu recepcionista. Normalmente tarda unos segundos.",
+  },
+  "success.ready.title": { en: "Thank you", es: "¡Gracias" },
+  "success.ready.business": { en: "Your receptionist is answering as", es: "Tu recepcionista contesta como" },
+  "success.ready.numberLabel": { en: "Your new number", es: "Tu número nuevo" },
+  "success.ready.callIt": {
+    en: "Call it and hear your receptionist answer.",
+    es: "Llámale y escucha a tu recepcionista contestar.",
+  },
+  "success.ready.pendingNumber": {
+    en: "Your number is being connected — we'll email it to you the moment it is live.",
+    es: "Tu número se está conectando — te lo enviaremos por correo en cuanto esté activo.",
+  },
+  "success.ready.emailed": { en: "We also emailed this to", es: "También te enviamos esto a" },
+  "success.ready.openDashboard": { en: "Open my dashboard", es: "Abrir mi panel" },
+  "success.ready.finishSetup": { en: "Finish setup", es: "Terminar la configuración" },
+  "success.ready.signedIn": {
+    en: "You're signed in — pick up wherever you left off.",
+    es: "Ya iniciaste sesión — continúa donde lo dejaste.",
+  },
+  "success.ready.loginRequired": { en: "To get in, sign in with", es: "Para entrar, inicia sesión con" },
+  "success.ready.loginRequiredTail": {
+    en: "and the password you chose at checkout.",
+    es: "y la contraseña que elegiste al pagar.",
+  },
+  "success.ready.loginLink": { en: "Go to the login page", es: "Ir a la página de inicio de sesión" },
+  "success.confirming.title": {
+    en: "Your payment is still being confirmed",
+    es: "Tu pago aún se está confirmando",
+  },
+  "success.confirming.body": {
+    en: "Nothing is wrong. Stripe is confirming the payment and we're setting up your account — check the email you used at checkout, where your number and sign-in details will arrive.",
+    es: "No pasa nada. Stripe está confirmando el pago y estamos creando tu cuenta — revisa el correo que usaste al pagar, ahí llegarán tu número y tus datos de acceso.",
+  },
+  "success.confirming.login": {
+    en: "Already have your password? Log in",
+    es: "¿Ya tienes tu contraseña? Inicia sesión",
+  },
 };
 
 /* ─── Runtime locale (module-level, updated by <LocaleProvider>) ─── */

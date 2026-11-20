@@ -1445,42 +1445,17 @@ async function generateCallTranscript(cs: CallState): Promise<string> {
 const DASHBOARD_NOTIFY_URL = "https://www.receptionai.store/dashboard";
 
 // ── email_deliveries: one row per outbound email ─────────────────────────────
-// Same shape as sms_deliveries (migration 0008) — epoch-ms and TEXT/INTEGER columns — so the
-// same DDL runs on Postgres and on the SQLite fake used by the tests. The server issues the
-// CREATE TABLE itself as well, so /api/health can report email health before migration 0010
-// is applied by hand.
-let emailDeliveriesTableReady: Promise<boolean> | null = null;
-
+// The implementation lives in src/lib/email-delivery.ts so the Stripe webhook route records the
+// welcome email through the SAME path instead of a copy of it. These three wrappers keep every
+// existing call site in this file unchanged.
 function emailDeliveryDb(): any {
   const dbUrl = process.env.DATABASE_URL || "";
   return dbUrl ? neon(dbUrl) : null;
 }
 
 async function ensureEmailDeliveriesTable(sql: any): Promise<boolean> {
-  if (!emailDeliveriesTableReady) {
-    emailDeliveriesTableReady = (async () => {
-      try {
-        await sql`CREATE TABLE IF NOT EXISTS email_deliveries (
-          id TEXT PRIMARY KEY,
-          to_email TEXT,
-          subject TEXT,
-          kind TEXT,
-          org_id TEXT,
-          status TEXT,
-          error TEXT,
-          created_at_ms BIGINT,
-          updated_at_ms BIGINT
-        )`;
-        await sql`CREATE INDEX IF NOT EXISTS email_deliveries_created_idx ON email_deliveries (created_at_ms)`;
-        return true;
-      } catch (err) {
-        console.warn("[Email] delivery table unavailable:", String(err).slice(0, 120));
-        emailDeliveriesTableReady = null; // retry on the next send
-        return false;
-      }
-    })();
-  }
-  return emailDeliveriesTableReady;
+  const { ensureEmailDeliveriesTable: ensure } = await import("./src/lib/email-delivery");
+  return ensure(sql);
 }
 
 // False when there was no DB or the insert failed — the caller logs that, because a missing
@@ -1493,20 +1468,8 @@ async function recordEmailDelivery(row: {
   status: "sent" | "failed";
   error: string | null;
 }): Promise<boolean> {
-  const sql = emailDeliveryDb();
-  if (!sql) return false;
-  if (!(await ensureEmailDeliveriesTable(sql))) return false;
-  const now = Date.now();
-  try {
-    await sql`INSERT INTO email_deliveries
-      (id, to_email, subject, kind, org_id, status, error, created_at_ms, updated_at_ms)
-      VALUES (${crypto.randomUUID()}, ${row.toEmail}, ${row.subject.slice(0, 200)}, ${row.kind},
-              ${row.orgId}, ${row.status}, ${row.error}, ${now}, ${now})`;
-    return true;
-  } catch (err) {
-    console.warn("[Email] could not record delivery:", String(err).slice(0, 120));
-    return false;
-  }
+  const { recordEmailDelivery: record } = await import("./src/lib/email-delivery");
+  return record(row);
 }
 
 // The single place an email actually leaves the process. Returns true only when the provider
@@ -1520,27 +1483,8 @@ async function deliverEmail(
   orgId: string | null,
   replyTo?: string,
 ): Promise<boolean> {
-  let ok = false;
-  let error: string | null = null;
-  try {
-    // The real Resend wrapper is ./src/lib/email — correct from BOTH serve.ts trees, because
-    // site/serve.ts has its own src/. The previous parent-directory specifier resolved to /lib/email,
-    // which does not exist, so every post-call summary and voicemail email threw here and
-    // was swallowed by the catch below: the owner was never told about a call.
-    const { sendEmail } = await import("./src/lib/email");
-    ok = await sendEmail(toEmail, subject, body, replyTo || undefined);
-    if (!ok) error = "provider rejected the message or RESEND_API_KEY is unset";
-  } catch (err) {
-    error = String(err).slice(0, 200);
-  }
-  const persisted = await recordEmailDelivery({ toEmail, subject, kind, orgId, status: ok ? "sent" : "failed", error });
-  if (ok) {
-    console.log(`[Email] Sent "${subject.slice(0, 50)}" to ${toEmail} (${kind})`);
-  } else {
-    console.error(`[Email] NOT SENT "${subject.slice(0, 50)}" to ${toEmail} (${kind}): ${error}`);
-  }
-  if (!persisted) console.warn(`[Email] delivery NOT recorded for ${kind} to ${toEmail} (no database?)`);
-  return ok;
+  const { deliverEmail: deliver } = await import("./src/lib/email-delivery");
+  return deliver(toEmail, subject, body, kind, orgId, replyTo);
 }
 
 // Last 24h of email for /api/health. Never throws: a broken read reports zeros, because the
@@ -8808,7 +8752,7 @@ for (let attempt = 1; ; attempt++) {
             const params = new URLSearchParams({
               "customer_email": email,
               "mode": "subscription",
-              "success_url": `${baseUrl}/signup/success?plan=${plan}&email=${encodeURIComponent(email)}`,
+              "success_url": `${baseUrl}/signup/success?plan=${plan}&email=${encodeURIComponent(email)}&session_id={CHECKOUT_SESSION_ID}`,
               "cancel_url": `${baseUrl}/signup`,
               "line_items[0][price]": priceId,
               "line_items[0][quantity]": "1",
@@ -8866,6 +8810,24 @@ for (let attempt = 1; ; attempt++) {
             console.error("[Stripe Webhook] handler unavailable:", String(err).slice(0, 300));
             return new Response(JSON.stringify({ error: "Webhook handler unavailable" }),
               { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+        }
+
+        // ── Stripe session status — what the thank-you page polls ────
+        // A payment must produce an account even when the webhook is late (owner incident
+        // 2026-11-20). This retrieves the checkout session from Stripe and, when it is paid, runs
+        // the SAME provisioning function the webhook runs — safe to call twice, so the two paths
+        // cannot make two accounts. It answers only paid / ready / businessName / firstName /
+        // email / phoneNumber: the session metadata carries the customer's password and is never
+        // echoed back.
+        if (pathname === "/api/stripe/session-status" && req.method === "GET") {
+          try {
+            const { handleSessionStatus } = await import("./src/lib/stripe-session-status");
+            return await handleSessionStatus(req);
+          } catch (err) {
+            console.error("[Stripe session-status] handler unavailable:", String(err).slice(0, 300));
+            return new Response(JSON.stringify({ paid: false, ready: false, businessName: null, firstName: null, email: null, phoneNumber: null }),
+              { status: 200, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
           }
         }
         // ── Auth: Forgot Password ───────────────────────────────────
