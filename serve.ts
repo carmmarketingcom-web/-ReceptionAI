@@ -2426,6 +2426,9 @@ async function scheduleRemindersInline(p: {
   if (!dbUrl) return;
   try {
     const sql = neon(dbUrl);
+    // The inserts below rely on the (appointment_id, reminder_type) unique index, so it is
+    // created before the first one runs rather than assuming the migration landed.
+    await ensureReminderClaimSchema(sql);
     const apptTime = zonedToUtc(p.date, p.time, p.tz);
     const reminders = [
       { type: "24h_before", at: apptTime.getTime() - 24 * 3600 * 1000 },
@@ -2447,6 +2450,7 @@ async function scheduleRemindersInline(p: {
           (gen_random_uuid(), ${p.appointmentId}, ${p.organizationId}, ${r.type},
            ${new Date(r.at).toISOString()}, 'pending', ${customerEmail ? "email" : "sms"},
            ${p.customerPhone}, ${customerEmail || null}, ${msg})
+        ON CONFLICT (appointment_id, reminder_type) DO NOTHING
       `;
     }
     // The reminder CALL (owner 2026-11-17). A caller who books by phone leaves no email, so
@@ -2462,6 +2466,7 @@ async function scheduleRemindersInline(p: {
             (gen_random_uuid(), ${p.appointmentId}, ${p.organizationId}, '24h_call',
              ${new Date(callAt).toISOString()}, 'pending', 'voice',
              ${String(p.customerPhone).trim()}, NULL, NULL)
+          ON CONFLICT (appointment_id, reminder_type) DO NOTHING
         `;
       }
     }
@@ -2474,6 +2479,25 @@ async function scheduleRemindersInline(p: {
     }
   } catch (err) {
     console.error("[Reminders] schedule failed:", String(err).slice(0, 120));
+    // Nothing was scheduled, so this customer will hear nothing and nobody would know.
+    // The same platform alert channel the balance watchdog uses, so it lands in the team's
+    // inbox rather than dying in a log line.
+    void emailPlatformAlert(
+      `Reminders were not scheduled for a booking (${p.appointmentId})`,
+      [
+        "A booking was saved but its reminder rows could not be scheduled.",
+        "",
+        `Appointment: ${p.appointmentId}`,
+        `Organization: ${p.organizationId}`,
+        `Customer: ${p.customerName}`,
+        `Service: ${p.service} on ${p.date} at ${p.time} (${p.tz})`,
+        "",
+        `Error: ${String(err).slice(0, 300)}`,
+        "",
+        "The customer will not be reminded automatically. Schedule the reminders by hand.",
+      ].join("\n"),
+      "reminder_schedule_failed",
+    ).catch(() => {});
   }
 }
 
@@ -4455,6 +4479,38 @@ async function ensureReminderCallSchema(sql: any): Promise<void> {
   }
 }
 
+// ── Reminder claim schema (0018) ────────────────────────────────────────────
+// Issued by the server on its first sweep for the same reason as the block above: a deploy
+// must not wait for someone to apply the migration by hand. The unique index is the part
+// that matters — it turns "one row of a kind per appointment" into a database rule instead
+// of a convention, so a retried booking can never schedule the same reminder twice. The
+// duplicate collapse runs first or the index cannot be created: a row that already sent
+// outranks an unsent one, otherwise the earliest row wins.
+let reminderClaimSchemaReady = false;
+async function ensureReminderClaimSchema(sql: any): Promise<void> {
+  if (reminderClaimSchemaReady) return;
+  reminderClaimSchemaReady = true;
+  try {
+    await sql`ALTER TABLE appointment_reminders ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`;
+    await sql`ALTER TABLE appointment_reminders ADD COLUMN IF NOT EXISTS provider_message_id TEXT`;
+    await sql`
+      DELETE FROM appointment_reminders WHERE id IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY appointment_id, reminder_type
+            ORDER BY (status = 'sent') DESC, created_at ASC, id ASC
+          ) AS rn
+          FROM appointment_reminders
+        ) ranked
+        WHERE ranked.rn > 1
+      )
+    `;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS appointment_reminders_appt_kind ON appointment_reminders (appointment_id, reminder_type)`;
+  } catch (err) {
+    console.warn("[Reminders] claim schema ensure skipped:", String(err).slice(0, 120));
+  }
+}
+
 // Write one outcome to the reminder row and to the log, in the format the owner reads:
 // [ReminderCall] appt=<id> to=<last4> status=<outcome>
 async function recordReminderCall(rc: ReminderCallState, outcome: string, note?: string, status = "sent"): Promise<void> {
@@ -4780,7 +4836,8 @@ async function attemptReminderCall(sql: any, r: any): Promise<"dialed" | "deferr
   try {
     await sql`
       UPDATE appointment_reminders
-      SET status='sent', channel='voice', result='dialed', sent_at=NOW(), updated_at=NOW()
+      SET status='sent', channel='voice', result='dialed', sent_at=NOW(),
+          provider_message_id=${cid}, updated_at=NOW()
       WHERE id=${reminderId}
     `;
     await sql`UPDATE appointments SET reminder_sent_at=NOW(), updated_at=NOW() WHERE id=${apptId}`;
@@ -4799,8 +4856,18 @@ async function attemptReminderCall(sql: any, r: any): Promise<"dialed" | "deferr
 export type ReminderSweepResult = {
   processed: number; sent: number; failed: number; skipped: number;
   dialled?: number; // reminder CALLS placed this pass
+  recovered?: number; // claims abandoned by a dead tick, marked failed (never re-sent)
+  expired?: number; // stale follow-ups expired instead of sent
   message?: string; error?: string;
 };
+
+// A claim older than this belongs to a tick that is no longer running (it crashed, or the
+// process was restarted mid-send). It is failed, never re-sent: a customer can see a
+// duplicate, only we can see a failed row.
+const REMINDER_CLAIM_STUCK_MS = 15 * 60 * 1000;
+// A follow-up later than this is stale — after a long outage "thanks for visiting" would
+// arrive days after the visit.
+const FOLLOW_UP_MAX_LATENESS_MS = 24 * 60 * 60 * 1000;
 
 async function processDueReminders(): Promise<ReminderSweepResult> {
   try {
@@ -4812,16 +4879,60 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
     const sql = neon(dbUrl);
     const now = new Date().toISOString();
     await ensureReminderCallSchema(sql);
+    await ensureReminderClaimSchema(sql);
+    const stuckCutoff = new Date(Date.now() - REMINDER_CLAIM_STUCK_MS).toISOString();
+    const followUpCutoff = new Date(Date.now() - FOLLOW_UP_MAX_LATENESS_MS).toISOString();
 
+    // 1. Recover claims nobody is working on. A row that was claimed and then abandoned
+    //    (crash, restart, killed process) is marked failed and is NOT sent — the team would
+    //    rather have a missing follow-up it can see than a duplicate the customer can see.
+    let recovered = 0;
+    try {
+      const stuck = await sql`
+        UPDATE appointment_reminders
+        SET status='failed', error_message='claimed but never sent', updated_at=NOW()
+        WHERE status='sending' AND claimed_at IS NOT NULL AND claimed_at < ${stuckCutoff}
+        RETURNING id
+      `;
+      recovered = Array.isArray(stuck) ? stuck.length : 0;
+    } catch (err) {
+      console.error("[Reminders] stuck-claim recovery failed:", String(err).slice(0, 140));
+    }
+    if (recovered) console.warn(`[Reminders] ${recovered} claim(s) marked failed — claimed but never sent`);
+
+    // 2. Expire stale follow-ups instead of sending them. The 24h/2h reminders keep today's
+    //    behaviour: a late reminder is still useful, a "thanks for visiting" a week later
+    //    is not.
+    let expired = 0;
+    try {
+      const stale = await sql`
+        UPDATE appointment_reminders
+        SET status='expired', error_message='expired: follow-up more than 24 hours late', updated_at=NOW()
+        WHERE status='pending' AND reminder_type='follow_up' AND scheduled_at < ${followUpCutoff}
+        RETURNING id
+      `;
+      expired = Array.isArray(stale) ? stale.length : 0;
+    } catch (err) {
+      console.error("[Reminders] stale follow-up expiry failed:", String(err).slice(0, 140));
+    }
+    if (expired) console.log(`[Reminders] ${expired} stale follow-up(s) expired instead of sent`);
+
+    // 3. CLAIM. One statement, before any provider call: the rows this tick owns become
+    //    'sending' atomically, and FOR UPDATE SKIP LOCKED makes a second server or an
+    //    overlapping tick step over them instead of sending them a second time. Only the
+    //    rows that come back are work.
     const due = await sql`
-      SELECT ar.id as reminder_id, ar.appointment_id, ar.organization_id,
-             ar.reminder_type, ar.channel, ar.recipient_phone, ar.recipient_email, ar.message_body,
-             a.title as appt_title, o.name as org_name
-      FROM appointment_reminders ar
-      JOIN appointments a ON ar.appointment_id = a.id
-      LEFT JOIN organizations o ON o.id = ar.organization_id
-      WHERE ar.status = 'pending' AND ar.scheduled_at <= ${now}
-      LIMIT 50
+      UPDATE appointment_reminders
+      SET status='sending', claimed_at=NOW(), updated_at=NOW()
+      WHERE id IN (
+        SELECT id FROM appointment_reminders
+        WHERE status='pending' AND scheduled_at <= ${now}
+        ORDER BY scheduled_at
+        LIMIT 50
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id AS reminder_id, appointment_id, organization_id, reminder_type, channel,
+                recipient_phone, recipient_email, message_body
     `;
 
     // A reminder is "sent" only when something actually left the building. Email is
@@ -4830,6 +4941,7 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
     // 'skipped' with the reason, so the dashboard stops counting a send that never
     // happened.
     let sent = 0, failed = 0, skipped = 0, dialled = 0;
+    const orgNameCache = new Map<string, string>();
     for (const r of due as any[]) {
       // A reminder CALL is dialled, not emailed: it is the only channel a customer who booked
       // by phone can be reached on, and it needs no carrier approval.
@@ -4839,10 +4951,31 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
         if (callResult === "dialed") { dialled++; sent++; }
         else if (callResult === "failed") failed++;
         else if (callResult === "skipped") skipped++;
+        else if (callResult === "deferred") {
+          // Hand the claim back deliberately: this row is not sent yet (outside calling
+          // hours, or a balance we cannot see), and the next tick inside the window must be
+          // able to pick it up. Nothing else ever returns a row to 'pending'.
+          try {
+            await sql`UPDATE appointment_reminders SET status='pending', claimed_at=NULL, updated_at=NOW() WHERE id=${r.reminder_id}`;
+          } catch (err) {
+            console.error("[Reminders] could not release a deferred claim:", String(err).slice(0, 140));
+          }
+        }
         continue;
       }
       const type = String(r.reminder_type || "");
-      const orgName = String(r.org_name || "our team");
+      // The claim returns the organization id, not a joined name: one cached lookup per
+      // distinct org per sweep keeps the claiming statement a single UPDATE.
+      const orgKey = String(r.organization_id || "");
+      let orgLabel = orgNameCache.get(orgKey);
+      if (orgLabel === undefined) {
+        try {
+          const orgRows = await sql`SELECT name FROM organizations WHERE id = ${r.organization_id} LIMIT 1`;
+          orgLabel = String((orgRows as any[])[0]?.name || "");
+        } catch { orgLabel = ""; }
+        orgNameCache.set(orgKey, orgLabel);
+      }
+      const orgName = orgLabel || "our team";
       const messageBody = String(r.message_body || "").trim();
 
       // Where can this customer be reached? The address stored on the reminder, else
@@ -4870,6 +5003,10 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
 
       let channel = "";
       let sendError = "";
+      // The provider's own id, when the sender returns one: it is what turns "we think it
+      // was sent" into a duplicate we can prove. Email's sender answers true/false only,
+      // so an email reminder records no id rather than a made-up one.
+      let providerMessageId: string | null = null;
       if (toEmail) {
         const subject = type === "follow_up"
           ? `Thanks for visiting ${orgName}`
@@ -4887,12 +5024,12 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
         // Routed through sendSms() so the reminder is recorded in
         // sms_deliveries and a rejection is visible; the wording is unchanged.
         const smsRes = await sendSms(smsSenderForOrg(fromNum), r.recipient_phone, r.message_body, "reminder");
-        if (smsRes.ok) channel = "sms";
+        if (smsRes.ok) { channel = "sms"; providerMessageId = smsRes.messageId; }
         else sendError = sendError || "Telnyx error";
       }
 
       if (channel) {
-        await sql`UPDATE appointment_reminders SET status='sent', channel=${channel}, sent_at=NOW(), updated_at=NOW() WHERE id=${r.reminder_id}`;
+        await sql`UPDATE appointment_reminders SET status='sent', channel=${channel}, sent_at=NOW(), provider_message_id=${providerMessageId}, updated_at=NOW() WHERE id=${r.reminder_id}`;
         await sql`UPDATE appointments SET reminder_sent_at=NOW(), reminder_sent_count=COALESCE(NULLIF(reminder_sent_count,'0')::int+1,1)::text, updated_at=NOW() WHERE id=${r.appointment_id}`;
         sent++;
       } else if (!toEmail && !canText) {
@@ -4907,7 +5044,7 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
       }
     }
 
-    return { processed: due.length, sent, failed, skipped, dialled };
+    return { processed: due.length, sent, failed, skipped, dialled, recovered, expired };
   } catch (err) {
     console.error("[Reminders Cron]", String(err).slice(0, 200));
     return { processed: 0, sent: 0, failed: 0, skipped: 0, dialled: 0, error: String(err).slice(0, 100) };
@@ -4930,17 +5067,39 @@ const reminderTimerOff = process.env.NODE_ENV === "test" || process.env.REMINDER
 
 if (!reminderTimerOff) {
   console.log(`[Reminders] in-process timer armed — sweep every ${REMINDER_TICK_MS / 60000} min`);
+  // setInterval does not wait for the previous run. A slow tick (a provider hanging, a
+  // stalled query) would otherwise overlap the next one and two ticks would be sending at
+  // once. The claim already makes that harmless, but a skipped tick is cheaper and visible.
+  // Ticks are never queued up: a missed one is simply missed, five minutes later there is
+  // another.
+  let reminderTickRunning = false;
   setInterval(() => {
+    if (reminderTickRunning) {
+      console.log(`[Reminders] tick skipped ${new Date().toISOString()} — the previous tick is still running`);
+      return;
+    }
+    reminderTickRunning = true;
     void (async () => {
-      const startedAt = Date.now();
-      const r = await processDueReminders();
-      const extra = [r.error ? `error=${r.error}` : "", r.message ? `note=${r.message}` : ""].filter(Boolean).join(" ");
-      console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} dialled=${r.dialled || 0} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
-      // Same pass, same timer: close calls that never got their hangup.
-      const swept = await sweepStaleCalls();
-      console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
-      // The timer is also a heartbeat for the balance watchdog (internally throttled).
-      void checkTelnyxBalance("reminders-timer").catch(() => {});
+      try {
+        const startedAt = Date.now();
+        const r = await processDueReminders();
+        const extra = [
+          r.error ? `error=${r.error}` : "",
+          r.message ? `note=${r.message}` : "",
+          r.recovered ? `recovered=${r.recovered}` : "",
+          r.expired ? `expired=${r.expired}` : "",
+        ].filter(Boolean).join(" ");
+        console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} dialled=${r.dialled || 0} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
+        // Same pass, same timer: close calls that never got their hangup.
+        const swept = await sweepStaleCalls();
+        console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
+        // The timer is also a heartbeat for the balance watchdog (internally throttled).
+        void checkTelnyxBalance("reminders-timer").catch(() => {});
+      } catch (err) {
+        console.error("[Reminders] tick failed:", String(err).slice(0, 200));
+      } finally {
+        reminderTickRunning = false;
+      }
     })();
   }, REMINDER_TICK_MS);
 }

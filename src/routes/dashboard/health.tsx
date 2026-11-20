@@ -386,6 +386,28 @@ function HealthPage() {
           </p>
         </StatusCard>
 
+        {/* Reminders — a claim abandoned by a restart is visible here, and was never re-sent */}
+        <StatusCard
+          title="Reminders & follow-ups"
+          state={h.reminders.stuckClaims > 0 ? "warn" : "ok"}
+          tip={
+            h.reminders.stuckClaims > 0
+              ? "These stopped mid-send when the server restarted. We deliberately did not send them a second time, so check those appointments and call the customer if they were not reminded."
+              : undefined
+          }
+        >
+          <p>
+            <StatusLabel
+              state={h.reminders.stuckClaims > 0 ? "warn" : "ok"}
+              text={`${h.reminders.pending} waiting to send`}
+            />
+          </p>
+          <p className="text-xs text-gray-400">
+            {h.reminders.stuckClaims} stopped mid-send · {h.reminders.expired} stale follow-up
+            {h.reminders.expired === 1 ? "" : "s"} skipped (last 7 days)
+          </p>
+        </StatusCard>
+
         {/* Text alerts — an optional add-on, off by default, and honest about delivery */}
         <StatusCard
           title="Text Alerts (optional add-on)"

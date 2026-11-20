@@ -92,13 +92,18 @@ db.run(`CREATE TABLE appointments (id TEXT PRIMARY KEY, organization_id TEXT, co
 db.run(`INSERT INTO appointments VALUES ('appt-1', 'org-1', NULL, 'AC tune-up', NULL, NULL, NULL)`);
 db.run(`CREATE TABLE appointment_reminders (id TEXT PRIMARY KEY, appointment_id TEXT, organization_id TEXT,
         reminder_type TEXT, recipient_phone TEXT, recipient_email TEXT, message_body TEXT,
-        scheduled_at TEXT, status TEXT, channel TEXT, sent_at TEXT, error_message TEXT, updated_at TEXT)`);
-db.run(`INSERT INTO appointment_reminders VALUES ('rem-1', 'appt-1', 'org-1', '24h_before', NULL,
-        'caller@example.test', 'See you tomorrow at 9am.', '2026-01-01T08:00:00.000Z', 'pending', NULL, NULL, NULL, NULL)`);
+        scheduled_at TEXT, status TEXT, channel TEXT, sent_at TEXT, error_message TEXT,
+        claimed_at TEXT, provider_message_id TEXT, created_at TEXT, updated_at TEXT)`);
+db.run(`INSERT INTO appointment_reminders (id, appointment_id, organization_id, reminder_type, recipient_phone,
+        recipient_email, message_body, scheduled_at, status) VALUES ('rem-1', 'appt-1', 'org-1', '24h_before', NULL,
+        'caller@example.test', 'See you tomorrow at 9am.', '2026-01-01T08:00:00.000Z', 'pending')`);
 
 function translate(text: string): string {
   return text
     .replace(/::[a-z_]+(\[\])?/gi, "")
+    // The sweep claims its rows with FOR UPDATE SKIP LOCKED, which SQLite has no syntax for;
+    // the row locking is Postgres' job and this stand-in runs one statement at a time.
+    .replace(/\bFOR UPDATE SKIP LOCKED\b/gi, "")
     .replace(/\bNOW\(\)/gi, "CURRENT_TIMESTAMP")
     .replace(/gen_random_uuid\(\)/gi, "'00000000-0000-4000-8000-000000000000'");
 }
@@ -107,7 +112,9 @@ function sqlTag(strings: TemplateStringsArray, ...params: any[]) {
   const text = translate(strings.reduce((acc, s, i) => acc + s + (i < params.length ? "?" : ""), ""));
   try {
     const stmt = db.query(text);
-    if (/^\s*select/i.test(text)) return Promise.resolve(stmt.all(...params));
+    // The sweep CLAIMS its work with UPDATE ... RETURNING, so a statement that returns rows
+    // is read with .all() and not thrown away by .run().
+    if (/^\s*select/i.test(text) || /\breturning\b/i.test(text)) return Promise.resolve(stmt.all(...params));
     stmt.run(...params);
     return Promise.resolve([]);
   } catch (err) {
