@@ -377,25 +377,20 @@ function BillingPage() {
   );
 }
 
-// ─── Manage subscription (owner 2026-11-19) ─────────────────────────────────
-// The owner asked for "a upgrade option and a cancel option very small available after one month
-// … with a why of canceling". Everything here is read from GET /api/billing/manage and acted on
-// through /api/billing/cancel and /api/billing/resume — real Stripe calls, org-scoped.
+// ─── Manage subscription (owner 2026-11-19, cancel dialog 2026-11-20) ────────
+// Everything here is read from GET /api/billing/manage and acted on through /api/billing/cancel
+// and /api/billing/resume — real Stripe calls, org-scoped.
 //
 // Nothing renders before 30 days from the first payment, and a business with no Stripe
 // subscription (the founder org, a Carm one-time buyer) is told so instead of being shown a
-// control that cannot work. Upgrade opens the Stripe billing portal, which is the supported path
-// for a plan change. Cancel runs to the END of the paid period and names that exact date, so the
-// customer keeps what they already paid for; the first month is not refundable and nothing is
-// prorated. FOUNDER50 is untouched either way.
-const CANCEL_REASONS = [
-  "Too expensive",
-  "Not enough calls",
-  "Missing a feature",
-  "Closing the business",
-  "Going elsewhere",
-  "Other",
-];
+// control that cannot work. Upgrade opens the Stripe billing portal.
+//
+// CANCELLING IS ONE QUESTION (owner 2026-11-20, cancellation-flow-spec.md): "where should calls
+// go after that?" — Nowhere (the default: a two-week out-of-service message, then the number is
+// released) or Forward them (to a number they give us, free, for 30 days). The plan always runs
+// to the last day of the paid month: no early cutoff, no proration, nothing charged after it.
+// Closing the dialog changes nothing; only "Cancel subscription" cancels.
+const CANCEL_CHIPS = ["Too expensive", "Closing", "Switched service", "Other"];
 
 interface BillingManage {
   eligible: boolean;
@@ -406,6 +401,16 @@ interface BillingManage {
   cancelsAt: string | null;
   periodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
+  numbers: string[];
+}
+
+interface CancelDone {
+  cancelsAt: string | null;
+  disposition: string;
+  forwardTo: string | null;
+  forwardUntil: string | null;
+  releaseOn: string | null;
+  numbers: string[];
 }
 
 function fmtDay(iso: string | null): string {
@@ -426,11 +431,13 @@ function fmtUntil(iso: string | null): string {
 function ManageSubscription() {
   const [manage, setManage] = useState<BillingManage | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [panel, setPanel] = useState(false);
+  const [dialog, setDialog] = useState(false);
+  const [choice, setChoice] = useState<"nowhere" | "forward">("nowhere");
+  const [forwardTo, setForwardTo] = useState("");
   const [reason, setReason] = useState("");
-  const [comment, setComment] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [done, setDone] = useState<CancelDone | null>(null);
 
   const load = async () => {
     try {
@@ -460,18 +467,43 @@ function ManageSubscription() {
     }
   };
 
+  const openDialog = () => {
+    setChoice("nowhere");
+    setForwardTo("");
+    setReason("");
+    setError("");
+    setDialog(true);
+  };
+
+  /** "Never mind": nothing is sent, nothing changes. Cancelling needs the explicit button. */
+  const closeDialog = () => {
+    setDialog(false);
+    setError("");
+  };
+
   const submitCancel = async () => {
-    if (!reason) {
-      setError("Choose a reason for cancelling.");
+    if (choice === "forward" && forwardTo.trim().replace(/\D/g, "").length < 10) {
+      setError("Enter the phone number we should forward calls to.");
       return;
     }
     setBusy("cancel");
     setError("");
     try {
-      await api.post("/api/billing/cancel", { reason, comment: comment.trim() || undefined });
+      const res = await api.post<CancelDone & { cancelled: boolean }>("/api/billing/cancel", {
+        reason: reason || undefined,
+        disposition: choice,
+        forward_to: choice === "forward" ? forwardTo.trim() : undefined,
+      });
+      setDone({
+        cancelsAt: res?.cancelsAt ?? null,
+        disposition: res?.disposition || choice,
+        forwardTo: res?.forwardTo ?? null,
+        forwardUntil: res?.forwardUntil ?? null,
+        releaseOn: res?.releaseOn ?? null,
+        numbers: res?.numbers || [],
+      });
+      setDialog(false);
       await load();
-      setPanel(false);
-      setComment("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not cancel the subscription.");
     } finally {
@@ -484,6 +516,7 @@ function ManageSubscription() {
     setError("");
     try {
       await api.post("/api/billing/resume");
+      setDone(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not undo the cancellation.");
@@ -541,6 +574,8 @@ function ManageSubscription() {
   const memberSince = fmtDay(manage.memberSince);
   // The last day of the month they have already paid for — the date cancelling runs to.
   const paidUntil = fmtUntil(manage.periodEndsAt || manage.cancelsAt);
+  const numbers = manage.numbers || [];
+  const numbersText = numbers.length ? numbers.join(", ") : "your number";
 
   return shell(
     <>
@@ -555,6 +590,14 @@ function ManageSubscription() {
           <p className="text-xs text-amber-700">
             Active until {paidUntil || "the last day of the month you have paid for"}. You can undo this until then.
           </p>
+          {done && (
+            <p className="text-xs text-gray-500">
+              {done.disposition === "forward" && done.forwardTo
+                ? `After that, calls to ${numbersText} forward to ${done.forwardTo} until ${fmtUntil(done.forwardUntil)}.`
+                : `After that, calls to ${numbersText} hear a short out-of-service message for two weeks.`}{" "}
+              {done.releaseOn ? `The number is released on ${fmtUntil(done.releaseOn)}.` : ""}
+            </p>
+          )}
           <button
             onClick={undoCancel}
             disabled={busy !== ""}
@@ -573,10 +616,7 @@ function ManageSubscription() {
             {busy === "portal" ? "Opening…" : "Upgrade"}
           </button>
           <button
-            onClick={() => {
-              setPanel(!panel);
-              setError("");
-            }}
+            onClick={openDialog}
             className="text-xs font-medium text-gray-400 hover:text-red-500"
           >
             Cancel subscription
@@ -584,61 +624,125 @@ function ManageSubscription() {
         </div>
       )}
 
-      {panel && !manage.cancelAtPeriodEnd && (
-        <div className="mt-3 space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
-          <label className="block text-xs font-medium text-gray-700">
-            Why are you cancelling? <span className="text-red-500">*</span>
-            <select
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900"
-            >
-              <option value="">Choose a reason</option>
-              {CANCEL_REASONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
+      {error && !dialog && <p className="mt-2 text-xs text-red-500">{error}</p>}
+
+      {/* The one question. Everything else is decided on our side. */}
+      {dialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-title"
+            className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl"
+          >
+            <h3 id="cancel-title" className="text-base font-bold text-gray-900">
+              Cancel your subscription?
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Your service stays on until {paidUntil || "the last day of the month you have paid for"}.
+            </p>
+
+            <p className="mt-4 text-sm font-medium text-gray-800">
+              Where should calls to {numbersText} go after that?
+            </p>
+            {numbers.length > 1 && (
+              <p className="mt-1 text-xs text-gray-500">All {numbers.length} of these numbers stop.</p>
+            )}
+
+            <div className="mt-3 space-y-2">
+              <label
+                className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${
+                  choice === "nowhere" ? "border-indigo-300 bg-indigo-50/50" : "border-gray-200"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="cancel-disposition"
+                  className="mt-0.5"
+                  checked={choice === "nowhere"}
+                  onChange={() => setChoice("nowhere")}
+                />
+                <span className="text-xs text-gray-700">
+                  <span className="block text-sm font-medium text-gray-900">Nowhere</span>
+                  Callers hear a short “this number is no longer in service” message for two weeks,
+                  then the number is released.
+                </span>
+              </label>
+
+              <label
+                className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${
+                  choice === "forward" ? "border-indigo-300 bg-indigo-50/50" : "border-gray-200"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="cancel-disposition"
+                  className="mt-0.5"
+                  checked={choice === "forward"}
+                  onChange={() => setChoice("forward")}
+                />
+                <span className="text-xs text-gray-700">
+                  <span className="block text-sm font-medium text-gray-900">Forward them</span>
+                  We send calls to a number you give us, free, for 30 days.
+                </span>
+              </label>
+
+              {choice === "forward" && (
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={forwardTo}
+                  onChange={(e) => setForwardTo(e.target.value)}
+                  placeholder="(555) 123-4567"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
+                />
+              )}
+            </div>
+
+            <p className="mt-4 text-xs text-gray-500">Why are you cancelling? (optional)</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {CANCEL_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => setReason(reason === chip ? "" : chip)}
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    reason === chip
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                      : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {chip}
+                </button>
               ))}
-            </select>
-          </label>
-          <label className="block text-xs font-medium text-gray-700">
-            Anything else? (optional)
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              rows={2}
-              className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900"
-              placeholder="What could we have done better?"
-            />
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={submitCancel}
-              disabled={busy !== "" || !reason}
-              className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              {busy === "cancel" ? "Cancelling…" : "Confirm cancellation"}
-            </button>
-            <button
-              onClick={() => {
-                setPanel(false);
-                setError("");
-              }}
-              className="text-xs font-medium text-gray-500 hover:text-gray-700"
-            >
-              Keep my plan
-            </button>
+            </div>
+
+            {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <button
+                onClick={submitCancel}
+                disabled={busy !== ""}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {busy === "cancel" ? "Cancelling…" : "Cancel subscription"}
+              </button>
+              <button
+                onClick={closeDialog}
+                disabled={busy !== ""}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Never mind
+              </button>
+            </div>
+
+            <p className="mt-4 text-xs text-gray-400">
+              Need to keep this number somewhere else? Reply to the cancellation email and we will
+              arrange it.
+            </p>
           </div>
-          <p className="text-xs text-gray-500">
-            Your plan stays active until {paidUntil || "the last day of the month you have paid for"}.
-            Cancelling does not end service early and nothing is prorated back. The first month is
-            not refundable, whichever day you cancel.
-          </p>
-          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
       )}
-
-      {error && !panel && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </>
   );
 }

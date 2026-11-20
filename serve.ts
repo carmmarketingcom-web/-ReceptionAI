@@ -13,6 +13,13 @@ import { sumAiMinutes } from "./src/lib/ai-minutes";
 import { resolvePublicBookingOrg, BOOKING_FALLBACK, type PublicBookingOrg } from "./src/lib/public-booking-org";
 import { buildCallOutcomes } from "./src/lib/call-outcomes";
 import { getBillingManage, cancelSubscription, resumeSubscription } from "./src/lib/billing-controls";
+import {
+  processCancellationLifecycle,
+  readNumberDisposition,
+  cancellationEmail,
+  OUT_OF_SERVICE_EN,
+  OUT_OF_SERVICE_ES,
+} from "./src/lib/cancellation";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PORT = parseInt(process.env.PORT || "3000");
@@ -1930,7 +1937,7 @@ type CallbackState = {
   callState?: CallState | null;
 };
 const callbackStates = new Map<string, CallbackState>(); // outbound cid → active callback state
-const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null; source: "inbound" | "reminder_call" | "callback" }>(); // outbound owner-leg cid → transfer info
+const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null; source: "inbound" | "reminder_call" | "callback" | "forward" }>(); // outbound owner-leg cid → transfer info
 
 // ── Reschedule flow handler ────────────────────────────────────────────────
 async function handleReschedulePhase(cid: string, digit: string, cs: CallState): Promise<void> {
@@ -2657,12 +2664,126 @@ async function handleBookingPhase(cid: string, digit: string, cs: CallState): Pr
     : "Sorry, press 1, 2, 3, or 4 to book, or 9 to speak with the team.", lang);
 }
 
+// ── Cancelled service (owner 2026-11-20, cancellation-flow-spec.md) ────────
+// A number whose subscription has ended is NOT an AI line any more. `number_lifecycle` says what
+// it is instead: a forward to the number the customer gave us (for 30 days after the paid month),
+// or the short out-of-service message (14 days, then the number is released). The row is written
+// by the sweep the moment service actually ends, so nothing here fires for a live business.
+async function getCancellationDisposition(toNumber: string) {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return null;
+  try {
+    return await readNumberDisposition(neon(dbUrl) as any, normalizeE164(toNumber));
+  } catch {
+    // A missing table must never stop a live business's phone from working.
+    return null;
+  }
+}
+
+/** True once this org's service has ended — reminders and callbacks stop dialling for it. */
+async function orgServiceEndedFlag(orgId: string): Promise<boolean> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return false;
+  try {
+    const rows = await neon(dbUrl)`SELECT service_ended_at FROM organizations WHERE id = ${orgId} LIMIT 1`;
+    return Boolean((rows as any[])[0]?.service_ended_at);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One email to the owner about one cancelled business. Goes to the org's owner account (and the
+ * team inbox), so "the owner gets an email when a number is released" is true for a customer who
+ * has already stopped logging in.
+ */
+async function notifyCancellationOwner(orgId: string, subject: string, body: string): Promise<boolean> {
+  const dbUrl = process.env.DATABASE_URL;
+  let ownerEmail: string | null = null;
+  let orgName = "a business";
+  if (dbUrl) {
+    try {
+      const sql = neon(dbUrl);
+      const rows = await sql`
+        SELECT u.email, o.name
+        FROM organizations o
+        LEFT JOIN users u ON u.organization_id = o.id AND u.role = 'owner'
+        WHERE o.id = ${orgId}
+        ORDER BY u.created_at
+        LIMIT 1
+      `;
+      ownerEmail = (rows as any[])[0]?.email || null;
+      orgName = (rows as any[])[0]?.name || orgName;
+    } catch { /* fall through to the team inbox */ }
+  }
+  const text = `${body}\n\nBusiness: ${orgName}\nOrganization: ${orgId}`;
+  let ok = false;
+  if (ownerEmail) ok = await deliverEmail(ownerEmail, subject, text, "billing", orgId);
+  const teamOk = await deliverEmail(SUPPORT_INBOX, `[Owner copy] ${subject}`, text, "billing", orgId);
+  if (!ok && !teamOk) console.error(`[Cancellation] org ${orgId}: the "${subject}" email did NOT send`);
+  return ok || teamOk;
+}
+
+/** Release one number at Telnyx. Idempotent at the caller: the row is claimed first. */
+async function releaseTelnyxNumber(number: { phoneE164: string; telnyxNumberId: string | null }): Promise<{ ok: boolean; note?: string }> {
+  const key = process.env.TELNYX_API_KEY || "";
+  if (!key) return { ok: false, note: "TELNYX_API_KEY is not set — nothing was released" };
+  try {
+    let id = number.telnyxNumberId || "";
+    if (!id) {
+      // The demo line and some older rows have no telnyx_number_id; look it up by number.
+      const found = await fetch(`${TELNYX}/phone_numbers?filter[phone_number]=${encodeURIComponent(number.phoneE164)}`, { headers: th() });
+      const data = (await found.json().catch(() => ({}))) as any;
+      id = data?.data?.[0]?.id || "";
+    }
+    if (!id) return { ok: false, note: "no Telnyx number id — nothing was released" };
+    const res = await fetch(`${TELNYX}/phone_numbers/${id}`, { method: "DELETE", headers: th() });
+    if (res.ok || res.status === 404) {
+      return { ok: true, note: res.status === 404 ? "already gone at Telnyx" : "released at Telnyx" };
+    }
+    const text = await res.text().catch(() => "");
+    return { ok: false, note: `Telnyx answered ${res.status}: ${text.slice(0, 200)}` };
+  } catch (err) {
+    return { ok: false, note: `Telnyx could not be reached (${String(err).slice(0, 100)})` };
+  }
+}
+
+/**
+ * The cancellation sweep, on the same in-process timer as the reminders. It ends service when the
+ * paid month is over, releases numbers whose out-of-service window has closed, and tells the owner
+ * when a customer's data is past 90 days. It never releases a ported number, never releases one for
+ * a business that is still active, and never touches the demo line.
+ */
+async function runCancellationSweep(): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return;
+  try {
+    const sql = neon(dbUrl);
+    const r = await processCancellationLifecycle({
+      sql: sql as any,
+      releaseNumber: releaseTelnyxNumber,
+      notify: notifyCancellationOwner,
+      skipNumbers: DEMO_PHONE_NUMBER ? [DEMO_PHONE_NUMBER] : [],
+    });
+    if (r.ended || r.released || r.blocked || r.failed || r.dueForDeletion || r.error) {
+      console.log(`[Cancellation] sweep ${new Date().toISOString()} ended=${r.ended} released=${r.released} blocked=${r.blocked} failed=${r.failed} dueForDeletion=${r.dueForDeletion}${r.error ? ` error=${r.error}` : ""}`);
+    }
+  } catch (err) {
+    console.error("[Cancellation] sweep failed:", String(err).slice(0, 200));
+  }
+}
+
 // ── Missed call auto-callback ─────────────────────────────────────────────
 function scheduleCallback(cs: CallState): void {
   if (!cs.toNumber || !cs.callerNumber) return;
   const webhookUrl = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
 
   setTimeout(async () => {
+    // A business whose subscription has ended is not calling anyone back (owner 2026-11-20).
+    if (cs.orgId && (await orgServiceEndedFlag(cs.orgId))) {
+      console.log(`[Callback] skipped — service for org ${cs.orgId} has ended`);
+      return;
+    }
     // The contact row decides two things before we dial: whether this caller pressed 9 on any
     // automated call (the store the reminder sweep reads), and which language to speak — a caller
     // we already know prefers Spanish gets the Spanish menu, not the English default.
@@ -2802,7 +2923,7 @@ async function recordTransferEvent(ev: {
   targetNumber: string | null;
   outcome: "bridged" | "missed" | "failed" | "no_target";
   language: string | null;
-  source: "inbound" | "reminder_call" | "callback";
+  source: "inbound" | "reminder_call" | "callback" | "forward";
 }): Promise<void> {
   if (!ev.organizationId) return;
   const dbUrl = process.env.DATABASE_URL;
@@ -4924,19 +5045,42 @@ async function processDueReminders(): Promise<ReminderSweepResult> {
     //    'sending' atomically, and FOR UPDATE SKIP LOCKED makes a second server or an
     //    overlapping tick step over them instead of sending them a second time. Only the
     //    rows that come back are work.
-    const due = await sql`
-      UPDATE appointment_reminders
-      SET status='sending', claimed_at=NOW(), updated_at=NOW()
-      WHERE id IN (
-        SELECT id FROM appointment_reminders
-        WHERE status='pending' AND scheduled_at <= ${now}
-        ORDER BY scheduled_at
-        LIMIT 50
-        FOR UPDATE SKIP LOCKED
-      )
-      RETURNING id AS reminder_id, appointment_id, organization_id, reminder_type, channel,
-                recipient_phone, recipient_email, message_body
-    `;
+    // A cancelled business's reminders stop the moment its service ends (owner 2026-11-20). The
+    // filter is only added once `organizations.service_ended_at` is known to exist, so a deploy
+    // that lands before migration 0019 is applied cannot stop reminders for live customers.
+    const serviceEndedColumn = await ensureLifecycleTables(sql as any);
+    const due = serviceEndedColumn
+      ? await sql`
+        UPDATE appointment_reminders
+        SET status='sending', claimed_at=NOW(), updated_at=NOW()
+        WHERE id IN (
+          SELECT id FROM appointment_reminders
+          WHERE status='pending' AND scheduled_at <= ${now}
+            AND NOT EXISTS (
+              SELECT 1 FROM organizations o
+              WHERE o.id = appointment_reminders.organization_id
+                AND o.service_ended_at IS NOT NULL
+            )
+          ORDER BY scheduled_at
+          LIMIT 50
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id AS reminder_id, appointment_id, organization_id, reminder_type, channel,
+                  recipient_phone, recipient_email, message_body
+      `
+      : await sql`
+        UPDATE appointment_reminders
+        SET status='sending', claimed_at=NOW(), updated_at=NOW()
+        WHERE id IN (
+          SELECT id FROM appointment_reminders
+          WHERE status='pending' AND scheduled_at <= ${now}
+          ORDER BY scheduled_at
+          LIMIT 50
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id AS reminder_id, appointment_id, organization_id, reminder_type, channel,
+                  recipient_phone, recipient_email, message_body
+      `;
 
     // A reminder is "sent" only when something actually left the building. Email is
     // tried first (it is the channel that delivers); a text is the fallback for a
@@ -5093,6 +5237,9 @@ if (!reminderTimerOff) {
           r.expired ? `expired=${r.expired}` : "",
         ].filter(Boolean).join(" ");
         console.log(`[Reminders] tick ${new Date().toISOString()} processed=${r.processed} sent=${r.sent} failed=${r.failed} skipped=${r.skipped} dialled=${r.dialled || 0} in ${Date.now() - startedAt}ms${extra ? " " + extra : ""}`);
+        // Same pass, same timer: the cancellation flow (service end → forward / out-of-service →
+        // release) and the 90-day data notice.
+        await runCancellationSweep();
         // Same pass, same timer: close calls that never got their hangup.
         const swept = await sweepStaleCalls();
         console.log(`[Sweeper] stale calls ${new Date().toISOString()} closed=${swept.closed}${swept.error ? ` error=${swept.error}` : ""}`);
@@ -5258,6 +5405,47 @@ for (let attempt = 1; ; attempt++) {
               console.log(isDemo
                 ? `[CALL] demo line detected (${normalizeE164(toNumber)}) — demo script`
                 : `[CALL] business line ${companyName}`);
+
+              // ── Cancelled service: the AI must not answer this number any more ──
+              // After the paid month ends a number either forwards (30 days) or plays the short
+              // out-of-service message (14 days) before it is released. Nothing is spoken before
+              // the call is answered, and the caller is never left on a silent line.
+              if (!isDemo && org?.orgId) {
+                const disp = await getCancellationDisposition(toNumber);
+                if (disp?.action === "out_of_service") {
+                  console.log(`[Cancelled] ${normalizeE164(toNumber)} out of service — message, then hangup`);
+                  await cmd(cid, "answer");
+                  setTimeout(async () => {
+                    await speakOnly(cid, OUT_OF_SERVICE_EN, "en");
+                    await speakOnly(cid, OUT_OF_SERVICE_ES, "es");
+                    armHangup(cid, 5000);
+                  }, 600);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                if (disp?.action === "forward") {
+                  console.log(`[Cancelled] ${normalizeE164(toNumber)} forwarding to ${disp.forwardTo}`);
+                  await cmd(cid, "answer");
+                  const fwdWebhook = `https://${process.env.HOST || "localhost:3000"}/api/telnyx/voice`;
+                  const fwdCid = await dialOutbound(disp.forwardTo, toNumber, fwdWebhook);
+                  if (fwdCid) {
+                    transferStates.set(fwdCid, {
+                      inboundCid: cid,
+                      ownerPhone: disp.forwardTo,
+                      callerNumber: fromNumber,
+                      businessNumber: toNumber,
+                      language: "en",
+                      answered: false,
+                      orgId: org.orgId,
+                      source: "forward",
+                    });
+                  } else {
+                    // Telnyx refused the leg: say so rather than leave the caller in silence.
+                    await speakOnly(cid, OUT_OF_SERVICE_EN, "en");
+                    armHangup(cid, 5000);
+                  }
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+              }
 
               // Look up caller history for known callers
               let callerContext: CallerContext | undefined;
@@ -7970,11 +8158,19 @@ for (let attempt = 1; ; attempt++) {
             const dbUrl = process.env.DATABASE_URL;
             if (!dbUrl) return json({ error: "DB not configured" }, 500);
             const sql = neon(dbUrl);
-            const body = (await req.json().catch(() => ({}))) as { reason?: string; comment?: string };
+            const body = (await req.json().catch(() => ({}))) as {
+              reason?: string;
+              comment?: string;
+              disposition?: string;
+              forward_to?: string;
+            };
             let requestedByEmail: string | null = null;
+            let businessName = "your business";
             try {
               const userRows = await sql`SELECT email FROM users WHERE id = ${auth.userId} LIMIT 1`;
               requestedByEmail = userRows[0]?.email || null;
+              const orgRows = await sql`SELECT name FROM organizations WHERE id = ${auth.organizationId} LIMIT 1`;
+              if (orgRows[0]?.name) businessName = orgRows[0].name;
             } catch { /* the reason is still stored without an email */ }
             const result = await cancelSubscription({
               sql: sql as any,
@@ -7983,8 +8179,25 @@ for (let attempt = 1; ; attempt++) {
               reason: String(body.reason || ""),
               comment: body.comment ? String(body.comment) : null,
               requestedByEmail,
+              disposition: body.disposition ? String(body.disposition) : "nowhere",
+              forwardTo: body.forward_to ? String(body.forward_to) : null,
             });
             if (!result.ok) return json({ error: result.error }, result.status);
+            // The customer's copy: what the dialog promised, plus the one line that offers to keep
+            // the number somewhere else (porting is handled by hand — it is not built).
+            if (requestedByEmail) {
+              const mail = cancellationEmail({
+                businessName,
+                numbers: result.numbers || [],
+                paidUntil: result.cancelsAt || null,
+                disposition: result.disposition || "nowhere",
+                forwardTo: result.forwardTo || null,
+                forwardUntil: result.forwardUntil || null,
+                releaseOn: result.releaseOn || null,
+              });
+              const customerOk = await deliverEmail(requestedByEmail, mail.subject, mail.body, "billing", auth.organizationId);
+              if (!customerOk) console.error(`[Billing cancel] org ${auth.organizationId}: customer email did NOT send`);
+            }
             // The team hears about every cancellation with the plan, the tenure, the reason and
             // this org's last 30 days, so the reason can be acted on instead of just recorded.
             const lines = [
@@ -7993,6 +8206,11 @@ for (let attempt = 1; ; attempt++) {
               `Reason: ${String(body.reason || "")}`,
               `Comment: ${body.comment ? String(body.comment) : "(none)"}`,
               `Plan stays active until: ${result.cancelsAt ? new Date(result.cancelsAt).toISOString().slice(0, 10) : "unknown"}`,
+              `Numbers: ${(result.numbers || []).join(", ") || "none on file"}`,
+              result.disposition === "forward" && result.forwardTo
+                ? `Calls after that: forward to ${result.forwardTo} until ${String(result.forwardUntil || "").slice(0, 10)}, then out-of-service for two weeks`
+                : `Calls after that: out-of-service message for two weeks`,
+              `Release on: ${String(result.releaseOn || "").slice(0, 10) || "unknown"}`,
               `Last 30 days: ${result.usage?.calls ?? 0} calls answered, ${result.usage?.bookings ?? 0} appointments booked`,
               `Requested by: ${requestedByEmail || "unknown"}`,
               `Organization: ${auth.organizationId}`,
@@ -8000,7 +8218,17 @@ for (let attempt = 1; ; attempt++) {
             const subject = `Cancellation: ${result.plan || "plan"} — ${String(body.reason || "")}`;
             const sent = await deliverEmail(SUPPORT_INBOX, subject, lines.join("\n"), "billing", auth.organizationId);
             if (!sent) console.error(`[Billing cancel] org ${auth.organizationId} cancelled but the team email did NOT send`);
-            return json({ cancelled: true, cancelsAt: result.cancelsAt, plan: result.plan, amount: result.amount });
+            return json({
+              cancelled: true,
+              cancelsAt: result.cancelsAt,
+              plan: result.plan,
+              amount: result.amount,
+              disposition: result.disposition,
+              forwardTo: result.forwardTo,
+              forwardUntil: result.forwardUntil,
+              releaseOn: result.releaseOn,
+              numbers: result.numbers || [],
+            });
           } catch (err) {
             console.error("[Billing cancel]", String(err).slice(0, 200));
             return json({ error: "Could not cancel the subscription" }, 500);

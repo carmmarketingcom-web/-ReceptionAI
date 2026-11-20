@@ -35,9 +35,22 @@
  *    it, and the credit is claimed in `subscription_credits` (UNIQUE on organization_id) BEFORE
  *    Stripe is called, so a double-click or a retry can never credit twice.
  *
- * No imports: this module is loaded by the Bun server, by the Vite-built route handlers and by
- * `bun test`, so it must stay dependency-free. Stripe and `fetch` are injected by the caller.
+ * No third-party imports: this module is loaded by the Bun server, by the Vite-built route
+ * handlers and by `bun test`, so it must stay dependency-free. Stripe and `fetch` are injected by
+ * the caller. The one relative import is `./cancellation`, which owns the cancel disposition and
+ * the number lifecycle the owner approved on 2026-11-20 — same rules, no dependencies.
  */
+import {
+  CANCEL_CHIPS,
+  LEGACY_CANCEL_REASONS,
+  normalizeDisposition,
+  normalizeForwardNumber,
+  normalizeReason,
+  planNumberLifecycle,
+  listOrgNumbers,
+  ensureLifecycleTables,
+  type CancelDisposition,
+} from "./cancellation";
 
 /** The tagged-template shape of `neon(url)`, injected so tests can supply a fake. */
 export type SqlTag = (strings: TemplateStringsArray, ...params: unknown[]) => Promise<any[]>;
@@ -48,16 +61,15 @@ export type FetchLike = (
   init?: { method?: string; headers?: Record<string, string>; body?: string }
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
 
-/** The six reasons the owner asked for, in the order the dropdown shows them. */
-export const CANCEL_REASONS = [
-  "Too expensive",
-  "Not enough calls",
-  "Missing a feature",
-  "Closing the business",
-  "Going elsewhere",
-  "Other",
-] as const;
+/** The six reasons 0017 shipped with. Still accepted so an old client never gets a 400. */
+export const CANCEL_REASONS = LEGACY_CANCEL_REASONS;
 export type CancelReason = (typeof CANCEL_REASONS)[number];
+
+/**
+ * The one-tap chips the cancel dialog shows (owner 2026-11-20). `reason` is OPTIONAL now: the
+ * dialog has four chips and no text box, and "Never mind" is the only thing that aborts.
+ */
+export const CANCEL_REASON_CHIPS = CANCEL_CHIPS;
 
 /** Both controls open after this many days from the first successful payment. */
 export const MANAGE_GATE_DAYS = 30;
@@ -93,6 +105,8 @@ export interface BillingManage {
   /** ISO instant of the paid-through date, whether or not a cancellation is pending. */
   periodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
+  /** The org's active numbers, so the cancel dialog can name every one of them. */
+  numbers: string[];
 }
 
 export interface BillingEnv {
@@ -107,9 +121,14 @@ export interface ManageDeps extends BillingEnv {
 }
 
 export interface CancelDeps extends ManageDeps {
+  /** Optional since 2026-11-20: the dialog offers chips and the customer may pick none. */
   reason: string;
   comment?: string | null;
   requestedByEmail?: string | null;
+  /** "nowhere" (default) or "forward" — where calls go after the paid month ends. */
+  disposition?: string;
+  /** The number calls are forwarded to, when `disposition` is "forward". */
+  forwardTo?: string | null;
 }
 
 export interface CancelResult {
@@ -122,6 +141,13 @@ export interface CancelResult {
   cancelsAt?: string | null;
   tenureDays?: number | null;
   usage?: { calls: number; bookings: number };
+  disposition?: CancelDisposition;
+  forwardTo?: string | null;
+  /** When forwarding stops, for a "forward" cancellation. */
+  forwardUntil?: string | null;
+  /** The day the number is released, after the out-of-service window. */
+  releaseOn?: string | null;
+  numbers?: string[];
 }
 
 export interface ResumeResult {
@@ -354,9 +380,12 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
     cancelsAt: null,
     periodEndsAt: null,
     cancelAtPeriodEnd: false,
+    numbers: [],
   };
 
   await ensureBillingTables(deps.sql);
+  // The cancel dialog names every number that will stop answering, so it is read here once.
+  empty.numbers = (await listOrgNumbers(deps.sql, deps.organizationId)).map((n) => n.phoneNumber);
 
   let row: SubscriptionRow | null = null;
   try {
@@ -430,6 +459,7 @@ export async function getBillingManage(deps: ManageDeps): Promise<BillingManage>
     cancelsAt: cancelAtPeriodEnd ? periodEndIso : null,
     periodEndsAt: periodEndIso,
     cancelAtPeriodEnd,
+    numbers: empty.numbers,
   };
 
   if (stripeError) return { ...base, reason: "stripe_unavailable" };
@@ -479,12 +509,17 @@ export async function recentUsage(
  * open cancellation row instead of adding a second one.
  */
 export async function cancelSubscription(deps: CancelDeps): Promise<CancelResult> {
-  const reason = String(deps.reason || "").trim();
-  if (!(CANCEL_REASONS as readonly string[]).includes(reason)) {
+  // The reason is OPTIONAL (owner 2026-11-20): the dialog shows four chips and the customer may
+  // pick none. Whatever arrives is normalised to one of the chips, one of the legacy reasons, or
+  // "Not given" — never rejected for being empty.
+  const reason = normalizeReason(deps.reason);
+  const disposition = normalizeDisposition(deps.disposition);
+  const forwardTo = disposition === "forward" ? normalizeForwardNumber(deps.forwardTo) : null;
+  if (disposition === "forward" && !forwardTo) {
     return {
       ok: false,
       status: 400,
-      error: `Choose a reason for cancelling: ${CANCEL_REASONS.join(", ")}.`,
+      error: "Enter the phone number calls should be forwarded to, or choose that callers hear the number is no longer in service.",
     };
   }
   if (!String(deps.stripeKey || "").trim()) {
@@ -534,14 +569,27 @@ export async function cancelSubscription(deps: CancelDeps): Promise<CancelResult
 
   const comment = String(deps.comment || "").trim().slice(0, 2000) || null;
   const requestedByEmail = String(deps.requestedByEmail || "").trim() || null;
+  // The schedule the sweep will run: end of the paid month, then forward (30d) or straight to the
+  // out-of-service message (14d), then release. Nothing is stored in number_lifecycle yet — that
+  // happens the moment service actually ends, so a customer who resumes leaves no trace.
+  const plan = planNumberLifecycle({
+    mode: disposition,
+    forwardTo,
+    serviceEndsAt: cancelsAt || new Date().toISOString(),
+    numbers: manage.numbers || [],
+  });
   try {
     await ensureBillingTables(deps.sql);
+    await ensureLifecycleTables(deps.sql as any);
     const existing = (await deps.sql`
       UPDATE subscription_cancellations
       SET reason = ${reason},
           comment = ${comment},
           requested_by_email = ${requestedByEmail},
           effective_at = ${cancelsAt},
+          disposition = ${disposition},
+          forward_to = ${forwardTo},
+          service_ended_at = NULL,
           updated_at = NOW()
       WHERE organization_id = ${deps.organizationId} AND resumed_at IS NULL
       RETURNING id
@@ -549,8 +597,8 @@ export async function cancelSubscription(deps: CancelDeps): Promise<CancelResult
     if (existing.length === 0) {
       await deps.sql`
         INSERT INTO subscription_cancellations
-          (organization_id, stripe_subscription_id, reason, comment, requested_by_email, effective_at)
-        VALUES (${deps.organizationId}, ${subId}, ${reason}, ${comment}, ${requestedByEmail}, ${cancelsAt})
+          (organization_id, stripe_subscription_id, reason, comment, requested_by_email, effective_at, disposition, forward_to)
+        VALUES (${deps.organizationId}, ${subId}, ${reason}, ${comment}, ${requestedByEmail}, ${cancelsAt}, ${disposition}, ${forwardTo})
       `;
     }
   } catch (err) {
@@ -572,6 +620,11 @@ export async function cancelSubscription(deps: CancelDeps): Promise<CancelResult
     cancelsAt,
     tenureDays,
     usage,
+    disposition,
+    forwardTo,
+    forwardUntil: plan[0]?.forwardUntil || null,
+    releaseOn: plan[0]?.releaseAt || null,
+    numbers: manage.numbers || [],
   };
 }
 
@@ -621,6 +674,23 @@ export async function resumeSubscription(deps: ManageDeps): Promise<ResumeResult
     `;
   } catch (err) {
     console.error("[Billing] resume: cancellation row not cleared:", messageOf(err).slice(0, 200));
+  }
+
+  // If the paid month had already run out and the number was on its way to the out-of-service
+  // message (or to release), resuming puts the business back in service: the org stops being
+  // "ended" and any number that has NOT been released yet is taken off the schedule. A number
+  // that is already released cannot come back — it is a new number at that point.
+  try {
+    await deps.sql`
+      UPDATE organizations SET service_ended_at = NULL, updated_at = NOW()
+      WHERE id = ${deps.organizationId} AND service_ended_at IS NOT NULL
+    `;
+    await deps.sql`
+      DELETE FROM number_lifecycle
+      WHERE organization_id = ${deps.organizationId} AND released_at IS NULL
+    `;
+  } catch {
+    // The lifecycle tables may not exist on an older database; nothing to undo there.
   }
 
   return { ok: true, status: 200, cancelsAt: null };

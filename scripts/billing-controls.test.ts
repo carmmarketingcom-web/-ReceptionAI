@@ -11,6 +11,7 @@
 import { test, expect } from "bun:test";
 import {
   CANCEL_REASONS,
+  CANCEL_REASON_CHIPS,
   MANAGE_GATE_DAYS,
   CREDIT_AFTER_DAYS,
   getBillingManage,
@@ -211,11 +212,12 @@ test("a Carm one-time checkout id (cs_…) is not a subscription and cannot be c
 
 // ── 2. Cancel needs a real reason ───────────────────────────────────────────
 
-test("cancel refuses a missing or unknown reason and touches nothing", async () => {
+test("the reason is optional now, but a forward without a number is refused", async () => {
+  // Owner 2026-11-20: the dialog offers four chips and no text box, so an empty or unknown reason
+  // cancels and is stored as "Not given" instead of being rejected.
   const state: FakeState = { subRow: subRow(), writes: [] };
-  const stripe = fakeStripe();
-
-  const missing = await cancelSubscription({
+  const stripe = fakeStripe({ sub: subscription(31) });
+  const ok = await cancelSubscription({
     sql: fakeSql(state) as any,
     stripeKey: "sk_test_x",
     fetchImpl: stripe.fetchImpl,
@@ -223,22 +225,26 @@ test("cancel refuses a missing or unknown reason and touches nothing", async () 
     organizationId: "org-1",
     reason: "",
   });
-  expect(missing.ok).toBe(false);
-  expect(missing.status).toBe(400);
+  expect(ok.ok).toBe(true);
+  expect(state.writes).toContain("update-cancellation");
 
-  const unknown = await cancelSubscription({
-    sql: fakeSql(state) as any,
+  // "Forward them" with nothing usable in the box changes nothing at all.
+  const badState: FakeState = { subRow: subRow(), writes: [] };
+  const badStripe = fakeStripe({ sub: subscription(31) });
+  const bad = await cancelSubscription({
+    sql: fakeSql(badState) as any,
     stripeKey: "sk_test_x",
-    fetchImpl: stripe.fetchImpl,
+    fetchImpl: badStripe.fetchImpl,
     now: NOW,
     organizationId: "org-1",
-    reason: "Because",
+    reason: "Too expensive",
+    disposition: "forward",
+    forwardTo: "abc",
   });
-  expect(unknown.ok).toBe(false);
-  expect(unknown.status).toBe(400);
+  expect(bad.ok).toBe(false);
+  expect(bad.status).toBe(400);
+  expect(badState.writes).toEqual([]);
   expect(CANCEL_REASONS.length).toBe(6);
-  expect(stripe.calls.length).toBe(0);
-  expect(state.writes).toEqual([]);
 });
 
 // ── 3. Cancel sets cancel_at_period_end, once ───────────────────────────────
@@ -551,14 +557,18 @@ test("the Billing page gates the controls and asks why, in both trees", () => {
   expect(rootPage).toContain("/api/billing/resume");
   expect(rootPage).toContain("Upgrade and cancel open after your first month.");
   expect(rootPage).toContain("You are on the founder plan; there is nothing to manage.");
-  expect(rootPage).toContain("Your plan stays active until");
+  // The one-question dialog (owner 2026-11-20): two plain answers, "Never mind" aborts.
+  expect(rootPage).toContain("Your service stays on until");
+  expect(rootPage).toContain("Where should calls to");
+  expect(rootPage).toContain("Never mind");
+  expect(rootPage).toContain("Reply to the cancellation email and we will");
   expect(rootPage).toContain("You can undo this until then.");
   // No credit is ever offered to a customer: no button, no endpoint, no copy.
   expect(rootPage).not.toContain("/api/billing/claim-credit");
   expect(rootPage).not.toContain("Claim your half-month credit");
   expect(rootPage).not.toContain("credit");
   expect(rootPage).toContain("Active until ");
-  for (const reason of CANCEL_REASONS) expect(rootPage).toContain(`"${reason}"`);
+  for (const chip of CANCEL_REASON_CHIPS) expect(rootPage).toContain(`"${chip}"`);
   // The mock funnel that could not cancel anything is gone.
   expect(rootPage).not.toContain("CancelSection");
   expect(rootPage).not.toContain("$69/mo");
