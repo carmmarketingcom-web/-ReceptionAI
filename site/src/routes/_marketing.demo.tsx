@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/demo")({
   component: DemoPage,
@@ -21,6 +22,7 @@ const TYPING_DELAY_MS = 1200; // delay between each message
 const TOTAL_DURATION = (demoScript.length + 2) * TYPING_DELAY_MS; // +2 for typing indicator
 
 function DemoPage() {
+  useLocale();
   const [demoKey, setDemoKey] = useState(0);
   const [highlight, setHighlight] = useState<string | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -62,22 +64,13 @@ function DemoPage() {
         .demo-typing-dot:nth-child(1) { animation-delay: 0s; }
         .demo-typing-dot:nth-child(2) { animation-delay: 0.16s; }
         .demo-typing-dot:nth-child(3) { animation-delay: 0.32s; }
-        ${demoScript.map((_, i) => {
-          const delay = (i + 1) * TYPING_DELAY_MS;
-          return `.demo-msg-${i} { animation: demoFadeIn 0.4s ease-out ${delay}ms forwards !important; }`;
-        }).join("\n")}
-        .demo-typing-final { animation: demoFadeIn 0.3s ease-out ${(demoScript.length + 1) * TYPING_DELAY_MS}ms forwards !important; }
       `}</style>
       <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Title */}
         <div className="text-center">
-          <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">Live Demo</span>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-            See ReceptionAI in action
-          </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg" style={{ color: "#111827" }}>
-            Watch how the AI receptionist handles a real customer call — automatically booking appointments, checking availability, and sending confirmations.
-          </p>
+          <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">{t("Live Demo")}</span>
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{t("See ReceptionAI in action")}</h1>
+          <p className="mx-auto mt-4 max-w-xl text-lg" style={{ color: "#111827" }}>{t("Watch how the AI receptionist handles a real customer call — automatically booking appointments, checking availability, and sending confirmations.")}</p>
         </div>
 
         {/* Promo Video */}
@@ -86,14 +79,14 @@ function DemoPage() {
             <div className="relative" style={{ paddingBottom: "177.78%" }}>
               <iframe
                 src="https://www.youtube.com/embed/74K17_g_Ir8?rel=0"
-                title="ReceptionAI Promo Video"
+                title={t("ReceptionAI Promo Video")}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 className="absolute inset-0 h-full w-full"
               />
             </div>
             <div className="border-t border-gray-100 bg-gray-50 px-5 py-3 text-center">
-              <p className="text-sm font-medium text-gray-700">Akoni Cooling &amp; Heating — Powered by ReceptionAI</p>
+              <p className="text-sm font-medium text-gray-700">{t("Akoni Cooling &amp; Heating — Powered by ReceptionAI")}</p>
             </div>
           </div>
         </div>
@@ -114,33 +107,38 @@ function DemoPage() {
                 {/* AI greeting (always visible) */}
                 <div className="flex justify-start">
                   <div className="rounded-2xl rounded-bl-sm bg-indigo-600 px-4 py-2 text-sm text-white shadow-sm">
-                    <p className="font-semibold">ReceptionAI</p>
-                    <p>Thank you for calling. How can I help you today?</p>
+                    <p className="font-semibold">{t("ReceptionAI")}</p>
+                    <p>{t("Thank you for calling. How can I help you today?")}</p>
                   </div>
                 </div>
 
                 {/* Demo script messages — all in HTML, CSS animation with staggered delays */}
                 {demoScript.map((msg, i) => {
+                  const delay = (i + 1) * TYPING_DELAY_MS;
                   const isCaller = msg.speaker === "caller";
                   return (
                     <div
                       key={i}
-                      className={`flex ${isCaller ? "justify-end" : "justify-start"} demo-msg-initial demo-msg-${i}`}
+                      className={`flex ${isCaller ? "justify-end" : "justify-start"} demo-msg-initial`}
+                      style={{ animation: `demoFadeIn 0.4s ease-out ${delay}ms forwards` }}
                     >
                       <div
                         className={`max-w-[85%] rounded-2xl px-4 py-2 shadow-sm ${
                           isCaller ? "rounded-br-sm bg-gray-200 text-gray-900" : "rounded-bl-sm bg-indigo-600 text-white"
                         }`}
                       >
-                        {!isCaller && <p className="text-[10px] font-semibold text-indigo-200">ReceptionAI</p>}
-                        <p className="text-sm">{msg.text}</p>
+                        {!isCaller && <p className="text-[10px] font-semibold text-indigo-200">{t("ReceptionAI")}</p>}
+                        <p className="text-sm">{t(msg.text)}</p>
                       </div>
                     </div>
                   );
                 })}
 
                 {/* Typing indicator — CSS animated dots */}
-                <div className="demo-msg-initial demo-typing-final flex justify-start">
+                <div
+                  className="demo-msg-initial flex justify-start"
+                  style={{ animation: `demoFadeIn 0.3s ease-out ${(demoScript.length + 1) * TYPING_DELAY_MS}ms forwards` }}
+                >
                   <div className="flex items-center gap-1 rounded-2xl bg-indigo-100 px-4 py-3">
                     <span className="demo-typing-dot inline-block h-2 w-2 rounded-full bg-indigo-400" />
                     <span className="demo-typing-dot inline-block h-2 w-2 rounded-full bg-indigo-400" />
@@ -155,17 +153,15 @@ function DemoPage() {
                   onClick={resetDemo}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
                 >
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                  Watch Again
-                </button>
+                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>{t("Watch Again")}</button>
               </div>
             </div>
-            <p className="mt-3 text-center text-xs text-gray-400">Interactive demo — watch how calls are handled automatically</p>
+            <p className="mt-3 text-center text-xs text-gray-400">{t("Interactive demo — watch how calls are handled automatically")}</p>
           </div>
 
           {/* Feature callouts */}
           <div className="flex-1 space-y-4">
-            <h2 className="text-xl font-bold text-gray-900">What's happening:</h2>
+            <h2 className="text-xl font-bold text-gray-900">{t("What's happening:")}</h2>
             {features.map((f) => (
               <div
                 key={f.id}
@@ -178,16 +174,16 @@ function DemoPage() {
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">{f.icon}</span>
                   <div>
-                    <h3 className="font-semibold text-gray-900">{f.title}</h3>
-                    <p className="mt-1 text-sm text-gray-600">{f.desc}</p>
+                    <h3 className="font-semibold text-gray-900">{t(f.title)}</h3>
+                    <p className="mt-1 text-sm text-gray-600">{t(f.desc)}</p>
                   </div>
                 </div>
               </div>
             ))}
 
             <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-5">
-              <h3 className="font-semibold text-gray-900">Available in English & Spanish</h3>
-              <p className="mt-1 text-sm text-gray-600">Your customers can interact in the language they prefer. The AI seamlessly switches between both.</p>
+              <h3 className="font-semibold text-gray-900">{t("Available in English & Spanish")}</h3>
+              <p className="mt-1 text-sm text-gray-600">{t("Your customers can interact in the language they prefer. The AI seamlessly switches between both.")}</p>
               <div className="mt-3 flex gap-2">
                 <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700">EN</span>
                 <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700">ES</span>
@@ -197,9 +193,7 @@ function DemoPage() {
             <Link
               to="/signup"
               className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-lg transition hover:bg-indigo-700"
-            >
-              Start Today
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            >{t("Start Today")}<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
@@ -209,11 +203,9 @@ function DemoPage() {
         {/* Calendar Demo */}
         <div className="mt-24">
           <div className="text-center">
-            <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">Built-in Calendar</span>
-            <h2 className="mt-4 text-2xl font-bold text-gray-900 sm:text-3xl">No Google OAuth. No external calendar.</h2>
-            <p className="mx-auto mt-3 max-w-xl text-gray-600">
-              ReceptionAI has its own scheduling system. Set your business hours and it handles everything — bookings, reminders, and follow-ups.
-            </p>
+            <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">{t("Built-in Calendar")}</span>
+            <h2 className="mt-4 text-2xl font-bold text-gray-900 sm:text-3xl">{t("No Google OAuth. No external calendar.")}</h2>
+            <p className="mx-auto mt-3 max-w-xl text-gray-600">{t("ReceptionAI has its own scheduling system. Set your business hours and it handles everything — bookings, reminders, and follow-ups.")}</p>
           </div>
 
           <div className="mt-10 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
@@ -222,21 +214,21 @@ function DemoPage() {
                 <button className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <h3 className="text-lg font-semibold text-gray-900">July 2026</h3>
+                <h3 className="text-lg font-semibold text-gray-900">{t("July 2026")}</h3>
                 <button className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600">
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                 </button>
               </div>
               <div className="flex gap-2">
-                <span className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white">Week</span>
-                <span className="rounded-lg px-4 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100">Month</span>
+                <span className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white">{t("Week")}</span>
+                <span className="rounded-lg px-4 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100">{t("Month")}</span>
               </div>
             </div>
 
             <div className="grid grid-cols-7 border-b border-gray-100 bg-white text-center text-xs">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                 <div key={day} className="border-r border-gray-50 py-3 font-semibold text-gray-500 last:border-r-0">
-                  {day}
+                  {t(day)}
                 </div>
               ))}
               {[26, 27, 28, 29, 30, 31, 1].map((date, i) => (
@@ -263,42 +255,38 @@ function DemoPage() {
                     <div className={`flex-1 rounded-lg border px-4 py-2 ${slot.color} ${slot.highlight ? "ring-2 ring-green-400 ring-offset-1" : ""}`}>
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-semibold">{slot.client}</p>
-                          <p className="text-xs opacity-75">{slot.service}</p>
+                          <p className="text-sm font-semibold">{t(slot.client)}</p>
+                          <p className="text-xs opacity-75">{t(slot.service)}</p>
                         </div>
                         {slot.highlight && (
-                          <span className="rounded-full bg-green-200 px-2 py-0.5 text-[10px] font-bold text-green-700">Just Booked!</span>
+                          <span className="rounded-full bg-green-200 px-2 py-0.5 text-[10px] font-bold text-green-700">{t("Just Booked!")}</span>
                         )}
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 rounded-lg border border-dashed border-gray-200 py-2.5 text-center text-xs text-gray-300">
-                      Available
-                    </div>
+                    <div className="flex-1 rounded-lg border border-dashed border-gray-200 py-2.5 text-center text-xs text-gray-300">{t("Available")}</div>
                   )}
                 </div>
               ))}
             </div>
           </div>
-          <p className="mt-3 text-center text-xs text-gray-400">
-            Example calendar — sample appointments shown for illustration, not real customer data.
-          </p>
+          <p className="mt-3 text-center text-xs text-gray-400">{t("Example calendar — sample appointments shown for illustration, not real customer data.")}</p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">⏰</span>
-              <h4 className="mt-2 font-semibold text-gray-900">Auto-Confirmations</h4>
-              <p className="mt-1 text-xs text-gray-500">Email confirmation sent instantly after booking</p>
+              <h4 className="mt-2 font-semibold text-gray-900">{t("Auto-Confirmations")}</h4>
+              <p className="mt-1 text-xs text-gray-500">{t("Email confirmation sent instantly after booking")}</p>
             </div>
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">🔔</span>
-              <h4 className="mt-2 font-semibold text-gray-900">Smart Reminders</h4>
-              <p className="mt-1 text-xs text-gray-500">Automatic reminders at 24h and 2h before each appointment</p>
+              <h4 className="mt-2 font-semibold text-gray-900">{t("Smart Reminders")}</h4>
+              <p className="mt-1 text-xs text-gray-500">{t("Automatic reminders at 24h and 2h before each appointment")}</p>
             </div>
             <div className="rounded-xl border border-gray-100 bg-white p-4 text-center shadow-sm">
               <span className="text-2xl">📱</span>
-              <h4 className="mt-2 font-semibold text-gray-900">Post-Call Email</h4>
-              <p className="mt-1 text-xs text-gray-500">Owner gets an email summary after every call — no dashboard needed</p>
+              <h4 className="mt-2 font-semibold text-gray-900">{t("Post-Call Email")}</h4>
+              <p className="mt-1 text-xs text-gray-500">{t("Owner gets an email summary after every call — no dashboard needed")}</p>
             </div>
           </div>
         </div>
@@ -306,12 +294,9 @@ function DemoPage() {
         {/* What you actually get — no customer quotes (we have none yet) */}
         <div className="mt-24">
           <div className="text-center">
-            <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">Live today</span>
-            <h2 className="mt-4 text-2xl font-bold text-gray-900 sm:text-3xl">What happens when you call</h2>
-            <p className="mx-auto mt-3 max-w-xl text-gray-600">
-              ReceptionAI is new, so we're not going to quote customers we don't have yet. Call the number below and
-              check every one of these yourself.
-            </p>
+            <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">{t("Live today")}</span>
+            <h2 className="mt-4 text-2xl font-bold text-gray-900 sm:text-3xl">{t("What happens when you call")}</h2>
+            <p className="mx-auto mt-3 max-w-xl text-gray-600">{t("ReceptionAI is new, so we're not going to quote customers we don't have yet. Call the number below and check every one of these yourself.")}</p>
           </div>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
@@ -346,10 +331,10 @@ function DemoPage() {
                 body: "Press 9 to leave a message: the recording is saved, playable in your dashboard, and you're alerted once.",
               },
             ].map((f) => (
-              <div key={f.title} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition hover:shadow-md">
+              <div key={t(f.title)} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition hover:shadow-md">
                 <div className="text-2xl">{f.icon}</div>
-                <h3 className="mt-3 font-semibold text-gray-900">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-gray-600">{f.body}</p>
+                <h3 className="mt-3 font-semibold text-gray-900">{t(f.title)}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">{t(f.body)}</p>
               </div>
             ))}
           </div>
@@ -362,8 +347,8 @@ function DemoPage() {
               📞
             </div>
             <div className="text-left">
-              <p className="text-sm font-semibold text-green-800">Want to try it yourself?</p>
-              <p className="text-xs text-green-600">Call the AI receptionist right now — it's live</p>
+              <p className="text-sm font-semibold text-green-800">{t("Want to try it yourself?")}</p>
+              <p className="text-xs text-green-600">{t("Call the AI receptionist right now — it's live")}</p>
               <a href="tel:+17279667556" className="text-2xl font-bold text-green-700 hover:text-green-600 transition tracking-wide">
                 (727) 966-7556
               </a>
@@ -373,7 +358,7 @@ function DemoPage() {
 
         {/* Features grid */}
         <div className="mt-24">
-          <h2 className="text-center text-2xl font-bold text-gray-900">Everything included</h2>
+          <h2 className="text-center text-2xl font-bold text-gray-900">{t("Everything included")}</h2>
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             {[
               { icon: "🤖", title: "AI Call Answering", desc: "24/7 inbound call handling with natural conversation" },
@@ -383,10 +368,10 @@ function DemoPage() {
               { icon: "🔄", title: "Human Handoff", desc: "Press 3 and the call bridges to your phone — live today. Automatic escalation is coming soon." },
               { icon: "📊", title: "Analytics", desc: "Track calls, bookings, and missed opportunities" },
             ].map((f) => (
-              <div key={f.title} className="rounded-xl border border-gray-100 bg-white p-5 text-center shadow-sm">
+              <div key={t(f.title)} className="rounded-xl border border-gray-100 bg-white p-5 text-center shadow-sm">
                 <span className="text-3xl">{f.icon}</span>
-                <h3 className="mt-3 font-semibold text-gray-900">{f.title}</h3>
-                <p className="mt-1 text-sm text-gray-500">{f.desc}</p>
+                <h3 className="mt-3 font-semibold text-gray-900">{t(f.title)}</h3>
+                <p className="mt-1 text-sm text-gray-500">{t(f.desc)}</p>
               </div>
             ))}
           </div>

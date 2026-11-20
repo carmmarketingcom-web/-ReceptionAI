@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/hvac")({
   component: HvacPage,
 });
 
 function HvacPage() {
+  useLocale();
   return (
     <>
       <HeroSection />
@@ -27,30 +29,19 @@ function HeroSection() {
 
       <div className="relative mx-auto max-w-4xl px-4 pb-20 pt-16 text-center sm:px-6 sm:pb-24 sm:pt-20 lg:pb-28 lg:pt-24">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-1.5 text-sm font-medium text-orange-700">
-          <span className="flex h-2 w-2 rounded-full bg-orange-500" />
-          For HVAC Contractors
-        </div>
+          <span className="flex h-2 w-2 rounded-full bg-orange-500" />{t("For HVAC Contractors")}</div>
 
-        <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">
-          Never miss an HVAC call again
-          <br />
-          <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
-            — even at 2 AM
-          </span>
+        <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">{t("Never miss an HVAC call again")}<br />
+          <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">{t("— even at 2 AM")}</span>
         </h1>
 
-        <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-600 sm:text-xl">
-          Your AI receptionist answers calls 24/7, books service appointments, and transfers
-          urgent callers straight to your phone. Built-in calendar. No integrations needed.
-        </p>
+        <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-600 sm:text-xl">{t("Your AI receptionist answers calls 24/7, books service appointments, and transfers urgent callers straight to your phone. Built-in calendar. No integrations needed.")}</p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link
             to="/signup"
             className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-orange-200 transition hover:bg-orange-700 hover:shadow-orange-300"
-          >
-            Start Today
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          >{t("Start Today")}<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </Link>
@@ -96,8 +87,8 @@ function PainPointsSection() {
               className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition hover:shadow-md"
             >
               <div className="mb-4 text-3xl">{p.icon}</div>
-              <h3 className="text-lg font-semibold text-gray-900">{p.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-gray-600">{p.desc}</p>
+              <h3 className="text-lg font-semibold text-gray-900">{t(p.title)}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600">{t(p.desc)}</p>
             </div>
           ))}
         </div>
@@ -130,12 +121,8 @@ function HowItWorksSection() {
     <section className="bg-gray-50 py-20 sm:py-24">
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <span className="rounded-full bg-orange-100 px-4 py-1.5 text-sm font-medium text-orange-700">
-            How it works for HVAC
-          </span>
-          <h2 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-            Three steps. That's it.
-          </h2>
+          <span className="rounded-full bg-orange-100 px-4 py-1.5 text-sm font-medium text-orange-700">{t("How it works for HVAC")}</span>
+          <h2 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{t("Three steps. That's it.")}</h2>
         </div>
 
         <div className="mt-14 grid gap-8 md:grid-cols-3">
@@ -147,8 +134,8 @@ function HowItWorksSection() {
               <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-orange-600 text-xl font-bold text-white shadow-lg shadow-orange-200">
                 {s.step}
               </div>
-              <h3 className="mt-5 text-lg font-semibold text-gray-900">{s.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-gray-600">{s.desc}</p>
+              <h3 className="mt-5 text-lg font-semibold text-gray-900">{t(s.title)}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600">{t(s.desc)}</p>
             </div>
           ))}
         </div>
@@ -178,12 +165,8 @@ function FaqSection() {
     <section className="bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">
-            Honest answers
-          </span>
-          <h2 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-            Questions HVAC contractors actually ask
-          </h2>
+          <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-medium text-indigo-700">{t("Honest answers")}</span>
+          <h2 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{t("Questions HVAC contractors actually ask")}</h2>
         </div>
 
         <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -207,25 +190,18 @@ function FinalCtaSection() {
   return (
     <section className="bg-orange-600 py-16 sm:py-20">
       <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
-        <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          Ready to never miss an HVAC call again?
-        </h2>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-orange-100">
-          Start today — founders get 50% off your first 3 months. Your AI receptionist goes live
-          in minutes — not days.
-        </p>
+        <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">{t("Ready to never miss an HVAC call again?")}</h2>
+        <p className="mx-auto mt-4 max-w-xl text-lg text-orange-100">{t("Start today — founders get 50% off your first 3 months. Your AI receptionist goes live in minutes — not days.")}</p>
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
             to="/signup"
             className="inline-flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-semibold text-orange-600 shadow-lg transition hover:bg-orange-50"
-          >
-            Start Today
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          >{t("Start Today")}<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </Link>
         </div>
-        <p className="mt-4 text-sm text-orange-200">FOUNDER50 — 50% off your first 3 months. Cancel anytime.</p>
+        <p className="mt-4 text-sm text-orange-200">{t("FOUNDER50 — 50% off your first 3 months. Cancel anytime.")}</p>
       </div>
     </section>
   );

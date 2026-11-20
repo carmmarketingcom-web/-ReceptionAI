@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/features")({
   component: FeaturesPage,
@@ -65,7 +66,7 @@ function StatusChip({ status }: { status: Status }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${s.className}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      {s.label}
+      {t(s.label)}
     </span>
   );
 }
@@ -74,7 +75,7 @@ function PlanTag({ plan }: { plan: Plan }) {
   const p = planTag[plan];
   return (
     <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${p.className}`}>
-      {p.label}
+      {t(p.label)}
     </span>
   );
 }
@@ -169,6 +170,7 @@ const legend: { status: Status; meaning: string }[] = [
 ];
 
 export default function FeaturesPage() {
+  useLocale();
   return (
     <>
       {/* Hero */}
@@ -180,36 +182,23 @@ export default function FeaturesPage() {
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
         <div className="relative mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
           <span className="inline-flex items-center gap-2.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-5 py-2 text-sm font-medium text-indigo-300 backdrop-blur-sm">
-            <span className="flex h-2 w-2 rounded-full bg-indigo-400" />
-            Features
-          </span>
-          <h1 className="mt-7 text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl">
-            What works today,
-            <br />
-            <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-              and what is still being built
-            </span>
+            <span className="flex h-2 w-2 rounded-full bg-indigo-400" />{t("Features")}</span>
+          <h1 className="mt-7 text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl">{t("What works today,")}<br />
+            <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">{t("and what is still being built")}</span>
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-400">
-            Every feature below carries its real status — Live, Partial, or Coming Soon — and the
-            note on each card says exactly what runs today. If we cannot do it yet, the page says so.
-          </p>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-400">{t("Every feature below carries its real status — Live, Partial, or Coming Soon — and the note on each card says exactly what runs today. If we cannot do it yet, the page says so.")}</p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               to="/signup"
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-7 py-3.5 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500"
-            >
-              Get Started
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            >{t("Get Started")}<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
             <Link
               to="/pricing"
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-7 py-3.5 text-base font-semibold text-gray-300 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white"
-            >
-              View Pricing
-            </Link>
+            >{t("View Pricing")}</Link>
           </div>
         </div>
       </section>
@@ -221,7 +210,7 @@ export default function FeaturesPage() {
             {legend.map((l) => (
               <div key={l.status} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                 <StatusChip status={l.status} />
-                <p className="mt-3 text-sm leading-relaxed text-gray-400">{l.meaning}</p>
+                <p className="mt-3 text-sm leading-relaxed text-gray-400">{t(l.meaning)}</p>
               </div>
             ))}
           </div>
@@ -232,28 +221,23 @@ export default function FeaturesPage() {
       <section className="border-t border-white/10 bg-gray-950 py-20 sm:py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-              Live in your account today
-            </h2>
-            <p className="mt-4 text-lg leading-relaxed text-gray-400">
-              These are running now — not roadmap items. The demo line uses the same call flow you
-              get after you sign up.
-            </p>
+            <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">{t("Live in your account today")}</h2>
+            <p className="mt-4 text-lg leading-relaxed text-gray-400">{t("These are running now — not roadmap items. The demo line uses the same call flow you get after you sign up.")}</p>
           </div>
           <div className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {liveFeatures.map((f) => (
               <div
-                key={f.title}
+                key={t(f.title)}
                 className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-400/30 hover:bg-white/[0.06]"
               >
                 <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-400/20 bg-indigo-500/10 text-indigo-300">
                   <Icon name={f.icon} className="h-5 w-5" />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-base font-bold text-white">{f.title}</h3>
+                  <h3 className="text-base font-bold text-white">{t(f.title)}</h3>
                   <StatusChip status="live" />
                 </div>
-                <p className="mt-2 text-sm leading-relaxed text-gray-400">{f.desc}</p>
+                <p className="mt-2 text-sm leading-relaxed text-gray-400">{t(f.desc)}</p>
               </div>
             ))}
           </div>
@@ -263,14 +247,12 @@ export default function FeaturesPage() {
             <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-2">
               <img
                 src="/images/calendar-dashboard.png"
-                alt="ReceptionAI dashboard calendar showing booked appointments"
+                alt={t("ReceptionAI dashboard calendar showing booked appointments")}
                 className="mx-auto w-full max-w-[960px] rounded-xl"
                 loading="lazy"
               />
             </div>
-            <p className="mt-3 text-center text-sm text-gray-500">
-              The built-in calendar in the dashboard — nothing to connect, nothing to sync.
-            </p>
+            <p className="mt-3 text-center text-sm text-gray-500">{t("The built-in calendar in the dashboard — nothing to connect, nothing to sync.")}</p>
           </div>
         </div>
       </section>
@@ -279,39 +261,31 @@ export default function FeaturesPage() {
       <section className="border-t border-white/10 bg-gray-950 py-20 sm:py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-              Where the bigger features stand
-            </h2>
-            <p className="mt-4 text-lg leading-relaxed text-gray-400">
-              Two of these run today, two are partly live and one is still being built. Read the note on each
-              card — that is the part that tells you what you would actually get today.
-            </p>
+            <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">{t("Where the bigger features stand")}</h2>
+            <p className="mt-4 text-lg leading-relaxed text-gray-400">{t("Two of these run today, two are partly live and one is still being built. Read the note on each card — that is the part that tells you what you would actually get today.")}</p>
           </div>
           <div className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {roadmapFeatures.map((f) => (
               <div
-                key={f.title}
+                key={t(f.title)}
                 className="flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.04] p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-400/30 hover:bg-white/[0.06]"
               >
                 <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-indigo-300">
                   <Icon name={f.icon} className="h-5 w-5" />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-base font-bold text-white">{f.title}</h3>
+                  <h3 className="text-base font-bold text-white">{t(f.title)}</h3>
                   <StatusChip status={f.status} />
                   {f.plan && <PlanTag plan={f.plan} />}
                 </div>
-                <p className="mt-2 text-sm leading-relaxed text-gray-400">{f.desc}</p>
+                <p className="mt-2 text-sm leading-relaxed text-gray-400">{t(f.desc)}</p>
                 {f.note && (
-                  <p className="mt-auto pt-4 text-xs leading-relaxed text-gray-500">{f.note}</p>
+                  <p className="mt-auto pt-4 text-xs leading-relaxed text-gray-500">{t(f.note)}</p>
                 )}
               </div>
             ))}
           </div>
-          <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-gray-500">
-            Plan tags show where a feature belongs on the roadmap. A tag never means the feature is
-            switched on — the chip and the note do.
-          </p>
+          <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-gray-500">{t("Plan tags show where a feature belongs on the roadmap. A tag never means the feature is switched on — the chip and the note do.")}</p>
         </div>
       </section>
 
@@ -319,20 +293,11 @@ export default function FeaturesPage() {
       <section className="border-t border-white/10 bg-gray-950 py-16">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-7 sm:p-9">
-            <h2 className="text-xl font-bold text-white">Why the labels matter</h2>
-            <p className="mt-3 text-sm leading-relaxed text-gray-400">
-              A features page is easy to fill with things that are not finished. We would rather
-              show you six features marked Partial than six marked Live that fall apart on your
-              first call. If something you need is not ready, tell us — it is how the roadmap gets
-              prioritized.
-            </p>
+            <h2 className="text-xl font-bold text-white">{t("Why the labels matter")}</h2>
+            <p className="mt-3 text-sm leading-relaxed text-gray-400">{t("A features page is easy to fill with things that are not finished. We would rather show you six features marked Partial than six marked Live that fall apart on your first call. If something you need is not ready, tell us — it is how the roadmap gets prioritized.")}</p>
             <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
-              <Link to="/demo" className="font-semibold text-indigo-300 underline decoration-indigo-400/30 underline-offset-4 transition hover:text-indigo-200">
-                Try the demo line
-              </Link>
-              <Link to="/pricing" className="font-semibold text-indigo-300 underline decoration-indigo-400/30 underline-offset-4 transition hover:text-indigo-200">
-                See what each plan includes
-              </Link>
+              <Link to="/demo" className="font-semibold text-indigo-300 underline decoration-indigo-400/30 underline-offset-4 transition hover:text-indigo-200">{t("Try the demo line")}</Link>
+              <Link to="/pricing" className="font-semibold text-indigo-300 underline decoration-indigo-400/30 underline-offset-4 transition hover:text-indigo-200">{t("See what each plan includes")}</Link>
             </div>
           </div>
         </div>
@@ -346,29 +311,20 @@ export default function FeaturesPage() {
         </div>
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:48px_48px]" />
         <div className="relative mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            Start with what already works
-          </h2>
-          <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400">
-            Call answering, real bookings, reminders and post-call summaries are live on every
-            plan today. The rest arrives as it is finished.
-          </p>
+          <h2 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">{t("Start with what already works")}</h2>
+          <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-gray-400">{t("Call answering, real bookings, reminders and post-call summaries are live on every plan today. The rest arrives as it is finished.")}</p>
           <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               to="/signup"
               className="group inline-flex items-center gap-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-8 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(99,102,241,0.3)] transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-[0_0_50px_rgba(99,102,241,0.4)]"
-            >
-              Get Started
-              <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            >{t("Get Started")}<svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
             <Link
               to="/demo"
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-8 py-4 text-base font-semibold text-gray-300 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white"
-            >
-              Get a Demo
-            </Link>
+            >{t("Get a Demo")}</Link>
           </div>
         </div>
       </section>

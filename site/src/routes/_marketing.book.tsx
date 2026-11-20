@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
+import { t, useLocale } from "~/lib/i18n";
 
 export const Route = createFileRoute("/_marketing/book")({
   component: BookPage,
@@ -20,6 +21,7 @@ const SUPPORT_PHONE_HREF = "tel:+17279667556";
 const SUPPORT_EMAIL = "hello@receptionai.store";
 
 export default function BookPage() {
+  useLocale();
   const [step, setStep] = useState<"form" | "slots" | "confirm" | "done">("form");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -57,7 +59,7 @@ export default function BookPage() {
       const nt = notesRef.current?.value || "";
       const eAddr = emailRef.current?.value || "";
       setName(n); setPhone(p); setDate(d); setEmail(eAddr); setService(s); setNotes(nt);
-      if (!n || !p || !d) { setError("Please fill in name, phone, and date."); return; }
+      if (!n || !p || !d) { setError(t("Please fill in name, phone, and date.")); return; }
       setLoading(true); setError("");
       try {
         const res = await fetch(`/api/booking/slots?date=${encodeURIComponent(d)}`);
@@ -67,7 +69,7 @@ export default function BookPage() {
         setClosed(data.closed || false);
         setStep("slots");
       } catch {
-        setError("Could not load available times. Please try again.");
+        setError(t("Could not load available times. Please try again."));
       }
       setLoading(false);
     };
@@ -103,7 +105,7 @@ export default function BookPage() {
         if (data.error) { setError(data.error); setLoading(false); return; }
         setStep("done");
       } catch {
-        setError("Could not complete booking. Please try again.");
+        setError(t("Could not complete booking. Please try again."));
       }
       setLoading(false);
     };
@@ -124,7 +126,7 @@ export default function BookPage() {
       <div className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4 sm:px-6">
           <a href="/" className="flex items-center gap-2">
-            <img src="/images/logo.png" alt="ReceptionAI" className="h-7 w-auto" width={800} height={450} />
+            <img src="/images/logo.png" alt={t("ReceptionAI")} className="h-7 w-auto" width={800} height={450} />
           </a>
         </div>
       </div>
@@ -134,19 +136,19 @@ export default function BookPage() {
         <div className="mb-8">
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="mb-3 text-center">
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Carm Marketing</p>
-              <h1 className="mt-1 text-xl font-bold text-gray-900">Book a time with us</h1>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{t("Carm Marketing")}</p>
+              <h1 className="mt-1 text-xl font-bold text-gray-900">{t("Book a time with us")}</h1>
             </div>
             <iframe
               src="https://koalendar.com/u/QcG01XjAXIQUqtNJJR2I6wy420H2"
-              title="Book a time with Carm Marketing"
+              title={t("Book a time with Carm Marketing")}
               className="h-[820px] w-full rounded-xl border-0"
               loading="lazy"
               allow="clipboard-write"
             />
           </div>
           <div className="mt-6 border-t border-gray-200 pt-4 text-center">
-            <span className="text-xs font-medium text-gray-400">— or book a product demo below —</span>
+            <span className="text-xs font-medium text-gray-400">{t("— or book a product demo below —")}</span>
           </div>
         </div>
         {/* Step 1: Form */}
@@ -154,42 +156,42 @@ export default function BookPage() {
               <div className="space-y-6">
                 <div className="text-center">
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-indigo-100 text-3xl">📅</div>
-                  <h1 className="mt-4 text-2xl font-bold text-gray-900">Book a Demo</h1>
-                  <p className="mt-1 text-sm text-gray-500">Schedule a call to see how ReceptionAI works for your business.</p>
+                  <h1 className="mt-4 text-2xl font-bold text-gray-900">{t("Book a Demo")}</h1>
+                  <p className="mt-1 text-sm text-gray-500">{t("Schedule a call to see how ReceptionAI works for your business.")}</p>
                 </div>
 
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600">Full Name *</label>
+                    <label className="block text-xs font-medium text-gray-600">{t("Full Name *")}</label>
                     <input ref={nameRef} type="text" defaultValue={name}
-                      placeholder="Your name" className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      placeholder={t("Your name")} className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600">Phone *</label>
+                    <label className="block text-xs font-medium text-gray-600">{t("Phone *")}</label>
                     <input ref={phoneRef} type="tel" defaultValue={phone}
                       placeholder="(555) 123-4567" className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600">Email</label>
+                    <label className="block text-xs font-medium text-gray-600">{t("Email")}</label>
                     <input ref={emailRef} type="email" defaultValue={email}
                       placeholder="you@example.com" className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600">I'm interested in</label>
+                    <label className="block text-xs font-medium text-gray-600">{t("I'm interested in")}</label>
                     <select ref={serviceRef} defaultValue={service}
                       className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                      {SERVICE_TYPES.map(s => <option key={s} value={s}>{s}</option>)}
+                      {SERVICE_TYPES.map(s => <option key={s} value={s}>{t(s)}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600">Preferred Date *</label>
+                    <label className="block text-xs font-medium text-gray-600">{t("Preferred Date *")}</label>
                     <input ref={dateRef} type="date" defaultValue={date} min={today}
                       className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600">Notes (optional)</label>
+                    <label className="block text-xs font-medium text-gray-600">{t("Notes (optional)")}</label>
                     <textarea ref={notesRef} defaultValue={notes} rows={2}
-                      placeholder="Anything we should know..." className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      placeholder={t("Anything we should know...")} className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 bg-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   </div>
                 </div>
 
@@ -197,7 +199,7 @@ export default function BookPage() {
 
                 <button ref={findBtnRef} disabled={loading}
                   className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">
-                  {loading ? "Checking availability..." : "Find Available Times"}
+                  {loading ? t("Checking availability...") : t("Find Available Times")}
                 </button>
               </div>
             )}
@@ -206,8 +208,8 @@ export default function BookPage() {
             {step === "slots" && (
               <div className="space-y-6">
                 <div className="text-center">
-                  <h1 className="text-2xl font-bold text-gray-900">Select a Time</h1>
-                  <p className="mt-1 text-sm text-gray-500">{date} · {service}</p>
+                  <h1 className="text-2xl font-bold text-gray-900">{t("Select a Time")}</h1>
+                  <p className="mt-1 text-sm text-gray-500">{date} · {t(service)}</p>
                 </div>
 
                 {loading && (
@@ -222,18 +224,18 @@ export default function BookPage() {
                 {!loading && closed && (
                   <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center">
                     <p className="text-lg">😴</p>
-                    <p className="mt-2 text-sm font-medium text-gray-900">We're closed on this day.</p>
-                    <p className="mt-1 text-xs text-gray-500">Please pick a different date.</p>
-                    <button onClick={reset} className="mt-4 text-sm font-medium text-indigo-600 hover:underline">Try another date</button>
+                    <p className="mt-2 text-sm font-medium text-gray-900">{t("We're closed on this day.")}</p>
+                    <p className="mt-1 text-xs text-gray-500">{t("Please pick a different date.")}</p>
+                    <button onClick={reset} className="mt-4 text-sm font-medium text-indigo-600 hover:underline">{t("Try another date")}</button>
                   </div>
                 )}
 
                 {!loading && !closed && slots.length === 0 && (
                   <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center">
                     <p className="text-lg">📅</p>
-                    <p className="mt-2 text-sm font-medium text-gray-900">No available times</p>
-                    <p className="mt-1 text-xs text-gray-500">All slots are booked for this date. Try another day.</p>
-                    <button onClick={reset} className="mt-4 text-sm font-medium text-indigo-600 hover:underline">Try another date</button>
+                    <p className="mt-2 text-sm font-medium text-gray-900">{t("No available times")}</p>
+                    <p className="mt-1 text-xs text-gray-500">{t("All slots are booked for this date. Try another day.")}</p>
+                    <button onClick={reset} className="mt-4 text-sm font-medium text-indigo-600 hover:underline">{t("Try another date")}</button>
                   </div>
                 )}
 
@@ -247,7 +249,7 @@ export default function BookPage() {
                         </button>
                       ))}
                     </div>
-                    <button onClick={reset} className="w-full text-sm text-gray-400 hover:text-gray-600">← Back</button>
+                    <button onClick={reset} className="w-full text-sm text-gray-400 hover:text-gray-600">{t("← Back")}</button>
                   </>
                 )}
               </div>
@@ -257,29 +259,27 @@ export default function BookPage() {
             {step === "confirm" && selectedSlot && (
               <div className="space-y-6">
                 <div className="text-center">
-                  <h1 className="text-2xl font-bold text-gray-900">Confirm Demo</h1>
-                  <p className="mt-1 text-sm text-gray-500">Review your demo details.</p>
+                  <h1 className="text-2xl font-bold text-gray-900">{t("Confirm Demo")}</h1>
+                  <p className="mt-1 text-sm text-gray-500">{t("Review your demo details.")}</p>
                 </div>
 
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm space-y-3">
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Name</span><span className="font-medium text-gray-900">{name}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Phone</span><span className="font-medium text-gray-900">{phone}</span></div>
-                  {email && <div className="flex justify-between text-sm"><span className="text-gray-500">Email</span><span className="font-medium text-gray-900">{email}</span></div>}
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Interest</span><span className="font-medium text-gray-900">{service}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Date</span><span className="font-medium text-gray-900">{date}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Time</span><span className="font-medium text-gray-900">{selectedSlot.time} – {selectedSlot.endTime}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Name")}</span><span className="font-medium text-gray-900">{name}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Phone")}</span><span className="font-medium text-gray-900">{phone}</span></div>
+                  {email && <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Email")}</span><span className="font-medium text-gray-900">{email}</span></div>}
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Interest")}</span><span className="font-medium text-gray-900">{t(service)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Date")}</span><span className="font-medium text-gray-900">{date}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Time")}</span><span className="font-medium text-gray-900">{selectedSlot.time} – {selectedSlot.endTime}</span></div>
                 </div>
 
                 {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
                 <div className="flex gap-3">
                   <button onClick={() => setStep("slots")} disabled={loading}
-                    className="flex-1 rounded-xl border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-                    ← Back
-                  </button>
+                    className="flex-1 rounded-xl border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">{t("← Back")}</button>
                   <button ref={confirmBtnRef} disabled={loading}
                     className="flex-[2] rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">
-                    {loading ? "Booking..." : "Schedule My Demo"}
+                    {loading ? t("Booking...") : t("Schedule My Demo")}
                   </button>
                 </div>
               </div>
@@ -290,17 +290,15 @@ export default function BookPage() {
               <div className="space-y-6 text-center">
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-4xl">✅</div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Demo Scheduled!</h1>
-                  <p className="mt-2 text-sm text-gray-600">You'll receive an email confirmation shortly. We look forward to showing you ReceptionAI.</p>
+                  <h1 className="text-2xl font-bold text-gray-900">{t("Demo Scheduled!")}</h1>
+                  <p className="mt-2 text-sm text-gray-600">{t("You'll receive an email confirmation shortly. We look forward to showing you ReceptionAI.")}</p>
                 </div>
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm text-left space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Date</span><span className="font-medium text-gray-900">{date}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Time</span><span className="font-medium text-gray-900">{selectedSlot?.time} – {selectedSlot?.endTime}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-500">Interest</span><span className="font-medium text-gray-900">{service}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Date")}</span><span className="font-medium text-gray-900">{date}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Time")}</span><span className="font-medium text-gray-900">{selectedSlot?.time} – {selectedSlot?.endTime}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-500">{t("Interest")}</span><span className="font-medium text-gray-900">{t(service)}</span></div>
                 </div>
-                <button onClick={reset} className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">
-                  Schedule Another
-                </button>
+                <button onClick={reset} className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">{t("Schedule Another")}</button>
               </div>
             )}
 
@@ -308,9 +306,8 @@ export default function BookPage() {
             calendar, a service error), they still have a way to reach us instead of a dead
             button. */ }
         <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-5 text-center">
-          <p className="text-sm font-medium text-gray-900">Prefer to talk to a person?</p>
-          <p className="mt-1 text-sm text-gray-600">
-            Call <a href={SUPPORT_PHONE_HREF} className="font-semibold text-indigo-600 hover:underline">{SUPPORT_PHONE}</a>
+          <p className="text-sm font-medium text-gray-900">{t("Prefer to talk to a person?")}</p>
+          <p className="mt-1 text-sm text-gray-600">{t("Call")}<a href={SUPPORT_PHONE_HREF} className="font-semibold text-indigo-600 hover:underline">{SUPPORT_PHONE}</a>
             {" "}or email <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold text-indigo-600 hover:underline">{SUPPORT_EMAIL}</a>.
           </p>
         </div>

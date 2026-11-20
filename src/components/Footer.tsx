@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { t } from "~/lib/i18n";
+import { t, useLocale } from "~/lib/i18n";
 
 export default function Footer() {
+  useLocale();
   return (
     <footer className="border-t border-gray-100 bg-gray-50">
       <div className="mx-auto max-w-7xl px-4 py-12 pb-28 sm:px-6 sm:pb-12 lg:px-8">
