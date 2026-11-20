@@ -8787,6 +8787,13 @@ for (let attempt = 1; ; attempt++) {
                 code: "org_not_found", fallback: BOOKING_FALLBACK,
               }), { status: 404, headers: { "Content-Type": "application/json" } });
             }
+            // A cancelled subscription past its last paid day takes the booking page offline.
+            if (await orgServiceEndedFlag(org.id)) {
+              return new Response(JSON.stringify({
+                error: "Online booking for this business is closed. Please contact them directly.",
+                code: "booking_closed", slots: [], fallback: BOOKING_FALLBACK,
+              }), { status: 410, headers: { "Content-Type": "application/json" } });
+            }
 
             const result = await getSlotsForDate(org.id, date, duration);
             if (result.closed) {
@@ -8891,6 +8898,13 @@ for (let attempt = 1; ; attempt++) {
                 error: "We could not find the booking calendar for this page. Please call or email us and we will book you in.",
                 code: "org_not_found", fallback: BOOKING_FALLBACK,
               }), { status: 404, headers: { "Content-Type": "application/json" } });
+            }
+            // A cancelled subscription past its last paid day takes the booking page offline.
+            if (await orgServiceEndedFlag(org.id)) {
+              return new Response(JSON.stringify({
+                error: "Online booking for this business is closed. Please contact them directly.",
+                code: "booking_closed", slots: [], fallback: BOOKING_FALLBACK,
+              }), { status: 410, headers: { "Content-Type": "application/json" } });
             }
             const [hour, min] = time.split(":").map(Number);
             const endMin = hour * 60 + min + 60; // default 60 min
