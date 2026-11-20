@@ -37,7 +37,7 @@ function PrivacyPage() {
           <h2 className="mt-8 text-xl font-semibold text-gray-900">6. Your Rights</h2>
           <p className="text-gray-700 leading-relaxed">You have the right to access, correct, or delete your personal data. Contact us to exercise these rights.</p>
 
-          <h2>7. Text Messaging (SMS)</h2>
+          <h2 className="mt-8 text-xl font-semibold text-gray-900">7. Text Messaging (SMS)</h2>
           <p className="text-gray-700 leading-relaxed">We send text messages only to people who asked for them. A business owner opts in by ticking the consent box during setup, or by asking us to enable text alerts; that box is unchecked by default and choosing email instead leaves the account fully working. A customer of that business gets an appointment confirmation or reminder only at the number they gave when they booked. Every message is transactional — a call alert, an appointment confirmation or a reminder — never marketing. Message frequency varies. Message and data rates may apply. Reply STOP to any message to opt out, or HELP for help. Consent to receive texts is not a condition of purchase. We do not sell, rent, or share mobile phone numbers or SMS opt-in data with third parties or affiliates for marketing or promotional purposes.</p>
 
           <h2 className="mt-8 text-xl font-semibold text-gray-900">8. Contact</h2>
