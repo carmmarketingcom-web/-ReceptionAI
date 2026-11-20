@@ -1925,6 +1925,7 @@ type CallbackState = {
   answered: boolean; pressed?: boolean; orgId: string | null;
   prompted?: number;
   outcome?: "transfer" | "optout" | "booked" | null;
+  spokenOptOut?: boolean; // a spoken "stop" was honoured: nothing may re-arm a gather
   callState?: CallState | null;
 };
 const callbackStates = new Map<string, CallbackState>(); // outbound cid → active callback state
@@ -4516,7 +4517,7 @@ async function cancelAppointmentFromReminderCall(rc: ReminderCallState): Promise
 async function optOutContactFromCalls(orgId: string | null, phone: string | null, tag: string): Promise<void> {
   if (!orgId || !phone) return;
   const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) return;
+  if (!dbUrl || !orgId || !phone) return;
   try {
     const sql = neon(dbUrl);
     await sql`
@@ -4525,6 +4526,80 @@ async function optOutContactFromCalls(orgId: string | null, phone: string | null
     `;
   } catch (err) {
     console.error(`[${tag}] opt-out write failed:`, String(err).slice(0, 120));
+  }
+}
+
+// ── Spoken opt-out ──────────────────────────────────────────────────────────
+// A caller who says "stop" out loud is making the same request as press 9: one
+// contacts.reminder_calls_opt_out row, so every dialer (the reminder sweep and the missed-call
+// callback) skips that contact afterwards.
+//
+// Matching runs on the NORMALISED transcript — lowercased, accents stripped, punctuation turned
+// into spaces — because speech recognition returns "No me llames más!" as easily as
+// "no me llames mas". Multi-word phrases match anywhere in the utterance; a bare "stop" or
+// "basta" only counts when it is essentially all the caller said, so "stop by the office at
+// nine" is not an opt-out.
+const SPOKEN_OPT_OUT_PHRASES: string[] = [
+  // English
+  "stop calling me", "stop calling us", "stop calling",
+  "dont call me again", "do not call me again", "dont call me", "do not call me",
+  "dont call again", "do not call again", "never call me again",
+  "take me off your list", "take me off the list",
+  "remove me from your list", "remove me from the list",
+  "opt out", "unsubscribe",
+  // Spanish
+  "no me llames mas", "no me llame mas", "no me llamen mas",
+  "no me vuelva a llamar", "no me vuelvan a llamar",
+  "deja de llamarme", "deje de llamarme", "dejen de llamarme",
+  "deja de llamar", "deje de llamar", "no llamen mas", "no llamar mas",
+  "quitame de la lista", "quitenme de la lista", "saquenme de la lista",
+  "no mas llamadas", "pare de llamar", "paren de llamar",
+];
+// A bare "stop" / "basta" counts only when it is (almost) all the caller said — "stop by the
+// office tomorrow" is not an opt-out, so this needs a very short utterance.
+const BARE_OPT_OUT_WORDS = ["stop", "basta"];
+
+function normaliseSpoken(text: string): string {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['\u2019`]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function matchesSpokenOptOut(transcript: string): boolean {
+  const words = normaliseSpoken(transcript).split(" ").filter(Boolean);
+  if (words.length === 0) return false;
+  if (words.length <= 2 && words.some((w) => BARE_OPT_OUT_WORDS.includes(w))) return true;
+  const joined = ` ${words.join(" ")} `;
+  return SPOKEN_OPT_OUT_PHRASES.some((p) => joined.includes(` ${normaliseSpoken(p)} `));
+}
+
+// The one write every opt-out path uses — press 9 and a spoken "stop" land in the same row.
+async function writeContactOptOut(orgId: string | null, phone: string): Promise<void> {
+  await optOutContactFromCalls(orgId, phone, "OptOut");
+}
+
+// Turn on speech recognition for the CUSTOMER's audio on an automated call. Only the inbound
+// track is transcribed: transcribing our own prompt would match the words "stop reminder calls"
+// in the menu we speak. A refused transcription is one log line — press 9 keeps working.
+async function startSpokenOptOutListener(cid: string, language: string): Promise<void> {
+  try {
+    const ok = await cmd(cid, "transcription_start", {
+      transcription_engine: "Google",
+      transcription_tracks: "inbound",
+      transcription_engine_config: {
+        transcription_engine: "Google",
+        language: language === "es" ? "es-US" : "en-US",
+        interim_results: false,
+      },
+    });
+    console.log(`[OptOut] speech listener ${ok ? "on" : "REFUSED"} (cid ${cid.slice(-8)}) — a spoken stop opts out`);
+  } catch (err) {
+    console.warn("[OptOut] speech listener failed:", String(err).slice(0, 120));
   }
 }
 
@@ -5132,6 +5207,7 @@ for (let attempt = 1; ; attempt++) {
               if (cbAnswered) {
                 cbAnswered.answered = true;
                 console.log(`[Callback] answered — speaking the callback prompt (cid ${cid.slice(-8)})`);
+                void startSpokenOptOutListener(cid, cbAnswered.language);
                 // A short beat so the media path is up before the first word. `speakLines` (not
                 // `speakOnly`) so the return value tells us whether Telnyx accepted anything.
                 setTimeout(async () => {
@@ -5153,6 +5229,7 @@ for (let attempt = 1; ; attempt++) {
               if (rcAnswered) {
                 rcAnswered.answered = true;
                 console.log(`[ReminderCall] appt=${rcAnswered.appointmentId} answered — speaking the reminder (cid ${cid.slice(-8)})`);
+                void startSpokenOptOutListener(cid, rcAnswered.language);
                 // The first moment audio can actually reach this customer. A short beat so the
                 // media path is up before the first word; nothing is queued after the last line,
                 // so the single 10 s DTMF gather still arms on the final `call.speak.ended`.
@@ -5211,7 +5288,7 @@ for (let attempt = 1; ; attempt++) {
                   return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
                 }
                 // A press is already being handled (transfer, opt-out, goodbye): nothing re-arms.
-                if (cbSpeak.pressed) {
+                if (cbSpeak.pressed || cbSpeak.spokenOptOut) {
                   return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
                 }
                 // Press 1 opened the real booking conversation: its prompts gather exactly the way
@@ -5261,6 +5338,38 @@ for (let attempt = 1; ; attempt++) {
             }
 
             // ── DTMF pressed ───────────────────────────────────────
+            // ── Spoken opt-out on an automated call ──────────────────
+            // A caller who says "stop" instead of pressing 9 is making the same request: one
+            // contacts.reminder_calls_opt_out row (the store every dialer reads), a short
+            // confirmation in the language of the call, and the call ends.
+            else if (ev === "call.transcription") {
+              const td = p.data?.payload?.transcription_data || {};
+              const transcript = String(td.transcript || "");
+              // Only a FINAL transcript may opt someone out — an interim result fires on half a
+              // word. `transcription_track` must never be our own outbound prompt.
+              const isFinal = td.is_final !== false;
+              const fromCallee = td.transcription_track !== "outbound";
+              const rcSpoken = reminderCallStates.get(cid);
+              const cbSpoken = callbackStates.get(cid);
+              if (isFinal && fromCallee && transcript && (rcSpoken || cbSpoken) && matchesSpokenOptOut(transcript)) {
+                const lang = (rcSpoken?.language || cbSpoken?.language || "en") === "es" ? "es" : "en";
+                const es = lang === "es";
+                console.log(`[OptOut] spoken opt-out heard on call ${cid.slice(-8)}: "${transcript.slice(0, 60)}"`);
+                if (rcSpoken) {
+                  if (rcSpoken.outcome !== "optout") await optOutOfReminderCalls(rcSpoken);
+                } else if (cbSpoken) {
+                  cbSpoken.spokenOptOut = true;
+                  await writeContactOptOut(cbSpoken.orgId, cbSpoken.callerNumber);
+                  console.log(`[Callback] caller said stop — opted out ${String(cbSpoken.callerNumber).slice(-4)}`);
+                }
+                const spoken = await speakLines(cid, [es
+                  ? "Entendido. No recibirá más llamadas automáticas de nuestra parte. Adiós."
+                  : "Understood. You won't receive automated calls from us again. Goodbye."], lang);
+                if (spoken === 0) await cmd(cid, "hangup");
+                else pendingHangups.add(cid);
+              }
+              return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+            }
             else if (ev === "call.dtmf.received" || ev === "dtmf.received") {
               const digit = p.data?.payload?.digit || "";
               console.log(`DTMF: ${digit} — call ${cid.slice(-8)}`);
