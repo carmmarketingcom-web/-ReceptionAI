@@ -1914,7 +1914,7 @@ function armHangup(cid: string, delayMs = 1500): void {
 }
 const pendingHangups = new Set<string>();
 const pendingCallbacks = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; orgId: string | null }>(); // outbound cid → callback info
-const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean; orgId: string | null }>(); // outbound cid → active callback state
+const callbackStates = new Map<string, { orgName: string; language: string; callerNumber: string; businessNumber: string; answered: boolean; pressed?: boolean; orgId: string | null }>(); // outbound cid → active callback state
 const transferStates = new Map<string, { inboundCid: string; ownerPhone: string; callerNumber: string; businessNumber: string; language: string; answered: boolean; orgId: string | null; source: "inbound" | "reminder_call" }>(); // outbound owner-leg cid → transfer info
 
 // ── Reschedule flow handler ────────────────────────────────────────────────
@@ -4879,14 +4879,12 @@ for (let attempt = 1; ; attempt++) {
               const cbInfo = pendingCallbacks.get(cid);
               if (cbInfo) {
                 pendingCallbacks.delete(cid);
-                callbackStates.set(cid, { ...cbInfo, answered: false });
-                const es = cbInfo.language === "es";
-                await cmd(cid, "answer");
-                setTimeout(async () => {
-                  await speakOnly(cid, es
-                    ? `Hola, somos ${cbInfo.orgName}. Disculpe que no pudimos atender su llamada. Presione 1 para agendar una cita.`
-                    : `Hi, this is ${cbInfo.orgName}. Sorry we missed your call. Press 1 to book an appointment.`, cbInfo.language);
-                }, 600);
+                callbackStates.set(cid, { ...cbInfo, answered: false, pressed: false });
+                // `call.initiated` is the RINGING phase: the customer's phone has not been picked
+                // up yet. Nothing may be answered or spoken here — audio sent now plays into a leg
+                // nobody is on, so the customer who finally picks up hears silence (the same defect
+                // the reminder call had until 11-18). The prompt is spoken from `call.answered`.
+                console.log(`[Callback] dialling ${String(cbInfo.callerNumber).slice(-4)} — waiting for answer (cid ${cid.slice(-8)})`);
                 return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
               }
 
@@ -5028,7 +5026,31 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Owner answered for a transfer → bridge caller to owner ──
             else if (ev === "call.answered") {
-              // The customer picked up the reminder call — from here a silence means "no
+              // The customer answered our missed-call callback — the first moment audio can
+              // actually reach them, because nothing is spoken at dial time any more.
+              const cbAnswered = callbackStates.get(cid);
+              if (cbAnswered) {
+                cbAnswered.answered = true;
+                console.log(`[Callback] answered — speaking the callback prompt (cid ${cid.slice(-8)})`);
+                // A short beat so the media path is up before the first word. `speakLines` (not
+                // `speakOnly`) so the return value tells us whether Telnyx accepted anything.
+                setTimeout(async () => {
+                  const es = cbAnswered.language === "es";
+                  const spoken = await speakLines(cid, [es
+                    ? `Hola, somos ${cbAnswered.orgName}. Disculpe que no pudimos atender su llamada. Presione 1 para agendar una cita.`
+                    : `Hi, this is ${cbAnswered.orgName}. Sorry we missed your call. Press 1 to book an appointment.`], cbAnswered.language);
+                  // Telnyx refused every line: no `call.speak.ended` will ever arrive, so the
+                  // gather would never arm and the customer would hear silence again. Close the
+                  // dead line instead of leaving it open.
+                  if (spoken === 0) {
+                    console.error(`[Callback] the prompt could not be spoken (cid ${cid.slice(-8)}) — hanging up`);
+                    const hungUp = await cmd(cid, "hangup");
+                    if (!hungUp) console.error(`[Callback] hangup was rejected for cid ${cid.slice(-8)}`);
+                  }
+                }, 300);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
+              // The customer picked up the reminder call — from here a silence means "no"
               // choice", not "no answer".
               const rcAnswered = reminderCallStates.get(cid);
               if (rcAnswered) {
@@ -5072,6 +5094,27 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Speak ended → gather or hangup ─────────────────────────
             else if (ev === "call.speak.ended") {
+              // Callback call: the LAST queued line of the prompt arms ONE 10-second DTMF gather —
+              // which is what makes "press 1" pressable at all. Nothing used to arm a gather on a
+              // callback leg, so `call.dtmf.received` never arrived and the press-1 handler below
+              // was dead code. Segments are counted so a multi-sentence prompt arms the gather
+              // once, when the audio has actually finished, never mid-prompt.
+              const cbSpeak = callbackStates.get(cid);
+              if (cbSpeak) {
+                // A press is already being handled: the DTMF branch has queued the goodbye and the
+                // hangup, so re-arming here would gather (and could re-prompt) over it.
+                if (cbSpeak.pressed) {
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                const cbSegsLeft = speakSegments.get(cid) || 0;
+                if (cbSegsLeft > 1) {
+                  speakSegments.set(cid, cbSegsLeft - 1);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                speakSegments.delete(cid);
+                armGather(cid, { type: "dtmf", minimum_digits: 1, maximum_digits: 1, timeout_millis: 10000 });
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               // Reminder call: the last queued line arms ONE 10-second DTMF gather, or hangs up
               // once the goodbye has played.
               const rcSpeak = reminderCallStates.get(cid);
@@ -5119,6 +5162,10 @@ for (let attempt = 1; ; attempt++) {
                 const es = cbState.language === "es";
                 if (digit === "1") {
                   cbState.answered = true;
+                  // `answered` now means "picked up" (set on `call.answered`); `pressed` is what the
+                  // hangup handler keys on, so the "someone will reach out" text still only goes to
+                  // a caller who actually pressed 1.
+                  cbState.pressed = true;
                   await speakOnly(cid, es
                     ? "Gracias. Alguien lo contactará pronto. ¡Que tenga un buen día!"
                     : "Thank you. Someone will reach out shortly. Have a great day!", cbState.language);
@@ -5501,7 +5548,7 @@ for (let attempt = 1; ; attempt++) {
               // Clean up callback state if it was a callback call
               if (callbackStates.has(cid)) {
                 const cbState = callbackStates.get(cid);
-                if (cbState && cbState.answered && cbState.callerNumber && cbState.businessNumber && (await smsEnabledForOrg(cbState.orgId))) {
+                if (cbState && cbState.pressed && cbState.callerNumber && cbState.businessNumber && (await smsEnabledForOrg(cbState.orgId))) {
                   // Send confirmation SMS (opt-in only)
                   await sendSms(smsSenderForOrg(cbState.businessNumber), cbState.callerNumber,
                     cbState.language === "es"
