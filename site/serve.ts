@@ -1307,12 +1307,47 @@ function forgetVoicemailRecording(cid: string): void {
   voicemailRecording.delete(cid);
 }
 
+// The prompt a caller hears before the beep — and WHEN the beep may fire (owner report 2026-11-21,
+// call `2zCNrV8A`). He pressed 9 mid-menu, heard a beep buried in the menu, never heard the
+// instruction, and hung up. Two causes, both fixed here and in the `call.speak.ended` handler:
+//  1. the menu was never stopped, so its remaining sentences played over and past the prompt;
+//  2. `record_start` was armed 800 ms after `speak` was ACCEPTED, not after the audio ENDED, so
+//     the beep landed in the middle of the prompt and our own instruction was recorded.
+// Now: flush everything queued (stop:"all"), speak the prompt exactly once, and start the
+// recording only on the prompt's own `call.speak.ended` — with a fallback so a caller is never
+// left waiting in silence if that event never arrives.
+const VOICEMAIL_PROMPT_FALLBACK_MS = 6000;
+// A `call.speak.ended` for menu audio we just flushed can land right after the flush; the prompt
+// itself takes seconds, so an end inside the first half second is not our prompt.
+const VOICEMAIL_PROMPT_MIN_MS = 500;
+const pendingVoicemailPrompts = new Map<string, { timer: ReturnType<typeof setTimeout>; armedAt: number }>();
+
 async function startVoicemailRecording(cid: string, lang: string): Promise<void> {
+  if (endedCalls.has(cid)) return;
   const es = lang === "es";
-  await speakOnly(cid, es
+  // Everything queued behind this press is about to be dropped by stop:"all", so none of those
+  // segments will ever report `call.speak.ended`; reset the counter to this one prompt so the
+  // prompt's own end is the one that counts.
+  speakSegments.delete(cid);
+  const spoken = await speakOnly(cid, es
     ? "Por favor deje su mensaje después del tono."
-    : "Go ahead and leave your message after the tone, and I'll pass it along to the team.", lang);
-  setTimeout(() => { void beginVoicemailRecording(cid); }, 800);
+    : "Go ahead and leave your message after the tone, and I'll pass it along to the team.", lang, { stop: "all" });
+  if (endedCalls.has(cid)) return;
+  const prev = pendingVoicemailPrompts.get(cid);
+  if (prev) clearTimeout(prev.timer);
+  const timer = setTimeout(() => {
+    pendingVoicemailPrompts.delete(cid);
+    if (endedCalls.has(cid)) return;
+    console.warn(`[Voicemail] no call.speak.ended for the prompt on call ${String(cid).slice(-8)} after ${VOICEMAIL_PROMPT_FALLBACK_MS} ms — starting the recording anyway`);
+    void beginVoicemailRecording(cid);
+  }, VOICEMAIL_PROMPT_FALLBACK_MS);
+  pendingVoicemailPrompts.set(cid, { timer, armedAt: Date.now() });
+  if (!spoken) {
+    // Telnyx refused the prompt: no `call.speak.ended` will ever arrive, so do not wait for one.
+    clearTimeout(timer);
+    pendingVoicemailPrompts.delete(cid);
+    await beginVoicemailRecording(cid);
+  }
 }
 
 async function beginVoicemailRecording(cid: string): Promise<void> {
@@ -2005,6 +2040,8 @@ function markCallEnded(cid: string): void {
   const hangTimer = hangupTimers.get(cid);
   if (hangTimer) { clearTimeout(hangTimer); hangupTimers.delete(cid); }
   forgetVoicemailRecording(cid);
+  const vPromptTimer = pendingVoicemailPrompts.get(cid);
+  if (vPromptTimer) { clearTimeout(vPromptTimer.timer); pendingVoicemailPrompts.delete(cid); }
 }
 function armHangup(cid: string, delayMs = 1500): void {
   const prev = hangupTimers.get(cid);
@@ -5517,6 +5554,21 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Speak ended → gather or hangup ─────────────────────────
             else if (ev === "call.speak.ended") {
+              // Voicemail: the prompt has finished playing — THIS is when the recording may start.
+              // Arming it earlier (the old 800 ms timer after `speak` was accepted) put the beep in
+              // the middle of the prompt and recorded our own instruction over the caller.
+              const vPrompt = pendingVoicemailPrompts.get(cid);
+              if (vPrompt) {
+                if (Date.now() - vPrompt.armedAt < VOICEMAIL_PROMPT_MIN_MS) {
+                  // A segment we flushed with stop:"all" ending — not the prompt.
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
+                clearTimeout(vPrompt.timer);
+                pendingVoicemailPrompts.delete(cid);
+                speakSegments.delete(cid);
+                await beginVoicemailRecording(cid);
+                return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+              }
               // Callback call: the LAST queued line of the prompt arms ONE 10-second DTMF gather —
               // which is what makes "press 1" pressable at all. Nothing used to arm a gather on a
               // callback leg, so `call.dtmf.received` never arrived and the press-1 handler below
@@ -5951,7 +6003,7 @@ for (let attempt = 1; ; attempt++) {
                 // prompt, re-arm a listener or email the owner again — and the owner is not told
                 // anything until a recording really exists (owner report 2026-11-21: four "Nuevo
                 // mensaje de voz" emails for a call that recorded nothing, one per 9 press).
-                if (cs && (cs.voicemail || voicemailRecording.has(cid))) {
+                if (cs && (cs.voicemail || voicemailRecording.has(cid) || pendingVoicemailPrompts.has(cid))) {
                   console.log(`[Voicemail] second 9 ignored on call ${cid.slice(-8)} — a message is already being taken`);
                   return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
                 }
