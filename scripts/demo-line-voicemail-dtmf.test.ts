@@ -124,7 +124,12 @@ test("A+B: press 9 on the demo line really records — no timeout_secs, a 60 s c
   await wait(700);
   const pressMark = actions.length;
   await postEvent("call.dtmf.received", { call_control_id: cid, digit: "9" });
-  await wait(1400); // the prompt plays, then record_start is issued 800 ms later
+  await wait(500);
+  // The recording may only start once the PROMPT has ended (owner report 2026-11-21: the beep used
+  // to fire 800 ms after `speak` was accepted, i.e. while the prompt was still playing).
+  expect(cmds(pressMark, cid, "record_start").length).toBe(0);
+  await finishSpeaking(cid, pressMark);
+  await wait(300);
 
   const prompt = spoken(pressMark, cid);
   expect(prompt).toContain("deje su mensaje");
@@ -149,7 +154,8 @@ test("B: four 9 presses are one prompt, one record_start and zero emails", async
     await postEvent("call.dtmf.received", { call_control_id: cid, digit: "9" });
     await wait(900); // longer than the 700 ms duplicate-digit guard: these are four real presses
   }
-  await wait(1200);
+  await finishSpeaking(cid, mark); // the prompt's `call.speak.ended` is what may start the recording
+  await wait(300);
   const prompts = speaks(mark, cid).filter((a) => /mensaje|leave your message/i.test(String(a.body.payload || "")));
   console.log("[sim] voicemail prompts spoken:", prompts.length);
   expect(prompts.length).toBe(1);
@@ -162,7 +168,10 @@ test("B: a business line is emailed once, and only after the recording really ex
   await wait(700);
   const pressMark = actions.length;
   await postEvent("call.dtmf.received", { call_control_id: cid, digit: "9" });
-  await wait(1400);
+  await wait(500);
+  expect(cmds(pressMark, cid, "record_start").length).toBe(0);
+  await finishSpeaking(cid, pressMark);
+  await wait(300);
   expect(cmds(pressMark, cid, "record_start").length).toBe(1);
   // Nothing was recorded yet, so the owner must not have been told anything.
   expect(emails.length).toBe(0);
