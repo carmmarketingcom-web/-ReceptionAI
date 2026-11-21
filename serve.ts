@@ -6929,9 +6929,13 @@ for (let attempt = 1; ; attempt++) {
             serverStatus.telnyxBalance = balanceSnap.balance;
             serverStatus.telnyxBalanceCurrency = balanceSnap.currency;
             serverStatus.telnyxBalanceCheckedAt = balanceSnap.checkedAt || null;
+            // Labels match what actually matters to the owner (11-21): $42 is not
+            // "low" — it is ~450 AI-minutes. "low" now means under $15 (≈160 minutes,
+            // worth a glance), "urgent" under $5 (calls stop soon), "empty" at $0.
             serverStatus.telnyxBalanceStatus = balanceSnap.balance === null ? "unknown"
-              : balanceSnap.balance < TELNYX_BALANCE_URGENT_BELOW ? "urgent"
-              : balanceSnap.balance < TELNYX_BALANCE_WARN_BELOW ? "low" : "ok";
+              : balanceSnap.balance <= 0 ? "empty"
+              : balanceSnap.balance < 5 ? "urgent"
+              : balanceSnap.balance < 15 ? "low" : "ok";
             if (balanceSnap.error) serverStatus.telnyxBalanceError = balanceSnap.error;
 
             // Outbound SMS delivery, last 24h. This is the channel that failed silently
