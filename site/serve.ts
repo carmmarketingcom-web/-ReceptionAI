@@ -848,6 +848,10 @@ async function walkVoiceChain(
 // Every spoken command goes through here. The opt-in ElevenLabs path behaves exactly as before
 // (cmd() owns its fallback); English and Spanish each walk their own voice chain.
 async function voiceCmd(cid: string, action: string, text: string, lang: string, extra: any = {}): Promise<boolean> {
+  if (endedCalls.has(cid)) {
+    console.log(`[TTS] ${action} skipped — call ${String(cid).slice(-8)} has already ended`);
+    return false;
+  }
   const l = lang === "es" ? "es" : "en";
   if (l === "es") {
     return walkVoiceChain(cid, action, text, ES_VOICES, ES_VOICE_DEAD, extra, "Spanish");
@@ -876,6 +880,11 @@ function logVoiceForCall(cid: string) {
 // instead of paying two dead round-trips (and the silent beat they cost) on every prompt.
 const ELEVENLABS_DOWN = new Set<string>();
 async function cmd(cid: string, action: string, body: any = {}) {
+  // Never speak into, or listen on, a call that has already hung up (see markCallEnded).
+  if ((action === "speak" || action === "gather" || action === "record_start") && endedCalls.has(cid)) {
+    console.log(`[Telnyx] ${action} skipped — call ${String(cid).slice(-8)} has already ended`);
+    return false;
+  }
   const eleven = isElevenLabsVoice(body);
   // Known-bad voice for this call → go straight to the slowed Polly path.
   if (eleven && ELEVENLABS_DOWN.has(cid)) {
@@ -988,9 +997,9 @@ async function promptAndWait(cid: string, text: string) {
 // voice (the original bilingual-prompt bug). Callers must pass the language of the text.
 // How many speak commands we queued and have not yet seen `call.speak.ended` for.
 const speakSegments = new Map<string, number>();
-async function speakOnly(cid: string, text: string, lang: string) {
+async function speakOnly(cid: string, text: string, lang: string, extra: any = {}) {
   speakSegments.set(cid, (speakSegments.get(cid) || 0) + 1);
-  const ok = await voiceCmd(cid, "speak", text, lang);
+  const ok = await voiceCmd(cid, "speak", text, lang, extra);
   if (!ok) {
     // Never leave the counter stuck if Telnyx rejected the command — otherwise the call
     // would wait forever for an event that will not arrive.
@@ -1057,7 +1066,7 @@ function splitForPacing(text: string, lang: string): string[] {
 // above gives each idea room to land instead of running them together.
 // Returns how many utterances Telnyx ACCEPTED — 0 means the prompt never played at all
 // (every speak was refused), which a caller-reachable path must not treat as "spoken".
-async function speakLines(cid: string, lines: SpokenLine[], lang: string): Promise<number> {
+async function speakLines(cid: string, lines: SpokenLine[], lang: string, opts: { flushFirst?: boolean } = {}): Promise<number> {
   let spoken = 0;
   for (const raw of lines) {
     if (!raw) continue;
@@ -1065,7 +1074,11 @@ async function speakLines(cid: string, lines: SpokenLine[], lang: string): Promi
     for (const line of splitForPacing(raw, lang)) {
       if (!line) continue;
       if (spoken > 0) await paceGap(lang);
-      if (await speakOnly(cid, line, lang)) spoken++;
+      // flushFirst: this is the answer to a keypress, so drop whatever is still queued behind it
+      // (Telnyx SpeakRequest.stop "all"). The caller hears the answer the moment they press
+      // instead of after the rest of the menu.
+      const extra = spoken === 0 && opts.flushFirst ? { stop: "all" } : {};
+      if (await speakOnly(cid, line, lang, extra)) spoken++;
     }
   }
   return spoken;
@@ -1277,24 +1290,54 @@ function verifyRecordingAudioSig(recordingId: string, exp: number, sig: string):
   return a.length === b.length && timingSafeEqual(a, b);
 }
 // ── Voicemail helpers ────────────────────────────────────────────────────────
+// `record_start` used to carry `timeout_secs: 60`. That field is the SILENCE timeout and it runs
+// on call transcription, so Telnyx refused the command on every call that is being transcribed
+// (error 90053, "Call recording can not be started with 'timeout_secs' while the call is being
+// transcribed"): no beep, no audio, ever — the caller heard "leave your message after the tone"
+// and then nothing. The hard 60 s cap we actually wanted is `max_length` (seconds, documented in
+// the Telnyx RecordStartRequest), so Telnyx enforces it itself; the local timer below is only a
+// backstop for the case where Telnyx never stops it.
+const VOICEMAIL_MAX_SECONDS = 60;
+const voicemailRecording = new Set<string>(); // cid → a recording is really running
+const voicemailRecordTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function forgetVoicemailRecording(cid: string): void {
+  const t = voicemailRecordTimers.get(cid);
+  if (t) { clearTimeout(t); voicemailRecordTimers.delete(cid); }
+  voicemailRecording.delete(cid);
+}
+
 async function startVoicemailRecording(cid: string, lang: string): Promise<void> {
   const es = lang === "es";
-  // Use Telnyx record_start for real audio recording
   await speakOnly(cid, es
     ? "Por favor deje su mensaje después del tono."
     : "Go ahead and leave your message after the tone, and I'll pass it along to the team.", lang);
-  setTimeout(() => {
-    cmd(cid, "record_start", {
-      format: "mp3",
-      channels: "single",
-      timeout_secs: 60,
-      play_beep: true,
-    });
-  }, 800);
+  setTimeout(() => { void beginVoicemailRecording(cid); }, 800);
 }
 
-function stopVoicemailRecording(cid: string): void {
-  cmd(cid, "record_stop", {}).catch(() => {});
+async function beginVoicemailRecording(cid: string): Promise<void> {
+  if (voicemailRecording.has(cid) || endedCalls.has(cid)) return;
+  const res = await sendActionEx(cid, "record_start", {
+    format: "mp3",
+    channels: "single",
+    play_beep: true,
+    max_length: VOICEMAIL_MAX_SECONDS,
+  });
+  if (!res.ok) {
+    // The caller is standing in silence: say so loudly, with Telnyx's own words.
+    console.error(`[Voicemail] record_start REFUSED on call ${String(cid).slice(-8)} — no beep, no audio. Telnyx said: ${res.error}`);
+    return;
+  }
+  voicemailRecording.add(cid);
+  const t = setTimeout(() => {
+    voicemailRecordTimers.delete(cid);
+    if (!voicemailRecording.has(cid)) return;
+    voicemailRecording.delete(cid);
+    console.log(`[Voicemail] ${VOICEMAIL_MAX_SECONDS}s backstop reached — stopping the recording on call ${String(cid).slice(-8)}`);
+    cmd(cid, "record_stop", {}).catch(() => {});
+  }, VOICEMAIL_MAX_SECONDS * 1000);
+  voicemailRecordTimers.set(cid, t);
+  console.log(`[Voicemail] recording started on call ${String(cid).slice(-8)} (max ${VOICEMAIL_MAX_SECONDS}s, beep on)`);
 }
 
 /**
@@ -1818,6 +1861,25 @@ interface CallState {
 }
 const calls = new Map<string, CallState>(); // cid → CallState
 
+// ── One webhook, one action ─────────────────────────────────────────────────
+// Telnyx retries a delivery it did not get a fast 200 for, and more than one call-control app is
+// attached to this number. `data.id` is the only thing that identifies ONE event, and re-running
+// a retried delivery is what re-spoke the menu and re-sent the owner's voicemail email (61 POSTs
+// for one 82 s call, 2026-11-21). A duplicate is answered 200 and touches nothing.
+const TELNYX_EVENT_TTL_MS = 15 * 60 * 1000;
+const telnyxEvents = new Map<string, number>(); // event id → first seen
+function telnyxEventSeen(id: string): boolean {
+  const now = Date.now();
+  if (telnyxEvents.size > 5000) {
+    for (const [k, ts] of telnyxEvents) if (now - ts > TELNYX_EVENT_TTL_MS) telnyxEvents.delete(k);
+    if (telnyxEvents.size > 5000) telnyxEvents.clear();
+  }
+  const seen = telnyxEvents.get(id);
+  if (seen !== undefined && now - seen < TELNYX_EVENT_TTL_MS) return true;
+  telnyxEvents.set(id, now);
+  return false;
+}
+
 // ── Idempotency guards (demo-line regression, owner report 2026-10-28) ──────
 // Telnyx fires `call.speak.ended` once PER speak command. A multi-segment prompt therefore
 // armed one DTMF gather per segment (the bilingual greeting armed two at once) and a
@@ -1847,6 +1909,12 @@ function finishSpeaking(cid: string): void {
     pendingHangups.delete(cid);
     armHangup(cid, 1200);
   } else {
+    // A message is being recorded: no listener, and nothing may be spoken over the caller.
+    if (voicemailRecording.has(cid)) return;
+    // A menu prompt armed its own listener BEFORE the audio (armMenuListener) and it is still
+    // open: it covers the prompt plus the usual 8 s of listening, so arming a second one here
+    // would let one press be delivered twice.
+    if (gatherActive.has(cid) && promptGathers.has(cid)) return;
     armGather(cid, {
       type: "dtmf",
       minimum_digits: 1,
@@ -1854,6 +1922,89 @@ function finishSpeaking(cid: string): void {
       timeout_millis: 8000,
     });
   }
+}
+
+// ── Listening while the prompt plays (owner report 2026-11-21) ───────────────
+// The listener used to be armed only when the LAST `call.speak.ended` arrived, so a digit pressed
+// while the menu was still being read was dropped and the caller had to sit through the whole
+// menu again — "it's not controlling exactly when I press the number". A menu prompt now arms its
+// listener BEFORE the audio, with `initial_timeout_millis` covering the prompt, so a press counts
+// the moment it is made. The prompt's own `speak.ended` then finds the listener already open and
+// leaves it alone. If Telnyx refuses the early listener, the old behaviour is restored exactly.
+const promptGathers = new Set<string>(); // cid → the open listener was armed before its prompt
+const MENU_LISTEN_FLOOR_MS = 12000;
+// Deliberately generous: over-estimating only delays the silence nudge by a few seconds, while
+// under-estimating would end the listener while the caller is still hearing the menu.
+function estimatePromptMs(lines: SpokenLine[], lang: string): number {
+  let chars = 0;
+  let pauses = 0;
+  for (const l of lines) {
+    if (typeof l === "string") chars += l.length;
+    else if (l && typeof l === "object" && l.pauseMs) pauses += l.pauseMs;
+  }
+  const ms = Math.round(chars * 95) + pauses + TTS_PACING[lang === "es" ? "es" : "en"];
+  return Math.max(MENU_LISTEN_FLOOR_MS, Math.min(90000, ms));
+}
+function armMenuListener(cid: string, lines: SpokenLine[], lang: string): void {
+  if (!cid) return;
+  if (gatherActive.has(cid) || pendingHangups.has(cid) || hangupTimers.has(cid)) return;
+  if (voicemailRecording.has(cid) || endedCalls.has(cid)) return;
+  const cover = estimatePromptMs(lines, lang) + 8000;
+  gatherActive.add(cid);
+  promptGathers.add(cid);
+  const prev = gatherArmTimers.get(cid);
+  if (prev) clearTimeout(prev);
+  gatherArmTimers.set(cid, setTimeout(() => {
+    gatherArmTimers.delete(cid);
+    cmd(cid, "gather", {
+      type: "dtmf",
+      minimum_digits: 1,
+      maximum_digits: 1,
+      initial_timeout_millis: cover,
+      timeout_millis: cover,
+    }).then((ok) => {
+      if (ok) return;
+      // Refused: fall back to exactly the old behaviour — listen once the prompt has finished.
+      gatherActive.delete(cid);
+      promptGathers.delete(cid);
+      console.warn(`[Gather] listen-while-speaking refused on call ${cid.slice(-8)} — will arm after the prompt instead`);
+    }).catch(() => {
+      gatherActive.delete(cid);
+      promptGathers.delete(cid);
+    });
+  }, 60));
+}
+// A menu answer: listen from the first word, and clear whatever is still queued behind it so the
+// answer starts the moment the caller presses instead of after the rest of the menu.
+async function speakMenu(cid: string, lines: SpokenLine[], lang: string): Promise<number> {
+  armMenuListener(cid, lines, lang);
+  return speakLines(cid, lines, lang, { flushFirst: true });
+}
+async function speakMenuOnly(cid: string, text: string, lang: string): Promise<boolean> {
+  armMenuListener(cid, [text], lang);
+  return speakOnly(cid, text, lang, { stop: "all" });
+}
+
+// ── Calls that have already ended ───────────────────────────────────────────
+// Anything still queued (a delayed prompt, a nudge timer) must not be spoken into a dead leg:
+// Telnyx refuses it, the voice chain then walks every Spanish voice and logs "every Spanish voice
+// was refused — this prompt has no audio" for a prompt nobody could hear (four such false voice
+// alarms after Hangup on the owner's 2026-11-21 call).
+const endedCalls = new Set<string>();
+function markCallEnded(cid: string): void {
+  if (!cid) return;
+  endedCalls.add(cid);
+  if (endedCalls.size > 500) {
+    const first = endedCalls.values().next().value;
+    if (first) endedCalls.delete(first);
+  }
+  gatherActive.delete(cid);
+  promptGathers.delete(cid);
+  const armTimer = gatherArmTimers.get(cid);
+  if (armTimer) { clearTimeout(armTimer); gatherArmTimers.delete(cid); }
+  const hangTimer = hangupTimers.get(cid);
+  if (hangTimer) { clearTimeout(hangTimer); hangupTimers.delete(cid); }
+  forgetVoicemailRecording(cid);
 }
 function armHangup(cid: string, delayMs = 1500): void {
   const prev = hangupTimers.get(cid);
@@ -5074,6 +5225,14 @@ for (let attempt = 1; ; attempt++) {
             const p = await req.json();
             const ev = p.data?.event_type || "";
             const cid = p.data?.payload?.call_control_id || "";
+            // One line per delivery, with the event id, so a retry is visible in the log instead
+            // of looking like a second keypress (owner report 2026-11-21: 61 POSTs for one call).
+            const eventId = String(p.data?.id || "");
+            console.log(`[Telnyx] ${ev || "(no event_type)"} event=${eventId || "-"} call=${cid ? cid.slice(-8) : "-"}`);
+            if (eventId && telnyxEventSeen(eventId)) {
+              console.log(`[Telnyx] duplicate delivery of ${eventId} — answered 200, nothing re-run`);
+              return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+            }
 
             // ── New call: answer → language choice → speak → gather ───────
             if (ev === "call.initiated" || ev === "call_initiated") {
@@ -5216,6 +5375,9 @@ for (let attempt = 1; ; attempt++) {
                 // Telnyx call-control `speak` audio is queued in order (see SpeakRequest.stop: playback
                 // is only interrupted/cleared when an explicit `stop` is sent), so two sequential
                 // speak commands are safe and play back-to-back.
+                // Listen while this plays: a caller who knows what they want presses during the
+                // question, and that press must count (owner report 2026-11-21).
+                armMenuListener(cid, ["Welcome! For English, press 1.", "Para español, presione 2."], "en");
                 await speakOnly(cid, "Welcome! For English, press 1.", "en");
                 await speakOnly(cid, "Para español, presione 2.", "es");
               }, 600);
@@ -5242,18 +5404,20 @@ for (let attempt = 1; ; attempt++) {
               // 2026-10-29: the ending must say what the demo was). The org-only work (recording
               // row + owner alert) is now inside its own check, so a business call behaves
               // exactly as before and a demo call still stores nothing.
+              forgetVoicemailRecording(cid); // the audio arrived — the 60 s backstop is done
               if (cs && recordingUrl) {
                 cs.voicemail = true; // this call was a voicemail, not a normal completion
-                if (cs.orgId) {
+                if (cs.orgId && !cs.isDemo) {
                   const stored = await saveVoicemailRecording(cs, recordingUrl, durationSeconds, recordingId);
-                  // One alert per voicemail: pressing 9 already announced it, so only announce
-                  // here if nothing was sent yet (never text the owner twice for one message).
-                  if (!cs.voicemailAlerted) {
+                  // The owner is told only once the audio really exists AND really landed in the
+                  // dashboard: "listen here" must never point at a recording that is not there.
+                  // The send is not awaited — the webhook answers Telnyx without waiting on email.
+                  if (stored && !cs.voicemailAlerted) {
                     cs.voicemailAlerted = true;
-                    await notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en");
-                  }
-                  if (!stored) {
-                    console.warn(`[Voicemail] audio for ${cs.callerNumber} could not be stored — owner alerted, dashboard will show "Not available"`);
+                    void notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, cs.language || "en")
+                      .catch((err) => console.error("[Voicemail] owner alert failed:", String(err).slice(0, 120)));
+                  } else if (!stored) {
+                    console.error(`[Voicemail] audio for ${cs.callerNumber} could not be stored — no owner alert was sent`);
                   }
                 }
                 const es = (cs.language || "en") === "es";
@@ -5472,7 +5636,7 @@ for (let attempt = 1; ; attempt++) {
                   }
                   lastDtmf.set(cid, { digit, ts: cbNow });
                 }
-                gatherActive.delete(cid); // this press satisfied the active gather
+                gatherActive.delete(cid); promptGathers.delete(cid); // this press satisfied the active gather
 
                 // Press 1 opened the real booking conversation: these digits belong to it, not to
                 // the menu (slots 1-4, then the waitlist offer if there was no availability).
@@ -5605,7 +5769,7 @@ for (let attempt = 1; ; attempt++) {
                 }
                 lastDtmf.set(cid, { digit, ts: now });
               }
-              gatherActive.delete(cid); // this press satisfied the active gather
+              gatherActive.delete(cid); promptGathers.delete(cid); // this press satisfied the active gather
 
               // ── Reminder call: 1 confirm, 2 cancel, 3 office, 9 stop ──
               const rcDtmf = reminderCallStates.get(cid);
@@ -5641,6 +5805,7 @@ for (let attempt = 1; ; attempt++) {
                     // leg still queued behind the language prompt ("stop current audio and
                     // clear the queue"), so a caller who pressed 1 no longer hears
                     // "Para español, presione 2" after choosing English.
+                    armMenuListener(cid, [opener, ...DEMO_EN.greeting.slice(1)], "en");
                     await speakWithQueueControl(cid, opener, "en", "all");
                     // The opener is issued outside speakLines(), so give it the same beat before
                     // the next idea that the other segments get.
@@ -5648,7 +5813,7 @@ for (let attempt = 1; ; attempt++) {
                     await speakLines(cid, DEMO_EN.greeting.slice(1), "en");
                   } else {
                     const greeting = buildGreetingLines(cs.orgName || DEMO_BRAND_NAME, "en", callerContextFor(cs));
-                    await speakLines(cid, greeting, "en");
+                    await speakMenu(cid, greeting, "en");
                   }
                 } else if (digit === "2") {
                   cs.language = "es";
@@ -5663,6 +5828,7 @@ for (let attempt = 1; ; attempt++) {
                       ? [`¡Bienvenido de nuevo, ${backName}! Gracias por llamar a ${DEMO_BRAND_NAME}.`, ...DEMO_ES.greeting.slice(1)]
                       : DEMO_ES.greeting)
                     : buildGreetingLines(cs.orgName || DEMO_BRAND_NAME, "es", callerContextFor(cs));
+                  armMenuListener(cid, greeting, "es");
                   await speakSpanishGreeting(cid, greeting);
                 } else {
                   await speakOnly(cid, `Please press 1 for English, or 2 for Spanish.`, "en");
@@ -5690,10 +5856,10 @@ for (let attempt = 1; ; attempt++) {
                 const isDemo = !!cs?.isDemo;
                 if (isDemo) {
                   if (es) {
-                    await speakLines(cid, DEMO_ES.book, "es");
+                    await speakMenu(cid, DEMO_ES.book, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                    await speakLines(cid, DEMO_EN.book, "en");
+                    await speakMenu(cid, DEMO_EN.book, "en");
                   }
                 } else if (cs) {
                   // Real voice booking: fetch next available slots and offer them over DTMF
@@ -5703,12 +5869,12 @@ for (let attempt = 1; ; attempt++) {
 
               else if (digit === "2") {
                 if (es) {
-                  await speakLines(cid, !cs?.isDemo ? DEMO_ES.pricing : ES_PRICING_LINES, "es");
+                  await speakMenu(cid, !cs?.isDemo ? DEMO_ES.pricing : ES_PRICING_LINES, "es");
                 } else if (!cs?.isDemo) {
                   if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                  await speakLines(cid, DEMO_EN.pricing, "en");
+                  await speakMenu(cid, DEMO_EN.pricing, "en");
                 } else {
-                  await speakOnly(cid, "ReceptionAI plans: Starter at $99 a month, Growth at $199, and Scale at $399. Visit our website to sign up.", "en");
+                  await speakMenuOnly(cid, "ReceptionAI plans: Starter at $99 a month, Growth at $199, and Scale at $399. Visit our website to sign up.", "en");
                 }
               }
 
@@ -5716,10 +5882,10 @@ for (let attempt = 1; ; attempt++) {
                 const isDemo = !!cs?.isDemo;
                 if (isDemo) {
                   if (es) {
-                    await speakLines(cid, DEMO_ES.transfer, "es");
+                    await speakMenu(cid, DEMO_ES.transfer, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                    await speakLines(cid, DEMO_EN.transfer, "en");
+                    await speakMenu(cid, DEMO_EN.transfer, "en");
                   }
                   pendingHangups.add(cid);
                 } else if (cs) {
@@ -5735,10 +5901,10 @@ for (let attempt = 1; ; attempt++) {
                 // bug. Spanish now gets its own demo answer, exactly like English.
                 if (!cs?.isDemo) {
                   if (es) {
-                    await speakLines(cid, DEMO_ES.reschedule, "es");
+                    await speakMenu(cid, DEMO_ES.reschedule, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                    await speakLines(cid, DEMO_EN.reschedule, "en");
+                    await speakMenu(cid, DEMO_EN.reschedule, "en");
                   }
                   return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
                 }
@@ -5756,44 +5922,46 @@ for (let attempt = 1; ; attempt++) {
               else if (digit === "5") {
                 if (!cs?.isDemo) {
                   if (es) {
-                    await speakLines(cid, DEMO_ES.hours, "es");
+                    await speakMenu(cid, DEMO_ES.hours, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                    await speakLines(cid, DEMO_EN.hours, "en");
+                    await speakMenu(cid, DEMO_EN.hours, "en");
                   }
                 } else {
-                  await speakOnly(cid, es
+                  await speakMenuOnly(cid, es
                     ? "Déjeme verificar la disponibilidad. Tenemos citas disponibles de lunes a viernes de 9 AM a 5 PM. Visite nuestro sitio web para ver horarios específicos o presione 1 para agendar."
                     : "Let me check availability. We have appointments Monday through Friday 9 AM to 5 PM. Visit our website for specific times or press 1 to schedule.", lang);
                 }
               }
 
               else if (digit === "9") {
-                // Voicemail recording
+                // Voicemail: one prompt, one recording, one alert. A second 9 must not re-speak the
+                // prompt, re-arm a listener or email the owner again — and the owner is not told
+                // anything until a recording really exists (owner report 2026-11-21: four "Nuevo
+                // mensaje de voz" emails for a call that recorded nothing, one per 9 press).
+                if (cs && (cs.voicemail || voicemailRecording.has(cid))) {
+                  console.log(`[Voicemail] second 9 ignored on call ${cid.slice(-8)} — a message is already being taken`);
+                  return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+                }
                 if (cs) {
                   cs.answered = true;
                   cs.voicemail = true; // persisted as conversations.status = 'voicemail' at hangup
                   cs.phase = "menu";
                 }
                 await startVoicemailRecording(cid, lang);
-                if (cs?.orgId && cs?.callerNumber && cs?.toNumber) {
-                  // Announce once, here: the recording.saved handler would otherwise text again.
-                  cs.voicemailAlerted = true;
-                  notifyOwnerOfVoicemail(cs.orgId, cs.callerNumber, cs.toNumber, lang);
-                }
               }
 
               else {
                 if (!cs?.isDemo) {
                   // Options once, in the same wording the greeting used — in the caller's language.
                   if (es) {
-                    await speakLines(cid, DEMO_ES.notHeard, "es");
+                    await speakMenu(cid, DEMO_ES.notHeard, "es");
                   } else {
                     if (cs) cs.demoTurns = (cs.demoTurns || 0) + 1;
-                    await speakLines(cid, DEMO_EN.notHeard, "en");
+                    await speakMenu(cid, DEMO_EN.notHeard, "en");
                   }
                 } else {
-                  await speakOnly(cid, es
+                  await speakMenuOnly(cid, es
                     ? "Lo siento, no entendí. " + buildShortPrompt("es")
                     : "Sorry, I didn't get that. " + buildShortPrompt("en"), lang);
                 }
@@ -5803,6 +5971,7 @@ for (let attempt = 1; ; attempt++) {
             // ── Gather ended (timeout, no DTMF) ─────────────────────
             else if (ev === "call.gather.ended") {
               gatherActive.delete(cid);
+              promptGathers.delete(cid);
               // Callback call: silence repeats the menu ONCE, then the call closes politely. Never
               // leave the line open, never speak into a leg nobody is on.
               const cbGather = callbackStates.get(cid);
@@ -5904,6 +6073,8 @@ for (let attempt = 1; ; attempt++) {
 
             // ── Hangup ──────────────────────────────────────────────
             else if (ev === "call.hangup" || ev === "call.hungup") {
+              // First thing: nothing may be spoken or listened for on this leg again.
+              markCallEnded(cid);
               const cs = calls.get(cid);
               console.log(`Hangup: ${cid.slice(-8)}${cs ? ` from ${cs.callerNumber}` : ""}`);
 
@@ -6005,8 +6176,8 @@ for (let attempt = 1; ; attempt++) {
                 }
               }
 
-              // Stop any in-progress recording
-              stopVoicemailRecording(cid);
+              // Forget any in-progress recording (Telnyx stops the audio on hang-up itself).
+              forgetVoicemailRecording(cid);
 
               // Clean up callback state if it was a callback call
               if (callbackStates.has(cid)) {
