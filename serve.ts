@@ -3706,6 +3706,12 @@ type BalanceLevel = "warn" | "urgent" | "critical" | "empty";
 // Severity order. A crossing UP this ladder is the "calls stop soon / have
 // stopped" moment and always alerts once, even inside the cooldown.
 const BALANCE_LEVEL_RANK: Record<string, number> = { warn: 1, urgent: 2, critical: 3, empty: 4 };
+// Owner decision 2026-11-21: a balance message must mean "calls are about to stop",
+// not "you have hundreds of minutes left". He tops the account up himself and told us
+// the warn-at-$50 email is noise he does not want. So only CRITICAL (<$5) and EMPTY
+// (<=$0) email or text him; warn and urgent still colour the health panel but send
+// nothing. At ~$0.09 a call, $5 is still about fifty calls of warning.
+const TELNYX_BALANCE_ALERT_MIN_LEVEL: BalanceLevel = "critical";
 
 function balanceLevelFor(balance: number): BalanceLevel | null {
   if (balance <= TELNYX_BALANCE_EMPTY_AT_OR_BELOW) return "empty";
@@ -3969,6 +3975,12 @@ async function runBalanceCheck(trigger: string): Promise<TelnyxBalanceSnapshot> 
       telnyxBalanceLastAlert = null;
       await clearBalanceAlertState();
       console.log(`[BalanceWatch] Telnyx balance ${money} ${snap.currency} — ok`);
+      return snap;
+    }
+
+    // Below the owner's alert floor: visible on the panel, never a message.
+    if ((BALANCE_LEVEL_RANK[level] || 0) < (BALANCE_LEVEL_RANK[TELNYX_BALANCE_ALERT_MIN_LEVEL] || 0)) {
+      console.log(`[BalanceWatch] Telnyx balance ${money} ${snap.currency} — ${level}, below the alert floor (no message sent)`);
       return snap;
     }
 
