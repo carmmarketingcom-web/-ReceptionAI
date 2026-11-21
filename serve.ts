@@ -524,6 +524,7 @@ const DEMO_EN: Record<string, SpokenLine[]> = {
   ],
   voicemail: [
     "Thanks, I've got your message.",
+    "Just so you know, this is the demo line, so nothing was saved. On your own line, that message lands in your dashboard and in your inbox.",
     "That was a live example of how your own business will sound with ReceptionAI.",
     "Visit receptionai.store to have this answering your own calls.",
     "Goodbye!",
@@ -610,6 +611,7 @@ const DEMO_ES: Record<string, SpokenLine[]> = {
   ],
   voicemail: [
     "Gracias, recibí su mensaje.",
+    "Le aclaro algo: esta es la línea de demostración, así que no se guardó nada. En su propia línea, ese mensaje llega a su panel y a su correo.",
     "Esto fue un ejemplo real de cómo sonará su propio negocio con ReceptionAI.",
     "Visite receptionai.store para que esto conteste sus propias llamadas.",
     "¡Adiós!",
